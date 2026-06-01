@@ -5,8 +5,13 @@ data/raw/*.npz
 data/raw/*.csv
 data/raw/*.fits
 data/raw/*.vot
+outputs/**/*.png
+outputs/**/*.tif
+outputs/**/*.exr
+outputs/**/*.mp4
 outputs/*.png
 outputs/*.tif
 outputs/*.exr
+outputs/*.mp4
 tmp/
 .DS_Store

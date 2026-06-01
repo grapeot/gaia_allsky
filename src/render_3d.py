@@ -70,6 +70,38 @@ def project_equirect_eq(ra_deg, dec_deg, W, H):
     return px, py, inside
 
 
+def render_fisheye_lookdir(xyz_star, g_mag, bv, obs_pos, look_dir, S, fov_deg=170.0,
+                           m_ref=8.0, gain=1.0, bloom=True, bloom_strength=0.5,
+                           bloom_sigma=5.0):
+    """方位(鱼眼)投影: 从 obs_pos 朝 look_dir 看半边天 → (S,S,3) 圆盘画布。
+
+    用于"飞出去回望": 往银北极飞、look_dir 朝银南极(脚下), 整个数据球收缩成脚下发光的球。
+    那个球就是 Gaia 可见光视差能及的边界——银河真身在球外, 够不着。
+    """
+    ra, dec, vis_mag, d_new = reproject_from(xyz_star, g_mag, obs_pos, m_ref)
+    r, dc = np.radians(ra), np.radians(dec)
+    svec = np.stack([np.cos(dc) * np.cos(r), np.cos(dc) * np.sin(r), np.sin(dc)], -1)
+    ld = look_dir / np.linalg.norm(look_dir)
+    ang = np.degrees(np.arccos(np.clip(svec @ ld, -1, 1)))   # 与 look 方向夹角
+    sel = ang < fov_deg / 2
+    tmp = np.array([0, 0, 1.0]) if abs(ld[2]) < 0.9 else np.array([1.0, 0, 0])
+    e1 = np.cross(ld, tmp); e1 /= np.linalg.norm(e1)
+    e2 = np.cross(ld, e1)
+    u, v = svec @ e1, svec @ e2
+    rr = ang / (fov_deg / 2)
+    th = np.arctan2(v, u)
+    px = ((rr * np.cos(th) * 0.5 + 0.5) * S).astype(int)
+    py = ((rr * np.sin(th) * 0.5 + 0.5) * S).astype(int)
+    ins = sel & (px >= 0) & (px < S) & (py >= 0) & (py < S)
+    L = rs.mag_to_luminance(vis_mag, m_ref) * gain
+    cols = rs.bv_to_rgb(bv)
+    cv = np.zeros((S, S, 3), np.float32)
+    np.add.at(cv, (py[ins], px[ins]), L[ins, None] * cols[ins])
+    if bloom:
+        cv = add_bloom(cv, sigma=bloom_sigma, strength=bloom_strength)
+    return cv
+
+
 def add_bloom(canvas, threshold_pct=99.0, sigma=8.0, strength=0.6):
     """亮星 blooming: 阈值提取亮星 → 大核高斯光晕 → 叠加。运镜中亮星更扎眼。"""
     from scipy.ndimage import gaussian_filter
