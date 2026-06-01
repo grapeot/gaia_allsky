@@ -74,8 +74,20 @@ def render_starmap(lon_deg, lat_deg, mag, bv, W, H, projection="mollweide",
     return canvas
 
 
-def tonemap_sdr(canvas, percentile=99.7, gamma=2.2):
-    """SDR tone map: 按高百分位定标(银河核心不过曝太多), gamma 压到 8bit。"""
+def mollweide_mask(W, H):
+    """Mollweide 椭圆边界 mask: 椭圆内 True, 外 False(渲染外区填黑/透明)。"""
+    yy, xx = np.mgrid[0:H, 0:W]
+    nx = (xx + 0.5) / W * 2 - 1     # -1..1
+    ny = (yy + 0.5) / H * 2 - 1
+    return (nx ** 2 + ny ** 2) <= 1.0   # 单位椭圆(画幅2:1时为椭圆)
+
+
+def tonemap_sdr(canvas, percentile=99.7, gamma=2.2, mask=None):
+    """SDR tone map: 按高百分位定标(银河核心不过曝太多), gamma 压到 8bit。
+    mask: Mollweide 椭圆 mask(外区置黑)。"""
     Y = canvas.sum(-1)
     norm = np.percentile(Y[Y > 0], percentile) if (Y > 0).any() else 1.0
-    return (np.clip(canvas / max(norm, 1e-9), 0, 1) ** (1 / gamma) * 255).astype(np.uint8)
+    out = (np.clip(canvas / max(norm, 1e-9), 0, 1) ** (1 / gamma) * 255).astype(np.uint8)
+    if mask is not None:
+        out[~mask] = 0
+    return out
