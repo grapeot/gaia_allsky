@@ -91,3 +91,18 @@ def tonemap_sdr(canvas, percentile=99.7, gamma=2.2, mask=None):
     if mask is not None:
         out[~mask] = 0
     return out
+
+
+def tonemap_hdr16(canvas, percentile=99.97, mask=None):
+    """HDR: 保留全动态范围到 16bit 线性 TIFF。SDR 的 8bit+gamma 必须二选一
+    (银心过曝 或 暗星淹没); HDR 让银心高密累加亮度远超暗星而不 clip, 后期自由 grade。
+
+    定标: 用极高百分位(99.97)做白点, 银心仍可触顶但保留绝大部分层次。
+    线性存储(不做 gamma/PQ 编码), 后期软件按需 grade。返回 uint16 (H,W,3)。
+    """
+    Y = canvas.sum(-1)
+    norm = np.percentile(Y[Y > 0], percentile) if (Y > 0).any() else 1.0
+    out = (np.clip(canvas / max(norm, 1e-9), 0, 1) * 65535.0).astype(np.uint16)
+    if mask is not None:
+        out[~mask] = 0
+    return out
