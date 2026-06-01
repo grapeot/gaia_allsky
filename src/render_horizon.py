@@ -39,13 +39,12 @@ def skyglow_level(bortle, m_ref=8.0, scale=None):
 def gal_to_altaz(l_deg, b_deg, lat_deg, lst_hours):
     """银道(l,b) → 地平(az, alt), 给定观测者纬度与地方恒星时。
 
-    用 astropy 做精确变换。lst_hours: 地方恒星时(小时, 0-24), 决定天空朝向。
-    返回 (az_deg 0-360, alt_deg -90..+90)。
+    只依赖 LST(地方恒星时), 不绑定具体 obstime/UTC——故用 hour angle 直算 alt/az,
+    而非 astropy.AltAz 框架。这样 LST 可外部自由生成(支持随恒星时扫天的动画)。
+    lst_hours: 地方恒星时(小时), 超范围自动 wrap。返回 (az 0-360, alt -90..+90)。
     """
-    from astropy.coordinates import SkyCoord, AltAz, EarthLocation
-    from astropy.coordinates import Galactic
+    from astropy.coordinates import SkyCoord, Galactic
     import astropy.units as u
-    from astropy.time import Time
 
     gal = SkyCoord(l=l_deg * u.deg, b=b_deg * u.deg, frame=Galactic)
     eq = gal.icrs  # 赤道 RA/Dec
@@ -88,10 +87,5 @@ def render_horizon_map(l, b, mag, bv, lat_deg, lst_hours, W, H,
     L = rs.mag_to_luminance(mag, m_ref) * gain
     cols = rs.bv_to_rgb(bv)
     px, py, inside = project_horizon_equirect(az, alt, W, H)
-    canvas = np.zeros((H, W, 3), np.float32)
-    np.add.at(canvas, (py[inside], px[inside]), L[inside, None] * cols[inside])
-    if psf_px > 0:
-        from scipy.ndimage import gaussian_filter
-        for c in range(3):
-            canvas[..., c] = gaussian_filter(canvas[..., c], psf_px)
+    canvas = rs.accumulate_stars(H, W, px, py, inside, L, cols, psf_px)
     return canvas, az, alt

@@ -28,14 +28,13 @@ def _ease(t):
 
 
 def _expose(cv, gamma, pct):
-    Y = cv.sum(-1)
-    norm = np.percentile(Y[Y > 0], pct) if (Y > 0).any() else 1.0
-    return np.clip(cv / max(norm, 1e-9), 0, 1) ** (1 / gamma)
+    """每帧曝光补偿: 独立归一(相机自动曝光, 抵消飞行平方反比变暗) → [0,1] 浮点。"""
+    return rs.normalize_brightness(cv, pct, "gamma", gamma)
 
 
 def render_video(data_path, W=2048, H=1024, n1=300, n2=300,
                  leg1_pc=400.0, leg2_pc=2500.0, gamma=2.2, pct=99.7,
-                 bloom_strength=0.5, save_hdr=True, outdir=None, fps_note=60):
+                 bloom_strength=0.5, save_hdr=True, outdir=None, fps=60):
     """渲 L 飞行视频。n1/n2: 两段帧数。第一段 equirect(WxH), 第二段 fisheye(HxH 方形居中补黑到 WxH)。"""
     from PIL import Image
     import tifffile

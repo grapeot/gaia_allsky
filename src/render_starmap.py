@@ -54,6 +54,20 @@ def project_mollweide(lon_deg, lat_deg, W, H):
     return px, py, inside
 
 
+def accumulate_stars(H, W, px, py, inside, luminance, rgb, psf_px=0.0):
+    """星点累加到 (H,W,3) 线性画布。px/py 整型像素坐标, inside 有效标志。
+
+    各 render 模块共用的散点累加(消除 np.add.at 多处重复)。psf_px>0 加高斯 PSF 光晕。
+    """
+    canvas = np.zeros((H, W, 3), np.float32)
+    np.add.at(canvas, (py[inside], px[inside]), luminance[inside, None] * rgb[inside])
+    if psf_px > 0:
+        from scipy.ndimage import gaussian_filter
+        for c in range(3):
+            canvas[..., c] = gaussian_filter(canvas[..., c], psf_px)
+    return canvas
+
+
 def render_starmap(lon_deg, lat_deg, mag, bv, W, H, projection="mollweide",
                    m_ref=0.0, psf_px=0.0, gain=1.0):
     """渲染全天星图 → (H,W,3) 线性画布。
@@ -65,13 +79,7 @@ def render_starmap(lon_deg, lat_deg, mag, bv, W, H, projection="mollweide",
     cols = bv_to_rgb(bv)
     proj = project_mollweide if projection == "mollweide" else project_equirectangular
     px, py, inside = proj(lon_deg, lat_deg, W, H)
-    canvas = np.zeros((H, W, 3), np.float32)
-    np.add.at(canvas, (py[inside], px[inside]), L[inside, None] * cols[inside])
-    if psf_px > 0:
-        from scipy.ndimage import gaussian_filter
-        for c in range(3):
-            canvas[..., c] = gaussian_filter(canvas[..., c], psf_px)
-    return canvas
+    return accumulate_stars(H, W, px, py, inside, L, cols, psf_px)
 
 
 def mollweide_mask(W, H):
@@ -82,27 +90,44 @@ def mollweide_mask(W, H):
     return (nx ** 2 + ny ** 2) <= 1.0   # 单位椭圆(画幅2:1时为椭圆)
 
 
-def tonemap_sdr(canvas, percentile=99.7, gamma=2.2, mask=None):
-    """SDR tone map: 按高百分位定标(银河核心不过曝太多), gamma 压到 8bit。
-    mask: Mollweide 椭圆 mask(外区置黑)。"""
+def normalize_brightness(canvas, percentile=99.7, curve="gamma", gamma=2.2,
+                         log_gain=200.0):
+    """曝光归一化 + 非线性编码 → [0,1] 浮点(各 tonemap/视频共用)。
+
+    canvas: (H,W,3) 线性亮度。按 percentile 定白点归一, 再按 curve 编码:
+    - "linear": 不编码(纯线性, 暗部信息被挤压, 仅用于需要原始线性的场合)
+    - "gamma":  幂律 v^(1/gamma)(SDR 常用, 温和抬暗部)
+    - "log":    log1p(gain·v)/log1p(gain)(数字底片式, 暗部大幅展开、亮部 rolloff,
+                17 stops 动态范围在 16bit 里信息密度均匀, 最适合后期 PS 的"底片")
+    """
     Y = canvas.sum(-1)
     norm = np.percentile(Y[Y > 0], percentile) if (Y > 0).any() else 1.0
-    out = (np.clip(canvas / max(norm, 1e-9), 0, 1) ** (1 / gamma) * 255).astype(np.uint8)
+    v = np.clip(canvas / max(norm, 1e-9), 0, 1)
+    if curve == "linear":
+        return v
+    if curve == "log":
+        return np.log1p(log_gain * v) / np.log1p(log_gain)
+    return v ** (1 / gamma)   # gamma
+
+
+def tonemap_sdr(canvas, percentile=99.7, gamma=2.2, mask=None):
+    """SDR tone map: 高百分位定标 + gamma → 8bit。mask: Mollweide 椭圆(外区置黑)。"""
+    out = (normalize_brightness(canvas, percentile, "gamma", gamma) * 255).astype(np.uint8)
     if mask is not None:
         out[~mask] = 0
     return out
 
 
-def tonemap_hdr16(canvas, percentile=99.97, mask=None):
-    """HDR: 保留全动态范围到 16bit 线性 TIFF。SDR 的 8bit+gamma 必须二选一
-    (银心过曝 或 暗星淹没); HDR 让银心高密累加亮度远超暗星而不 clip, 后期自由 grade。
+def tonemap_hdr16(canvas, percentile=99.97, curve="log", log_gain=200.0,
+                  gamma=2.2, mask=None):
+    """HDR → 16bit TIFF。curve 决定编码:
 
-    定标: 用极高百分位(99.97)做白点, 银心仍可触顶但保留绝大部分层次。
-    线性存储(不做 gamma/PQ 编码), 后期软件按需 grade。返回 uint16 (H,W,3)。
+    纯 linear 在 16bit 里把暗部(恒星主体)信息挤进很窄区间, 后期一拉就断层。
+    默认 "log"(数字底片式): 暗部展开、亮部 rolloff, 17 stops 信息密度均匀,
+    保留足够原始信息供后期 PS/grade。也可选 "gamma"/"linear"。返回 uint16 (H,W,3)。
     """
-    Y = canvas.sum(-1)
-    norm = np.percentile(Y[Y > 0], percentile) if (Y > 0).any() else 1.0
-    out = (np.clip(canvas / max(norm, 1e-9), 0, 1) * 65535.0).astype(np.uint16)
+    out = (normalize_brightness(canvas, percentile, curve, gamma, log_gain)
+           * 65535.0).astype(np.uint16)
     if mask is not None:
         out[~mask] = 0
     return out

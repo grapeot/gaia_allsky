@@ -70,6 +70,19 @@ def project_equirect_eq(ra_deg, dec_deg, W, H):
     return px, py, inside
 
 
+def add_bloom(canvas, threshold_pct=99.0, sigma=8.0, strength=0.6):
+    """亮星 blooming: 阈值提取亮星(超 threshold_pct 百分位的像素) → 大核高斯光晕 → 叠加。
+    运镜中亮星更扎眼、锁得住。strength: 光晕叠加系数; sigma: 高斯核(像素)。"""
+    from scipy.ndimage import gaussian_filter
+    Y = canvas.sum(-1)
+    thr = np.percentile(Y[Y > 0], threshold_pct) if (Y > 0).any() else 1.0
+    bright = np.where(Y[..., None] > thr, canvas, 0.0)
+    halo = np.zeros_like(canvas)
+    for c in range(3):
+        halo[..., c] = gaussian_filter(bright[..., c], sigma)
+    return canvas + halo * strength
+
+
 def render_fisheye_lookdir(xyz_star, g_mag, bv, obs_pos, look_dir, S, fov_deg=170.0,
                            m_ref=8.0, gain=1.0, bloom=True, bloom_strength=0.5,
                            bloom_sigma=5.0):
@@ -88,30 +101,17 @@ def render_fisheye_lookdir(xyz_star, g_mag, bv, obs_pos, look_dir, S, fov_deg=17
     e1 = np.cross(ld, tmp); e1 /= np.linalg.norm(e1)
     e2 = np.cross(ld, e1)
     u, v = svec @ e1, svec @ e2
-    rr = ang / (fov_deg / 2)
-    th = np.arctan2(v, u)
+    rr = ang / (fov_deg / 2)            # 归一化半径 0(中心)..1(边缘)
+    th = np.arctan2(v, u)              # 盘内方位角(e1/e2 基; 旋转方向不影响"收缩成球"语义)
     px = ((rr * np.cos(th) * 0.5 + 0.5) * S).astype(int)
     py = ((rr * np.sin(th) * 0.5 + 0.5) * S).astype(int)
     ins = sel & (px >= 0) & (px < S) & (py >= 0) & (py < S)
     L = rs.mag_to_luminance(vis_mag, m_ref) * gain
     cols = rs.bv_to_rgb(bv)
-    cv = np.zeros((S, S, 3), np.float32)
-    np.add.at(cv, (py[ins], px[ins]), L[ins, None] * cols[ins])
+    cv = rs.accumulate_stars(S, S, px, py, ins, L, cols)
     if bloom:
         cv = add_bloom(cv, sigma=bloom_sigma, strength=bloom_strength)
     return cv
-
-
-def add_bloom(canvas, threshold_pct=99.0, sigma=8.0, strength=0.6):
-    """亮星 blooming: 阈值提取亮星 → 大核高斯光晕 → 叠加。运镜中亮星更扎眼。"""
-    from scipy.ndimage import gaussian_filter
-    Y = canvas.sum(-1)
-    thr = np.percentile(Y[Y > 0], threshold_pct) if (Y > 0).any() else 1.0
-    bright = np.where(Y[..., None] > thr, canvas, 0.0)
-    halo = np.zeros_like(canvas)
-    for c in range(3):
-        halo[..., c] = gaussian_filter(bright[..., c], sigma)
-    return canvas + halo * strength
 
 
 def render_3d_frame(xyz_star, g_mag, bv, obs_pos, W, H, m_ref=8.0,
@@ -121,12 +121,7 @@ def render_3d_frame(xyz_star, g_mag, bv, obs_pos, W, H, m_ref=8.0,
     L = rs.mag_to_luminance(vis_mag, m_ref) * gain
     cols = rs.bv_to_rgb(bv)
     px, py, inside = project_equirect_eq(ra, dec, W, H)
-    canvas = np.zeros((H, W, 3), np.float32)
-    np.add.at(canvas, (py[inside], px[inside]), L[inside, None] * cols[inside])
-    if psf_px > 0:
-        from scipy.ndimage import gaussian_filter
-        for c in range(3):
-            canvas[..., c] = gaussian_filter(canvas[..., c], psf_px)
+    canvas = rs.accumulate_stars(H, W, px, py, inside, L, cols, psf_px)
     if bloom:
         canvas = add_bloom(canvas, sigma=bloom_sigma, strength=bloom_strength)
     return canvas
