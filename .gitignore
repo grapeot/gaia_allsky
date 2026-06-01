@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+data/raw/*.npz
+data/raw/*.csv
+data/raw/*.fits
+data/raw/*.vot
+outputs/*.png
+outputs/*.tif
+outputs/*.exr
+tmp/
+.DS_Store
