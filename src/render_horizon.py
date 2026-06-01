@@ -13,6 +13,29 @@ import numpy as np
 import render_starmap as rs
 
 
+# Bortle 1-9 天空面亮度中值 (mag/arcsec², 来自 Sky&Telescope/Wikipedia 标准表)
+# 数值越小=天空越亮=光污染越重。调研来源见 docs/。
+BORTLE_MU = {1: 22.0, 2: 21.9, 3: 21.8, 4: 21.1, 5: 20.0,
+             6: 19.2, 7: 18.6, 8: 18.0, 9: 17.5}
+
+
+# skyglow 经验标定: 面亮度 μ(每角秒²) 与本渲染像素尺度差多个量级, 故标定一个
+# scale 把物理梯度(μ 相对关系)映到视觉量级。标定锚点: Bortle5(μ=20, 郊区)的辉光
+# ≈ 银河带典型线性亮度(0.9), 其余等级按 μ 自动拉开(每差1等差 10^0.4≈2.5 倍)。
+SKYGLOW_SCALE = 56786.2
+
+
+def skyglow_level(bortle, m_ref=8.0, scale=None):
+    """Bortle 等级 → additive 天空辉光线性亮度(叠加到星空线性画布的均匀基底)。
+
+    物理: 辉光是加性背景。面亮度 μ(mag/arcsec²) → 线性 L ∝ 10^(−0.4μ)。
+    μ 相对关系(梯度)是物理的; 绝对值经 SKYGLOW_SCALE 标定到视觉量级。
+    """
+    mu = BORTLE_MU[int(round(bortle))]
+    base = rs.mag_to_luminance(mu, m_ref)
+    return base * (scale if scale is not None else SKYGLOW_SCALE)
+
+
 def gal_to_altaz(l_deg, b_deg, lat_deg, lst_hours):
     """银道(l,b) → 地平(az, alt), 给定观测者纬度与地方恒星时。
 
