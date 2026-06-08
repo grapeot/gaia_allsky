@@ -198,6 +198,12 @@ def shared_l_look_dirs(frames, start_dir, end_dir, phase):
     return motion.look_path(frames, start_dir, end_dir, phase)
 
 
+def shared_l_look_at_dirs(positions, start_dir, target_point, phase):
+    """Look from start_dir toward a fixed target point, using phase for smooth transition."""
+    target_dirs = np.array([motion.normalize(target_point - pos) for pos in positions])
+    return np.array([motion.slerp(start_dir, target_dirs[i], phase[i]) for i in range(len(positions))])
+
+
 def write_frame(index, frame, outdir, save_hdr):
     from PIL import Image
 

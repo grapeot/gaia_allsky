@@ -183,7 +183,7 @@ def test_vr_cli_duration_sets_frame_count():
 
 
 def test_big_dipper_cli_default_path_dipper_then_above_gc():
-    """前向版本默认先朝北斗跑，再斜向银心上方；相机从北斗转银心。"""
+    """前向版本默认先朝北斗跑，再斜向银心上方；相机转为看向银盘目标点。"""
     args = bdv.build_parser().parse_args(["--frames", "7"])
     cfg = bdv.config_from_args(args)
     assert cfg["positions"].shape == (7, 3)
@@ -191,11 +191,14 @@ def test_big_dipper_cli_default_path_dipper_then_above_gc():
     assert np.isclose(np.linalg.norm(cfg["look_dirs"][0]), 1.0)
     assert np.isclose(np.linalg.norm(cfg["look_dirs"][-1]), 1.0)
     assert np.dot(cfg["look_dirs"][0], vc.big_dipper_direction()) > 0.99
-    assert np.dot(cfg["look_dirs"][-1], r3.flight_direction("galactic_plane")) > 0.99
     first_leg_dir = cfg["positions"][3] / np.linalg.norm(cfg["positions"][3])
     assert np.dot(first_leg_dir, vc.big_dipper_direction()) > 0.99
     target = r3.flight_direction("galactic_plane") * args.target_gc_pc + r3.flight_direction("galactic_pole") * args.leg2_pc
     assert np.linalg.norm(cfg["positions"][-1] - target) < 1e-6
+    look_target = r3.flight_direction("galactic_plane") * args.target_gc_pc
+    expected_final_look = look_target - cfg["positions"][-1]
+    expected_final_look = expected_final_look / np.linalg.norm(expected_final_look)
+    assert np.dot(cfg["look_dirs"][-1], expected_final_look) > 0.99
     assert cfg["dipper_overlay"]
 
 

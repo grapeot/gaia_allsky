@@ -191,3 +191,22 @@ This keeps the first leg short enough for the Big Dipper shape study while still
 Verification:
 
 - `python -m pytest tests/ -q` -> 29 passed.
+
+## 2026-06-08: Fix Final Camera to Look At the Disk Target
+
+The sparse final Big Dipper forward view came from a camera semantics bug. The code used a fixed “galactic center direction” vector as the final look direction. From a point above the disk, that means looking roughly parallel to the disk from an elevated position, not looking at the disk/galaxy target below.
+
+Diagnostic star counts in the final 60-degree FOV:
+
+- fixed galactic-center direction: about 1,212 Gaia stars
+- look-at disk target (`galactic_center_direction * target_gc_pc`): about 1,088,974 Gaia stars
+
+Updated default camera behavior:
+
+- first leg: look toward Big Dipper center
+- second leg: smoothly transition to looking at the fixed disk target point
+- `--end-look-dir` remains available as an explicit override for fixed direction experiments
+
+Verification:
+
+- `python -m pytest tests/ -q` -> 29 passed.

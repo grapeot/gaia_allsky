@@ -13,6 +13,7 @@ from video_common import (
     render_forward_frame,
     render_frames_parallel,
     resolve_frame_count,
+    shared_l_look_at_dirs,
     shared_l_look_dirs,
     shared_l_positions,
 )
@@ -63,13 +64,18 @@ def config_from_args(args):
         leg2_target=second_leg_target,
     )
     start_dir = parse_triplet(args.start_look_dir) if args.start_look_dir else big_dipper_direction()
-    end_dir = parse_triplet(args.end_look_dir) if args.end_look_dir else galactic_center_direction()
+    end_dir = parse_triplet(args.end_look_dir) if args.end_look_dir else None
+    look_dirs = (
+        shared_l_look_dirs(frames, start_dir, end_dir, phase)
+        if end_dir is not None
+        else shared_l_look_at_dirs(positions, start_dir, galactic_center_direction() * args.target_gc_pc, phase)
+    )
     return {
         "width": args.width,
         "height": args.height,
         "frames": frames,
         "positions": positions,
-        "look_dirs": shared_l_look_dirs(args.frames, start_dir, end_dir, phase),
+        "look_dirs": look_dirs,
         "projection": args.projection,
         "fov_deg": args.fov_deg,
         "gamma": args.gamma,
