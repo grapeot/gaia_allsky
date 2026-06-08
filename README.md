@@ -109,6 +109,7 @@ python src/render_big_dipper_video.py \
 ```
 
 高分辨率 VR 可直接把 VR 版本调到 2:1，例如 `--width 8192 --height 4096`。前向版本默认 `--projection perspective` 且开启北斗连线；需要旧的圆形鱼眼画面时可显式设 `--projection fisheye`，需要关闭连线时用 `--no-dipper-overlay`。`--start-look-dir x,y,z` 和 `--end-look-dir x,y,z` 可覆盖相机视线插值端点。
+前向版本默认 `--fov-deg 90`，比早期 60° 预览宽 50%；第二段开始后相机默认用 `--look-transition-sec 2` 在 2 秒内完成转向，然后继续一边移动一边看着银盘目标点。
 
 ## 不做
 

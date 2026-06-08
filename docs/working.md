@@ -210,3 +210,20 @@ Updated default camera behavior:
 Verification:
 
 - `python -m pytest tests/ -q` -> 29 passed.
+
+## 2026-06-08: Faster Camera Turn and Wider Forward FOV
+
+The second leg looked better when the camera turn completed early, then held on the disk target while the observer kept moving. The forward CLI now separates camera turn timing from position interpolation:
+
+- `--look-transition-sec 2.0` by default: after the second leg starts, the camera finishes turning in 2 seconds of video time.
+- Position motion still eases over the full second leg.
+- Look phase is computed from frame time, not from position easing phase.
+
+The forward perspective FOV was widened by 50%:
+
+- old default: `--fov-deg 60`
+- new default: `--fov-deg 90`
+
+Verification:
+
+- `python -m pytest tests/ -q` -> 30 passed.

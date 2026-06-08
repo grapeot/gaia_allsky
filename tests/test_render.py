@@ -209,6 +209,19 @@ def test_big_dipper_default_leg1_matches_frame_68_preview_distance():
     assert args.target_gc_pc == 400.0
 
 
+def test_big_dipper_default_fov_and_fast_look_transition():
+    """前向默认视角更广，第二段相机转向在 2 秒内完成。"""
+    args = bdv.build_parser().parse_args(["--duration", "10", "--fps", "60"])
+    assert args.fov_deg == 90.0
+    assert args.look_transition_sec == 2.0
+    cfg = bdv.config_from_args(args)
+    target = r3.flight_direction("galactic_plane") * args.target_gc_pc
+    frame_after_transition = int(args.fps * (5 + args.look_transition_sec))
+    expected = target - cfg["positions"][frame_after_transition]
+    expected = expected / np.linalg.norm(expected)
+    assert np.dot(cfg["look_dirs"][frame_after_transition], expected) > 0.99
+
+
 def test_vr_cli_uses_same_default_position_path():
     """VR 和前向版默认共享同一条位置轨迹。"""
     vr_args = rvv.build_parser().parse_args(["--frames", "9"])

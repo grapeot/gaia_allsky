@@ -1,6 +1,8 @@
-"""Render a forward fisheye flight looking toward the Big Dipper."""
+"""Render a forward flight looking toward the Big Dipper, then the galactic disk."""
 import argparse
 import os
+
+import numpy as np
 
 from video_common import (
     DATA_DEFAULT,
@@ -36,7 +38,9 @@ def build_parser():
     p.add_argument("--split", type=float, default=0.5)
     p.add_argument("--workers", type=int, default=os.cpu_count() or 1)
     p.add_argument("--projection", choices=["perspective", "fisheye"], default="perspective")
-    p.add_argument("--fov-deg", type=float, default=60.0)
+    p.add_argument("--fov-deg", type=float, default=90.0)
+    p.add_argument("--look-transition-sec", type=float, default=2.0,
+                   help="Seconds after the second leg starts for the camera to finish turning toward its target.")
     p.add_argument("--start-look-dir", help="Override initial look direction as x,y,z in equatorial Cartesian coordinates.")
     p.add_argument("--end-look-dir", help="Override final look direction as x,y,z in equatorial Cartesian coordinates.")
     p.add_argument("--gamma", type=float, default=2.2)
@@ -65,10 +69,11 @@ def config_from_args(args):
     )
     start_dir = parse_triplet(args.start_look_dir) if args.start_look_dir else big_dipper_direction()
     end_dir = parse_triplet(args.end_look_dir) if args.end_look_dir else None
+    look_phase = accelerated_look_phase(phase, frames, args.fps, args.split, args.look_transition_sec)
     look_dirs = (
-        shared_l_look_dirs(frames, start_dir, end_dir, phase)
+        shared_l_look_dirs(frames, start_dir, end_dir, look_phase)
         if end_dir is not None
-        else shared_l_look_at_dirs(positions, start_dir, galactic_center_direction() * args.target_gc_pc, phase)
+        else shared_l_look_at_dirs(positions, start_dir, galactic_center_direction() * args.target_gc_pc, look_phase)
     )
     return {
         "width": args.width,
@@ -85,6 +90,23 @@ def config_from_args(args):
         "dipper_overlay": not args.no_dipper_overlay,
         "overlay_width": args.overlay_width,
     }
+
+
+def accelerated_look_phase(phase, frames, fps, split, transition_sec):
+    split_index = max(1, min(frames - 1, int(round(frames * split)))) if frames > 1 else 1
+    if transition_sec <= 0:
+        out = np.zeros_like(phase)
+        out[split_index:] = 1.0
+        out[-1] = 1.0
+        return out
+    transition_frames = max(1.0, transition_sec * max(fps, 1))
+    out = np.zeros_like(phase)
+    idx = np.arange(len(phase))
+    t = np.clip((idx - split_index) / transition_frames, 0.0, 1.0)
+    out = 0.5 - 0.5 * np.cos(np.pi * t)
+    out[:split_index] = 0.0
+    out[-1] = 1.0
+    return out
 
 
 def main(argv=None):
