@@ -283,3 +283,32 @@ Verification:
 
 - `python -m pytest tests/ -q` -> 37 passed.
 - `outputs/knob_bortle_eye_grid.png` regenerated with the horizon-bottom projection.
+
+## 2026-06-08: Sky-Limited SNR Mode
+
+The adapted visual grid can be misleading if interpreted as “long exposure can overcome light pollution.” It models eye/camera adaptation for display, not detection SNR. A brighter sky contributes Poisson shot noise. Source signal grows linearly with exposure, but noise grows as the square root of source plus sky background:
+
+```text
+SNR = source * exposure / sqrt(source * exposure + sky * exposure + read_noise^2)
+```
+
+This means longer exposure helps, but bright sky still imposes a penalty. Under the same total exposure, Bortle 6 remains worse than Bortle 1; recovering the same SNR requires disproportionately more exposure and may still run into dynamic range, gradients, and processing limits.
+
+Added `--mode snr` to `render_bortle_eye_grid.py`.
+
+Command used:
+
+```bash
+python src/render_bortle_eye_grid.py \
+  --bortles 1,6 \
+  --nelms 1,10,100 \
+  --mode snr \
+  --normalization percentile \
+  --output outputs/knob_bortle_exposure_snr_grid.png
+```
+
+Here the column values are exposure multipliers, not NELM values. The output is `outputs/knob_bortle_exposure_snr_grid.png`.
+
+Verification:
+
+- `python -m pytest tests/ -q` -> 39 passed.

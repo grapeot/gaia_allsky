@@ -180,6 +180,24 @@ def test_sky_adapted_highlight_compression_limits_clipping():
     assert saturated < 0.01
 
 
+def test_sky_limited_snr_penalizes_bright_sky():
+    """同样曝光和星光下，亮天空背景显著降低 SNR。"""
+    star = 1.0
+    dark_sky = 0.1
+    bright_sky = 10.0
+    assert beg.sky_limited_snr(star, bright_sky, 1.0) < beg.sky_limited_snr(star, dark_sky, 1.0)
+
+
+def test_long_exposure_improves_but_does_not_cancel_sky_background():
+    """长曝光能提高 SNR，但同等曝光下光污染区仍更差。"""
+    star = 1.0
+    dark_1x = beg.sky_limited_snr(star, 0.1, 1.0)
+    bright_100x = beg.sky_limited_snr(star, 10.0, 100.0)
+    bright_1x = beg.sky_limited_snr(star, 10.0, 1.0)
+    assert bright_100x > bright_1x
+    assert bright_1x < dark_1x
+
+
 # ---------- 地平坐标变换 ----------
 
 def test_galactic_center_culmination_altitude():
