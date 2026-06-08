@@ -265,12 +265,12 @@ Verification:
 
 ## 2026-06-08: Horizon-Bottom View and Highlight Compression
 
-The wide-angle perspective view still felt clipped because the horizon was not a stable visual baseline. The default projection for `render_bortle_eye_grid.py` is now `horizon_window`:
+The wide-angle perspective view still felt clipped because the horizon was not a stable visual baseline. The default projection for `render_bortle_eye_grid.py` is now `horizon_window`, implemented as a rectilinear camera rather than a linear az/alt unwrap:
 
-- x-axis: azimuth window centered on the galactic-center azimuth
-- y-axis: altitude from 0 degrees at the bottom edge to `--max-alt-deg` at the top
-- default azimuth window: `--az-width-deg 120`
-- default max altitude: `--max-alt-deg 70`
+- camera azimuth: centered on the galactic-center azimuth
+- bottom-center ray: horizon
+- vertical FOV: `--max-alt-deg`
+- horizontal FOV: `--az-width-deg`
 
 This makes the bottom edge a horizontal horizon line and the image read as “standing in Guangzhou, looking upward,” not as a VR all-sky unwrap.
 
@@ -291,10 +291,23 @@ The Bortle comparison grid is intended for a vertical “standing under the sky�
 
 - panel size: `540 x 960`
 - full 3-column x 2-row grid: `1620 x 1920`
-- azimuth window: `140°`
-- altitude window: horizon at the bottom edge up to `90°` at the top
+- panel size: `540 x 960`
+- full 3-column x 2-row grid: `1620 x 1920`
+- horizontal FOV: `90°`
+- vertical FOV: `75°`
 
 `outputs/knob_bortle_eye_grid.png` is the primary visual/subjective comparison. The SNR mode remains a debug/sanity-check path in the CLI, but `outputs/knob_bortle_exposure_snr_grid.png` is no longer a formal output.
+
+## 2026-06-08: Rectilinear Horizon Camera
+
+The focused Bortle scale view had the right normalization and framing, but the “horizon window” projection was still a linear azimuth/altitude map. That is not what a camera or eye sees. The renderer now uses a rectilinear perspective camera for `horizon_window`:
+
+- horizontal FOV defaults to `90°`
+- vertical FOV defaults to `75°`
+- the bottom-center ray is the horizon
+- the camera is centered on the galactic-center azimuth
+
+The QA overlay `outputs/knob_bortle_scale_grid_qa_overlay.png` was regenerated with the same perspective projection, showing the galactic plane curve and galactic center position on the Bortle scale grid.
 
 ## 2026-06-08: Sky-Limited SNR Mode
 

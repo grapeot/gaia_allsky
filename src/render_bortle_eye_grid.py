@@ -63,8 +63,14 @@ def normalize_sky_adapted(canvas, target_sky=0.12, gamma=2.2, white_pct=99.5):
     median_sky = float(np.median(y))
     scale = target_sky / max(median_sky, 1e-9)
     adapted = canvas * scale
-    white = float(np.percentile(adapted.sum(axis=-1), white_pct))
-    adapted = adapted / max(white, 1e-9)
+    # Keep the adapted sky median fixed. Only compress highlights above a high
+    # percentile; do not renormalize the whole image by the white point.
+    y = adapted.sum(axis=-1)
+    white = max(float(np.percentile(y, white_pct)), target_sky * 3.0, 1e-9)
+    over = y > white
+    if np.any(over):
+        adapted = adapted.copy()
+        adapted[over] *= (white / np.maximum(y[over], 1e-9))[:, None]
     return np.clip(adapted, 0, 1) ** (1 / gamma)
 
 
@@ -128,6 +134,35 @@ def project_horizon_window(az, alt, center_az, width, height, az_width_deg, max_
     return px, py, inside
 
 
+def project_horizon_camera(az, alt, center_az, width, height, h_fov_deg, v_fov_deg):
+    """Rectilinear camera with the horizon crossing the bottom-center pixel."""
+    look_alt = v_fov_deg / 2.0
+    svec = altaz_to_local_vec(az, alt)
+    forward = altaz_to_local_vec(np.array([center_az]), np.array([look_alt]))[0]
+    up_hint = np.array([0.0, 0.0, 1.0])
+    right = np.cross(forward, up_hint)
+    right /= np.linalg.norm(right)
+    up = np.cross(right, forward)
+    z = svec @ forward
+    x = svec @ right
+    y = svec @ up
+    nx = x / np.maximum(z, 1e-9) / np.tan(np.radians(h_fov_deg) / 2.0)
+    ny = y / np.maximum(z, 1e-9) / np.tan(np.radians(v_fov_deg) / 2.0)
+    px = np.clip(((nx * 0.5 + 0.5) * width).astype(int), 0, width - 1)
+    py = np.clip(((0.5 - ny * 0.5) * height).astype(int), 0, height - 1)
+    inside = (
+        (alt >= 0)
+        & (z > 0)
+        & (np.abs(nx) <= 1)
+        & (np.abs(ny) <= 1)
+        & (px >= 0)
+        & (px < width)
+        & (py >= 0)
+        & (py < height)
+    )
+    return px, py, inside
+
+
 def render_window_panel(l, b, g, bv, bortle, value, width, height, lat_deg, lst_hours,
                         center_az, az_width_deg, max_alt_deg, pct, gamma, normalization,
                         target_sky, white_pct, mode):
@@ -135,7 +170,7 @@ def render_window_panel(l, b, g, bv, bortle, value, width, height, lat_deg, lst_
     gain = gain_for_mag_delta(value) if mode != "snr" else float(value)
     L = rs.mag_to_luminance(g, 8.0)
     cols = rs.bv_to_rgb(bv)
-    px, py, inside = project_horizon_window(az, alt, center_az, width, height, az_width_deg, max_alt_deg)
+    px, py, inside = project_horizon_camera(az, alt, center_az, width, height, az_width_deg, max_alt_deg)
     if mode == "snr":
         sky = rh.skyglow_level(bortle)
         L = sky_limited_snr(L, sky, gain)
@@ -280,8 +315,8 @@ def build_parser():
     p.add_argument("--look-az", type=float)
     p.add_argument("--look-alt", type=float)
     p.add_argument("--fov-deg", type=float, default=110.0)
-    p.add_argument("--az-width-deg", type=float, default=140.0)
-    p.add_argument("--max-alt-deg", type=float, default=90.0)
+    p.add_argument("--az-width-deg", type=float, default=90.0, help="Horizontal FOV for horizon_window camera.")
+    p.add_argument("--max-alt-deg", type=float, default=75.0, help="Vertical FOV; bottom-center is horizon.")
     p.add_argument("--normalization", choices=["sky_median", "percentile"], default="sky_median")
     p.add_argument("--target-sky", type=float, default=0.12,
                    help="Median sky RGB-channel level after adaptation normalization.")

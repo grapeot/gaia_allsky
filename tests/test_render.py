@@ -130,8 +130,8 @@ def test_bortle_grid_separates_eye_delta_and_exposure_defaults():
     assert args.exposures == "1,10,100"
     assert args.panel_width == 540
     assert args.panel_height == 960
-    assert args.az_width_deg == 140.0
-    assert args.max_alt_deg == 90.0
+    assert args.az_width_deg == 90.0
+    assert args.max_alt_deg == 75.0
     assert args.lat_deg == 23.13
     assert beg.column_label("adapted", 2).startswith("cost +2mag")
     assert "NELM~" in beg.column_label("adapted", 2, 1)
@@ -160,22 +160,23 @@ def test_perspective_altaz_projection_centers_look_direction():
     assert abs(py[0] - 270) <= 1
 
 
-def test_horizon_window_places_horizon_on_bottom_edge():
-    """人眼窗口投影把地平线放在图像下缘，高度越高 y 越小。"""
-    px, py, inside = beg.project_horizon_window(
-        np.array([180.0, 180.0]), np.array([0.0, 70.0]), 180.0, 960, 540, 120.0, 70.0
+def test_horizon_camera_places_horizon_on_bottom_edge():
+    """地平线相机透视投影把中心地平线放在图像下缘。"""
+    px, py, inside = beg.project_horizon_camera(
+        np.array([180.0, 180.0]), np.array([0.0, 37.5]), 180.0, 540, 960, 90.0, 75.0
     )
     assert inside.all()
-    assert py[0] == 540 or py[0] == 539
-    assert py[1] == 0
+    assert py[0] >= 958
+    assert abs(px[1] - 270) <= 1
+    assert abs(py[1] - 480) <= 1
 
 
 def test_sky_adapted_normalization_equalizes_background():
     """Median sky adaptation 让不同背景光污染映射到相近背景亮度。"""
     c1 = np.full((20, 20, 3), 0.01, np.float32)
     c2 = np.full((20, 20, 3), 1.0, np.float32)
-    n1 = beg.normalize_sky_adapted(c1, target_sky=0.12, gamma=2.2, white_pct=100.0)
-    n2 = beg.normalize_sky_adapted(c2, target_sky=0.12, gamma=2.2, white_pct=100.0)
+    n1 = beg.normalize_sky_adapted(c1, target_sky=0.12, gamma=2.2)
+    n2 = beg.normalize_sky_adapted(c2, target_sky=0.12, gamma=2.2)
     assert np.isclose(np.median(n1.sum(-1)), np.median(n2.sum(-1)))
 
 
