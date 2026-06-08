@@ -21,6 +21,11 @@ def gain_for_nelm(nelm, base_nelm=6.0):
     return float(10.0 ** (0.4 * (nelm - base_nelm)))
 
 
+def gain_for_mag_delta(delta_mag):
+    """Sensitivity/exposure gain for a limiting-magnitude improvement."""
+    return float(10.0 ** (0.4 * delta_mag))
+
+
 def sky_limited_snr(star_signal, sky_signal, exposure=1.0, read_noise=0.0):
     """Source SNR under Poisson sky background.
 
@@ -31,6 +36,21 @@ def sky_limited_snr(star_signal, sky_signal, exposure=1.0, read_noise=0.0):
     source = np.asarray(star_signal, dtype=float) * exposure
     sky = np.asarray(sky_signal, dtype=float) * exposure
     return source / np.sqrt(np.maximum(source + sky + read_noise ** 2, 1e-12))
+
+
+def limiting_mag_for_sky(bortle, gain=1.0, snr_threshold=5.0, m_ref=8.0):
+    """Approximate limiting magnitude implied by sky background and sensitivity gain."""
+    sky = rh.skyglow_level(bortle, m_ref=m_ref)
+    lo, hi = -2.0, 15.0
+    for _ in range(60):
+        mid = (lo + hi) / 2.0
+        star = rs.mag_to_luminance(mid, m_ref)
+        snr = sky_limited_snr(star, sky, gain)
+        if snr >= snr_threshold:
+            lo = mid
+        else:
+            hi = mid
+    return lo
 
 
 def add_skyglow(canvas, bortle):
@@ -108,11 +128,11 @@ def project_horizon_window(az, alt, center_az, width, height, az_width_deg, max_
     return px, py, inside
 
 
-def render_window_panel(l, b, g, bv, bortle, nelm, width, height, lat_deg, lst_hours,
+def render_window_panel(l, b, g, bv, bortle, value, width, height, lat_deg, lst_hours,
                         center_az, az_width_deg, max_alt_deg, pct, gamma, normalization,
                         target_sky, white_pct, mode):
     az, alt = rh.gal_to_altaz(l, b, lat_deg, lst_hours)
-    gain = gain_for_nelm(nelm)
+    gain = gain_for_mag_delta(value) if mode != "snr" else float(value)
     L = rs.mag_to_luminance(g, 8.0)
     cols = rs.bv_to_rgb(bv)
     px, py, inside = project_horizon_window(az, alt, center_az, width, height, az_width_deg, max_alt_deg)
@@ -126,11 +146,11 @@ def render_window_panel(l, b, g, bv, bortle, nelm, width, height, lat_deg, lst_h
     return normalize_panel(canvas, normalization, pct, gamma, target_sky, white_pct)
 
 
-def render_perspective_panel(l, b, g, bv, bortle, nelm, width, height, lat_deg, lst_hours,
+def render_perspective_panel(l, b, g, bv, bortle, value, width, height, lat_deg, lst_hours,
                              look_az, look_alt, fov_deg, pct, gamma, normalization,
                              target_sky, white_pct, mode):
     az, alt = rh.gal_to_altaz(l, b, lat_deg, lst_hours)
-    gain = gain_for_nelm(nelm)
+    gain = gain_for_mag_delta(value) if mode != "snr" else float(value)
     L = rs.mag_to_luminance(g, 8.0)
     cols = rs.bv_to_rgb(bv)
     px, py, inside = project_perspective_altaz(az, alt, look_az, look_alt, width, height, fov_deg)
@@ -144,7 +164,7 @@ def render_perspective_panel(l, b, g, bv, bortle, nelm, width, height, lat_deg, 
     return normalize_panel(canvas, normalization, pct, gamma, target_sky, white_pct)
 
 
-def render_equirect_panel(l, b, g, bv, bortle, nelm, width, height, lat_deg, lst_hours,
+def render_equirect_panel(l, b, g, bv, bortle, value, width, height, lat_deg, lst_hours,
                           pct, gamma, normalization, target_sky, white_pct, mode):
     canvas, _az, _alt = rh.render_horizon_map(
         l,
@@ -157,12 +177,12 @@ def render_equirect_panel(l, b, g, bv, bortle, nelm, width, height, lat_deg, lst
         height,
         m_ref=8.0,
         psf_px=1.0,
-        gain=gain_for_nelm(nelm) if mode != "snr" else 1.0,
+        gain=gain_for_mag_delta(value) if mode != "snr" else 1.0,
     )
     if mode == "snr":
         sky = rh.skyglow_level(bortle)
         # Approximate equirect SNR by applying sky-limited compression to rendered star signal.
-        canvas = sky_limited_snr(canvas, sky, gain_for_nelm(nelm))
+        canvas = sky_limited_snr(canvas, sky, float(value))
     else:
         canvas = add_skyglow(canvas, bortle)
     return normalize_panel(canvas, normalization, pct, gamma, target_sky, white_pct)
@@ -189,7 +209,7 @@ def label_panel(img, text):
     return np.asarray(out)
 
 
-def render_grid(data_path, output, bortles, nelms, panel_width, panel_height, lat_deg, lst_hours,
+def render_grid(data_path, output, bortles, values, panel_width, panel_height, lat_deg, lst_hours,
                 pct, gamma, projection, look_az, look_alt, fov_deg, normalization, target_sky,
                 white_pct, az_width_deg, max_alt_deg, mode):
     from PIL import Image
@@ -202,26 +222,26 @@ def render_grid(data_path, output, bortles, nelms, panel_width, panel_height, la
         look_az, look_alt = galactic_center_altaz(lat_deg, lst_hours)
     for bortle in bortles:
         panels = []
-        for nelm in nelms:
+        for value in values:
             if projection == "equirect":
                 panel = render_equirect_panel(
-                    l, b, g, bv, bortle, nelm, panel_width, panel_height,
+                    l, b, g, bv, bortle, value, panel_width, panel_height,
                     lat_deg, lst_hours, pct, gamma, normalization, target_sky, white_pct, mode,
                 )
-                label = f"Bortle {bortle}  NELM {nelm:g}  equirect"
+                label = f"Bortle {bortle}  {column_label(mode, value, bortle)}  equirect"
             elif projection == "horizon_window":
                 panel = render_window_panel(
-                    l, b, g, bv, bortle, nelm, panel_width, panel_height,
+                    l, b, g, bv, bortle, value, panel_width, panel_height,
                     lat_deg, lst_hours, look_az, az_width_deg, max_alt_deg,
                     pct, gamma, normalization, target_sky, white_pct, mode,
                 )
-                label = f"Bortle {bortle}  {'exp' if mode == 'snr' else 'NELM'} {nelm:g}  Beijing horizon"
+                label = f"Bortle {bortle}  {column_label(mode, value, bortle)}  Beijing horizon"
             else:
                 panel = render_perspective_panel(
-                    l, b, g, bv, bortle, nelm, panel_width, panel_height, lat_deg, lst_hours,
+                    l, b, g, bv, bortle, value, panel_width, panel_height, lat_deg, lst_hours,
                     look_az, look_alt, fov_deg, pct, gamma, normalization, target_sky, white_pct, mode,
                 )
-                label = f"Bortle {bortle}  NELM {nelm:g}  Beijing wide"
+                label = f"Bortle {bortle}  {column_label(mode, value, bortle)}  Beijing wide"
             panels.append(label_panel(panel, label))
         rows.append(np.concatenate(panels, axis=1))
     grid = np.concatenate(rows, axis=0)
@@ -230,12 +250,22 @@ def render_grid(data_path, output, bortles, nelms, panel_width, panel_height, la
     return output
 
 
+def column_label(mode, value, bortle=None):
+    if mode == "snr":
+        return f"exp {value:g}x"
+    if bortle is None:
+        return f"eye +{value:g}mag"
+    nelm = limiting_mag_for_sky(bortle, gain_for_mag_delta(value))
+    return f"eye +{value:g}mag  NELM~{nelm:.1f}"
+
+
 def build_parser():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--data", default=DATA_DEFAULT)
     p.add_argument("--output", default=OUTPUT_DEFAULT)
     p.add_argument("--bortles", default="1,6")
-    p.add_argument("--nelms", default="6,8,11")
+    p.add_argument("--eye-deltas", default="0,2,4", help="Sensitivity improvement in magnitudes for adapted visual mode.")
+    p.add_argument("--exposures", default="1,10,100", help="Exposure multiplier columns for SNR mode.")
     p.add_argument("--panel-width", type=int, default=960)
     p.add_argument("--panel-height", type=int, default=540)
     p.add_argument("--lat-deg", type=float, default=39.9)
@@ -260,11 +290,12 @@ def build_parser():
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
+    values = parse_csv_numbers(args.exposures if args.mode == "snr" else args.eye_deltas, float)
     out = render_grid(
         args.data,
         args.output,
         parse_csv_numbers(args.bortles, int),
-        parse_csv_numbers(args.nelms, float),
+        values,
         args.panel_width,
         args.panel_height,
         args.lat_deg,

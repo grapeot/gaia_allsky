@@ -120,6 +120,22 @@ def test_eye_sensitivity_gain_scales_by_magnitude():
     """NELM 每提升 1 等，对应约 2.512 倍灵敏度增益。"""
     assert np.isclose(beg.gain_for_nelm(7) / beg.gain_for_nelm(6), 10 ** 0.4)
     assert np.isclose(beg.gain_for_nelm(11), 100.0)
+    assert np.isclose(beg.gain_for_mag_delta(2), beg.gain_for_nelm(8))
+
+
+def test_bortle_grid_separates_eye_delta_and_exposure_defaults():
+    """视觉模式输入灵敏度提升，NELM 是输出；SNR 模式输入曝光倍率。"""
+    args = beg.build_parser().parse_args([])
+    assert args.eye_deltas == "0,2,4"
+    assert args.exposures == "1,10,100"
+    assert beg.column_label("adapted", 2).startswith("eye +2mag")
+    assert "NELM~" in beg.column_label("adapted", 2, 1)
+    assert beg.column_label("snr", 10) == "exp 10x"
+
+
+def test_limiting_mag_worsens_with_light_pollution():
+    """同样眼睛灵敏度下，Bortle 6 的计算 NELM 应低于 Bortle 1。"""
+    assert beg.limiting_mag_for_sky(6, beg.gain_for_mag_delta(0)) < beg.limiting_mag_for_sky(1, beg.gain_for_mag_delta(0))
 
 
 def test_beijing_galactic_center_view_is_above_horizon():

@@ -241,10 +241,11 @@ The first version used a horizon equirectangular projection, which is still a 36
 
 The normalization also changed. A direct percentile normalization makes light pollution look like “the whole image gets brighter.” Human vision and cameras adapt to the background. The default is now `--normalization sky_median`, which maps each panel’s median sky brightness to a stable gray level. This keeps the sky background comparable while making stars and the Milky Way lose contrast under Bortle 6.
 
-Default grid:
+Default adapted-vision grid:
 
 - rows: Bortle 1 and Bortle 6
-- columns: NELM 6, NELM 8, NELM 11
+- columns: eye sensitivity improvement +0mag, +2mag, +4mag
+- panel labels include computed NELM; NELM is an output, not a CLI input
 - projection: Beijing wide-angle perspective, default FOV 110 degrees
 - normalization: median sky adaptation
 - output: `outputs/knob_bortle_eye_grid.png`
@@ -254,7 +255,7 @@ Command used:
 ```bash
 python src/render_bortle_eye_grid.py \
   --bortles 1,6 \
-  --nelms 6,8,11 \
+  --eye-deltas 0,2,4 \
   --output outputs/knob_bortle_eye_grid.png
 ```
 
@@ -301,13 +302,13 @@ Command used:
 ```bash
 python src/render_bortle_eye_grid.py \
   --bortles 1,6 \
-  --nelms 1,10,100 \
+  --exposures 1,10,100 \
   --mode snr \
   --normalization percentile \
   --output outputs/knob_bortle_exposure_snr_grid.png
 ```
 
-Here the column values are exposure multipliers, not NELM values. The output is `outputs/knob_bortle_exposure_snr_grid.png`.
+Here the column values are exposure multipliers. The output is `outputs/knob_bortle_exposure_snr_grid.png`.
 
 Verification:
 
