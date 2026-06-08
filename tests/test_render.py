@@ -132,7 +132,8 @@ def test_bortle_grid_separates_eye_delta_and_exposure_defaults():
     assert args.panel_height == 960
     assert args.az_width_deg == 140.0
     assert args.max_alt_deg == 90.0
-    assert beg.column_label("adapted", 2).startswith("eye +2mag")
+    assert args.lat_deg == 23.13
+    assert beg.column_label("adapted", 2).startswith("cost +2mag")
     assert "NELM~" in beg.column_label("adapted", 2, 1)
     assert beg.column_label("snr", 10) == "exp 10x"
 
@@ -142,10 +143,10 @@ def test_limiting_mag_worsens_with_light_pollution():
     assert beg.limiting_mag_for_sky(6, beg.gain_for_mag_delta(0)) < beg.limiting_mag_for_sky(1, beg.gain_for_mag_delta(0))
 
 
-def test_beijing_galactic_center_view_is_above_horizon():
-    """默认北京广角视角对准上中天附近的银心，高度应在地平线上。"""
-    az, alt = beg.galactic_center_altaz(39.9, 17.76)
-    assert 15.0 < alt < 25.0
+def test_default_guangzhou_galactic_center_view_is_high_enough():
+    """默认广州视角让银心上中天高度更高，更适合展示银河。"""
+    az, alt = beg.galactic_center_altaz(23.13, 17.76)
+    assert 35.0 < alt < 45.0
     assert 160.0 < az < 200.0
 
 

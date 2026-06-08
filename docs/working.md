@@ -237,16 +237,16 @@ Existing outputs already covered the two one-dimensional knobs:
 
 What was missing was the combined comparison requested for Bortle 1 vs Bortle 6 under different human-eye sensitivities. Added `src/render_bortle_eye_grid.py`.
 
-The first version used a horizon equirectangular projection, which is still a 360° x 180° all-sky map. That does not match the intended human-view simulation. The default is now a Beijing ground-level wide-angle perspective view, centered near galactic-center culmination.
+The first version used a horizon equirectangular projection, which is still a 360° x 180° all-sky map. That does not match the intended human-view simulation. The default is now a low-latitude Guangzhou ground-level sky window centered near galactic-center culmination, so the Milky Way is higher and more recognizable than in Beijing.
 
 The normalization also changed. A direct percentile normalization makes light pollution look like “the whole image gets brighter.” Human vision and cameras adapt to the background. The default is now `--normalization sky_median`, which maps each panel’s median sky brightness to a stable gray level. This keeps the sky background comparable while making stars and the Milky Way lose contrast under Bortle 6.
 
 Default adapted-vision grid:
 
 - rows: Bortle 1 and Bortle 6
-- columns: eye sensitivity improvement +0mag, +2mag, +4mag
+- columns: sensitivity cost +0mag, +2mag, +4mag
 - panel labels include computed NELM; NELM is an output, not a CLI input
-- projection: Beijing wide-angle perspective, default FOV 110 degrees
+- projection: Guangzhou horizon-window view, horizon on the lower edge
 - normalization: median sky adaptation
 - output: `outputs/knob_bortle_eye_grid.png`
 
@@ -272,7 +272,7 @@ The wide-angle perspective view still felt clipped because the horizon was not a
 - default azimuth window: `--az-width-deg 120`
 - default max altitude: `--max-alt-deg 70`
 
-This makes the bottom edge a horizontal horizon line and the image read as “standing in Beijing, looking upward,” not as a VR all-sky unwrap.
+This makes the bottom edge a horizontal horizon line and the image read as “standing in Guangzhou, looking upward,” not as a VR all-sky unwrap.
 
 The tone mapping now also compresses highlights after median sky adaptation:
 
@@ -294,7 +294,7 @@ The Bortle comparison grid is intended for a vertical “standing under the sky�
 - azimuth window: `140°`
 - altitude window: horizon at the bottom edge up to `90°` at the top
 
-`outputs/knob_bortle_eye_grid.png` is the primary visual/subjective comparison. `outputs/knob_bortle_exposure_snr_grid.png` remains useful as a scientific side panel for the light-pollution SNR question, but it is not the main “what does it look like to the eye?” output.
+`outputs/knob_bortle_eye_grid.png` is the primary visual/subjective comparison. The SNR mode remains a debug/sanity-check path in the CLI, but `outputs/knob_bortle_exposure_snr_grid.png` is no longer a formal output.
 
 ## 2026-06-08: Sky-Limited SNR Mode
 
@@ -306,7 +306,7 @@ SNR = source * exposure / sqrt(source * exposure + sky * exposure + read_noise^2
 
 This means longer exposure helps, but bright sky still imposes a penalty. Under the same total exposure, Bortle 6 remains worse than Bortle 1; recovering the same SNR requires disproportionately more exposure and may still run into dynamic range, gradients, and processing limits.
 
-Added `--mode snr` to `render_bortle_eye_grid.py`.
+Added `--mode snr` to `render_bortle_eye_grid.py` as a debug mode. It is not a formal deliverable because it is a detectability map, not a visual appearance map.
 
 Command used:
 
@@ -319,7 +319,23 @@ python src/render_bortle_eye_grid.py \
   --output outputs/knob_bortle_exposure_snr_grid.png
 ```
 
-Here the column values are exposure multipliers. The output is `outputs/knob_bortle_exposure_snr_grid.png`.
+Here the column values are exposure multipliers. Use this only for physics sanity checks; the formal visual output is `outputs/knob_bortle_eye_grid.png`.
+
+## 2026-06-08: Guangzhou View and Bortle 1-9 Scale
+
+The Beijing view puts the galactic center too low, so the grid does not read strongly as Milky Way. Defaults now use Guangzhou latitude (`--lat-deg 23.13`) with galactic-center culmination LST. This places the galactic center around 39 degrees altitude.
+
+Added a Bortle 1-9 sequence using the same horizon-window view:
+
+```bash
+python src/render_bortle_eye_grid.py \
+  --bortles 1,2,3,4,5,6,7,8,9 \
+  --eye-deltas 0 \
+  --columns-per-row 3 \
+  --output outputs/knob_bortle_scale_grid.png
+```
+
+This is a 3x3 grid showing the Milky Way fading as skyglow increases.
 
 Verification:
 

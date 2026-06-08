@@ -22,11 +22,9 @@
   倒过来就是"暗空旅行找回银河"。`outputs/knob_light_pollution.png`，依据见 `docs/bortle_skyglow.md`。
 - **眼睛敏感度**（`gain` / 星等 cutoff）：肉眼极限 NELM 6 等（正常人眼）→11 等（超人眼/Gaia 极限）。
   银河从朦胧光带解析成连续星海——"银河一直在，是你的眼睛不够格"。`outputs/knob_eye_sensitivity.png`。
-- **光污染 × 眼睛敏感度**（`render_bortle_eye_grid.py`）：默认生成北京地面广角视角的 Bortle 1/6 × 眼睛灵敏度提升 +0/+2/+4mag 组合对比，输出
-  `outputs/knob_bortle_eye_grid.png`。默认 `horizon_window` 投影把地平线放在图像下缘、向上展开天空；默认使用 median sky adaptation，把每个 panel 的背景天空归一到相近灰度，并用高百分位白点压缩避免大片过曝。NELM 不是输入，而是按 Bortle 背景和灵敏度提升计算出来并写入 panel 标签。
-- **光污染 × 曝光/SNR**（`render_bortle_eye_grid.py --mode snr`）：用 sky-limited Poisson SNR 模型展示长曝光和光污染的关系，输出
-  `outputs/knob_bortle_exposure_snr_grid.png`。长曝光能提高 SNR，但亮天空背景也带来 shot noise；同等总曝光下，Bortle 6 不能靠“更敏感/更长曝光”变成 Bortle 1。
-  这张图主要用于解释物理限制；展示主观观感时优先看 `outputs/knob_bortle_eye_grid.png`。
+- **光污染的灵敏度代价**（`render_bortle_eye_grid.py`）：默认生成广州地面竖幅视角的 Bortle 1/6 × 有效灵敏度代价 +0/+2/+4mag 组合对比，输出
+  `outputs/knob_bortle_eye_grid.png`。默认 `horizon_window` 投影把地平线放在图像下缘、向上展开天空；默认使用 median sky adaptation，把每个 panel 的背景天空归一到相近灰度，并用高百分位白点压缩避免大片过曝。NELM 不是输入，而是按 Bortle 背景和灵敏度代价计算出来并写入 panel 标签。这张图是正式展示图；SNR 模式只保留作调试/物理 sanity check。
+- **Bortle 1-9 银河消失序列**（`render_bortle_eye_grid.py --bortles 1,2,3,4,5,6,7,8,9 --eye-deltas 0 --columns-per-row 3`）：同一广州竖幅视角下看银河随光污染增强逐渐消失，输出 `outputs/knob_bortle_scale_grid.png`。
 - **宇宙位置**（`render_3d`）：Gaia 视差→3D 笛卡尔，观测者平移重投影（平方反比变亮 + 几何重投影）。
   飞出几百 pc，近处星座（北斗）散架，银河带不动（星座是视角幻觉，银河是大尺度结构）。
 

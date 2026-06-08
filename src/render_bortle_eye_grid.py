@@ -211,17 +211,16 @@ def label_panel(img, text):
 
 def render_grid(data_path, output, bortles, values, panel_width, panel_height, lat_deg, lst_hours,
                 pct, gamma, projection, look_az, look_alt, fov_deg, normalization, target_sky,
-                white_pct, az_width_deg, max_alt_deg, mode):
+                white_pct, az_width_deg, max_alt_deg, mode, columns_per_row=None):
     from PIL import Image
 
     d = np.load(data_path)
     l, b, g = d["l"], d["b"], d["g"]
     bv = np.nan_to_num(d["bp_rp"], nan=0.7)
-    rows = []
+    panels_flat = []
     if look_az is None or look_alt is None:
         look_az, look_alt = galactic_center_altaz(lat_deg, lst_hours)
     for bortle in bortles:
-        panels = []
         for value in values:
             if projection == "equirect":
                 panel = render_equirect_panel(
@@ -242,8 +241,15 @@ def render_grid(data_path, output, bortles, values, panel_width, panel_height, l
                     look_az, look_alt, fov_deg, pct, gamma, normalization, target_sky, white_pct, mode,
                 )
                 label = f"Bortle {bortle}  {column_label(mode, value, bortle)}  Beijing wide"
-            panels.append(label_panel(panel, label))
-        rows.append(np.concatenate(panels, axis=1))
+            panels_flat.append(label_panel(panel, label))
+    columns = columns_per_row or len(values)
+    rows = []
+    blank = np.zeros_like(panels_flat[0])
+    for i in range(0, len(panels_flat), columns):
+        chunk = panels_flat[i:i + columns]
+        while len(chunk) < columns:
+            chunk.append(blank)
+        rows.append(np.concatenate(chunk, axis=1))
     grid = np.concatenate(rows, axis=0)
     os.makedirs(os.path.dirname(output), exist_ok=True)
     Image.fromarray(grid).save(output)
@@ -254,9 +260,9 @@ def column_label(mode, value, bortle=None):
     if mode == "snr":
         return f"exp {value:g}x"
     if bortle is None:
-        return f"eye +{value:g}mag"
+        return f"cost +{value:g}mag"
     nelm = limiting_mag_for_sky(bortle, gain_for_mag_delta(value))
-    return f"eye +{value:g}mag  NELM~{nelm:.1f}"
+    return f"cost +{value:g}mag  NELM~{nelm:.1f}"
 
 
 def build_parser():
@@ -264,12 +270,12 @@ def build_parser():
     p.add_argument("--data", default=DATA_DEFAULT)
     p.add_argument("--output", default=OUTPUT_DEFAULT)
     p.add_argument("--bortles", default="1,6")
-    p.add_argument("--eye-deltas", default="0,2,4", help="Sensitivity improvement in magnitudes for adapted visual mode.")
+    p.add_argument("--eye-deltas", default="0,2,4", help="Sensitivity-cost columns in magnitudes for adapted visual mode.")
     p.add_argument("--exposures", default="1,10,100", help="Exposure multiplier columns for SNR mode.")
     p.add_argument("--panel-width", type=int, default=540)
     p.add_argument("--panel-height", type=int, default=960)
-    p.add_argument("--lat-deg", type=float, default=39.9)
-    p.add_argument("--lst-hours", type=float, default=17.76, help="LST near galactic-center culmination in Beijing.")
+    p.add_argument("--lat-deg", type=float, default=23.13)
+    p.add_argument("--lst-hours", type=float, default=17.76, help="LST near galactic-center culmination.")
     p.add_argument("--projection", choices=["horizon_window", "perspective", "equirect"], default="horizon_window")
     p.add_argument("--look-az", type=float)
     p.add_argument("--look-alt", type=float)
@@ -282,7 +288,8 @@ def build_parser():
     p.add_argument("--white-pct", type=float, default=99.5,
                    help="Highlight percentile mapped to white after sky adaptation.")
     p.add_argument("--mode", choices=["adapted", "snr"], default="adapted",
-                   help="adapted: visual gain model; snr: sky-limited exposure/SNR model.")
+                   help="adapted: official visual sensitivity-cost grid; snr: debug sky-limited exposure model.")
+    p.add_argument("--columns-per-row", type=int, help="Wrap panels into a fixed number of columns.")
     p.add_argument("--pct", type=float, default=99.7)
     p.add_argument("--gamma", type=float, default=2.2)
     return p
@@ -312,6 +319,7 @@ def main(argv=None):
         args.az_width_deg,
         args.max_alt_deg,
         args.mode,
+        args.columns_per_row,
     )
     print(f"wrote {out}")
 
