@@ -169,3 +169,25 @@ Visual tuning:
 Verification:
 
 - `python -m pytest tests/ -q` -> 28 passed.
+
+## 2026-06-08: Use Old Frame 68 as First-Leg Endpoint
+
+The 400pc first leg flies past the useful Big Dipper deformation window. In the 10-second 60fps preview, frame 68 of the old 400pc first leg corresponds to about 48.9pc along the eased first-leg path. This is close to the desired state: the Big Dipper remains in frame, visibly deforms, and has not been overflown.
+
+Updated defaults:
+
+- `--leg1-pc 50`: first leg endpoint, toward Big Dipper
+- `--target-gc-pc 400`: horizontal galactic-center component of the second-leg target
+- `--leg2-pc 2500`: vertical galactic-pole component of the second-leg target
+
+The second-leg target is now independent of `leg1_pc`:
+
+```text
+target = galactic_center_direction * target_gc_pc + galactic_pole_direction * leg2_pc
+```
+
+This keeps the first leg short enough for the Big Dipper shape study while still sending the second leg toward a meaningful point above the galactic-center direction.
+
+Verification:
+
+- `python -m pytest tests/ -q` -> 29 passed.

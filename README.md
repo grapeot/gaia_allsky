@@ -86,7 +86,7 @@ docs/                 bortle_skyglow.md 等
 
 ## 两版视频 CLI
 
-两个 CLI 共享同一条 L 型运动轨迹：第一段朝北斗七星方向前进，第二段从当前位置斜向飞到“银心方向上方”的目标点（`银心方向 * leg1_pc + 银北极方向 * leg2_pc`）。
+两个 CLI 共享同一条 L 型运动轨迹：第一段朝北斗七星方向前进，默认只走约 50pc（约等于旧 400pc 预览的第 68 帧位置，避免飞过北斗）；第二段从当前位置斜向飞到“银心方向上方”的目标点（`银心方向 * target_gc_pc + 银北极方向 * leg2_pc`，默认 `target_gc_pc=400pc`）。
 区别只在投影和相机朝向：VR 版输出全天 equirectangular，没有单一镜头方向；前向版默认是满画幅 perspective，第一段看向北斗七星，并用细线连接七颗星，让北斗形状随视差逐渐改变；第二段相机平滑转向银心方向。
 两个 CLI 都是先并行渲染 PNG 帧，再用 ffmpeg 合成 SDR H.264 mp4；帧目录默认保留。
 `--workers` 默认使用本机全部 CPU 核心，可按内存或 I/O 情况手动降低。
@@ -97,11 +97,13 @@ docs/                 bortle_skyglow.md 等
 ```bash
 python src/render_vr_video.py \
   --width 640 --height 320 --duration 10 --fps 60 --workers 32 \
+  --leg1-pc 50 --target-gc-pc 400 --leg2-pc 2500 \
   --frames-dir outputs/vr_equirect_lowres_frames \
   --output outputs/vr_equirect_lowres.mp4
 
 python src/render_big_dipper_video.py \
   --width 640 --height 640 --duration 10 --fps 60 --workers 32 \
+  --leg1-pc 50 --target-gc-pc 400 --leg2-pc 2500 \
   --frames-dir outputs/big_dipper_forward_lowres_frames \
   --output outputs/big_dipper_forward_lowres.mp4
 ```

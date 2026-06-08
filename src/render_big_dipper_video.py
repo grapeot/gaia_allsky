@@ -29,8 +29,9 @@ def build_parser():
     p.add_argument("--frames", type=int, default=300)
     p.add_argument("--duration", type=float, help="Video duration in seconds. Overrides --frames when set.")
     p.add_argument("--fps", type=int, default=60)
-    p.add_argument("--leg1-pc", type=float, default=400.0)
+    p.add_argument("--leg1-pc", type=float, default=50.0)
     p.add_argument("--leg2-pc", type=float, default=2500.0)
+    p.add_argument("--target-gc-pc", type=float, default=400.0)
     p.add_argument("--split", type=float, default=0.5)
     p.add_argument("--workers", type=int, default=os.cpu_count() or 1)
     p.add_argument("--projection", choices=["perspective", "fisheye"], default="perspective")
@@ -52,7 +53,7 @@ def build_parser():
 def config_from_args(args):
     frames = resolve_frame_count(args.frames, args.fps, args.duration)
     first_leg_dir = big_dipper_direction()
-    second_leg_target = galactic_center_direction() * args.leg1_pc + galactic_pole_direction() * args.leg2_pc
+    second_leg_target = galactic_center_direction() * args.target_gc_pc + galactic_pole_direction() * args.leg2_pc
     positions, phase = shared_l_positions(
         frames,
         args.leg1_pc,

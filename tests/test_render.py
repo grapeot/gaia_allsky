@@ -194,9 +194,16 @@ def test_big_dipper_cli_default_path_dipper_then_above_gc():
     assert np.dot(cfg["look_dirs"][-1], r3.flight_direction("galactic_plane")) > 0.99
     first_leg_dir = cfg["positions"][3] / np.linalg.norm(cfg["positions"][3])
     assert np.dot(first_leg_dir, vc.big_dipper_direction()) > 0.99
-    target = r3.flight_direction("galactic_plane") * args.leg1_pc + r3.flight_direction("galactic_pole") * args.leg2_pc
+    target = r3.flight_direction("galactic_plane") * args.target_gc_pc + r3.flight_direction("galactic_pole") * args.leg2_pc
     assert np.linalg.norm(cfg["positions"][-1] - target) < 1e-6
     assert cfg["dipper_overlay"]
+
+
+def test_big_dipper_default_leg1_matches_frame_68_preview_distance():
+    """默认第一段约等于旧 400pc 预览第 68 帧的位置，避免飞过北斗。"""
+    args = bdv.build_parser().parse_args([])
+    assert args.leg1_pc == 50.0
+    assert args.target_gc_pc == 400.0
 
 
 def test_vr_cli_uses_same_default_position_path():
