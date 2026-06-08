@@ -423,6 +423,10 @@
       background: #000;
     }
 
+    .media-card video.hide-controls {
+      cursor: none;
+    }
+
     .media-body {
       padding: 22px;
     }
@@ -599,27 +603,27 @@
     </section>
 
     <section id="bortle" class="section" aria-labelledby="bortle-title">
-      <p class="eyebrow">交互结果 01</p>
+      <p class="eyebrow">光污染如何遮蔽银河</p>
       <h2 id="bortle-title">从 Bortle 1 扫到 9，观察银河变淡。</h2>
       <div class="showcase">
         <div class="controls">
           <h3 id="bortleName">Bortle 1：顶级暗空</h3>
-          <p class="note-copy">把鼠标从上往下扫，或点击某一行。每一行是一种天空亮度，展开后就是对应等级的完整预览。</p>
+          <p class="note-copy">从上到下依次为 Bortle 1 至 Bortle 9 的天空亮度等级。悬停或点击某一行，可展开该等级的完整天区预览。</p>
           <div class="bortle-slices" id="bortleSlices" role="group" aria-label="Bortle 1 到 9 图像切片"></div>
           <p class="bortle-current" id="bortleCopy" aria-live="polite">Bortle 1 顶级暗空下，银河和暗尘埃结构同时可见。</p>
-          <h3 style="margin-top: 26px;">同时看光污染和人眼极限星等</h3>
+          <h3 style="margin-top: 26px;">假设眼睛更灵敏，同一片天空会露出什么</h3>
           <div class="comparison-img">
-            <img src="assets/bortle_eye_grid.jpg" alt="Bortle 暗空等级和有效极限星等的交叉对比图">
+            <img src="assets/bortle_eye_grid.jpg" alt="Bortle 光污染等级与有效极限星等增量的星空模拟对比图">
           </div>
           <div class="note">
-            <p>横轴表示能看到多暗的星（极限星等），纵轴表示天空从暗到亮（Bortle 等级）。所有小图使用同一套亮度基准，没有单独给城市天空提亮。</p>
+            <p>横轴为假设输入：若人眼极限星等在普通裸眼基准上提高若干等（对应 NELM 增量），同一片天空会逐渐显露更多暗星与银河结构。纵轴为 Bortle 光污染等级。所有小图共用同一套亮度映射基准，城市天空未做单独提亮。</p>
           </div>
         </div>
       </div>
     </section>
 
     <section id="flight" class="section" aria-labelledby="flight-title">
-      <p class="eyebrow">交互结果 02</p>
+      <p class="eyebrow">换一个位置，星座就不再是平面图案</p>
       <h2 id="flight-title">移动位置，星座散开，银河仍在。</h2>
       <div class="media-grid">
         <article class="media-card">
@@ -645,14 +649,14 @@
 
     <section id="boundary" class="section boundary" aria-labelledby="boundary-title">
       <aside class="boundary-aside">
-        <strong>项目的边界</strong>
-        <p>这个项目的目标是定性正确和可解释性。测光级精度验证不在设计范围之内。</p>
+        <strong>读图边界</strong>
+        <p>这些图像适合观察趋势、结构和相对变化。</p>
       </aside>
       <div class="copy">
-        <p class="eyebrow">必须说清楚的部分</p>
+        <p class="eyebrow">数据覆盖范围</p>
         <h2 id="boundary-title">Gaia 视差数据覆盖的是太阳附近的数据球。</h2>
-        <p>飞行视频诚实地展示星座散开、星场重投影、以及数据覆盖的物理边界。当你在视频中移动到数据球边缘时，会看到恒星开始变稀疏：这就是可观测范围的尽头。人类目前还没有银河系的真实俯视照片；常见的银河俯视图来自多波段观测和模型反演。</p>
-        <p>页面图像还经过一道 tone mapping（亮度映射）。恒星的星等转物理亮度、天球坐标投影、视差重投影：这些步骤有物理公式作为锚点。最终要把天文级动态范围的亮度放进普通屏幕（SDR），就需要额外的亮度压缩。代码把这两层分开处理，避免将显示参数说成物理参数。</p>
+        <p>飞行视频展示星座散开、星场重投影、以及数据覆盖的物理边界。当你在视频中移动到数据球边缘时，会看到恒星开始变稀疏：这就是可观测范围的尽头。人类目前还没有银河系的真实俯视照片；常见的银河俯视图来自多波段观测和模型反演。</p>
+        <p>页面图像还经过一道 tone mapping（亮度映射）。恒星星等、天球坐标和视差重投影决定了星光在画面中的相对关系；普通屏幕能显示的亮度范围有限，所以最终图像还需要压缩动态范围。因此这些图适合观察整体趋势与结构，不宜直接作为测光级精度的证据。</p>
       </div>
     </section>
 
@@ -661,7 +665,7 @@
         <div>
           <p class="eyebrow">复现与二次开发</p>
           <h2 id="repo-title">代码、数据脚本、测试和渲染命令都在 GitHub 仓库里。</h2>
-          <p class="lead">正常渲染和测试不需要密钥。Gaia 缓存和完整输出留在本地，Git 里只放代码、文档、测试和网页压缩资产。</p>
+          <p class="lead">仓库包含复现实验所需的代码、文档和测试。完整分辨率图像与视频可按页面中的命令在本地生成。</p>
           <p>入口命令：<code>uv venv</code>、<code>uv pip install -r requirements.txt</code>、<code>python -m pytest tests/ -q</code>。</p>
         </div>
         <a class="button primary" data-repo-link href="https://github.com/grapeot/gaia_allsky">打开 GitHub 仓库</a>
@@ -670,7 +674,7 @@
   </main>
 
   <footer>
-    <p>Gaia 全天星空实验 · 图像和视频由本仓库的渲染脚本生成，网页使用压缩后的预览资产。</p>
+    <p>Gaia 全天星空实验 · 页面展示压缩预览；完整分辨率输出可按仓库命令生成。</p>
   </footer>
 
   <script>
@@ -726,6 +730,33 @@
         link.href = `https://github.com/${owner}/${pathRepo}`;
       });
     }
+
+    document.querySelectorAll("video").forEach((video) => {
+      let hideControlsTimer;
+      const showControls = () => {
+        clearTimeout(hideControlsTimer);
+        video.controls = true;
+        video.classList.remove("hide-controls");
+        if (!video.paused) {
+          hideControlsTimer = setTimeout(() => {
+            video.controls = false;
+            video.classList.add("hide-controls");
+          }, 1400);
+        }
+      };
+
+      video.addEventListener("play", showControls);
+      video.addEventListener("pause", showControls);
+      video.addEventListener("ended", showControls);
+      video.addEventListener("pointermove", showControls);
+      video.addEventListener("focus", showControls);
+      video.addEventListener("click", () => {
+        if (!video.controls && !video.paused) {
+          video.controls = true;
+          video.pause();
+        }
+      });
+    });
   </script>
 </body>
 </html>

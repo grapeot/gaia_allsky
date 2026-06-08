@@ -33,7 +33,7 @@ def build_parser():
     p.add_argument("--workers", type=int, default=os.cpu_count() or 1)
     p.add_argument("--gamma", type=float, default=2.2)
     p.add_argument("--pct", type=float, default=99.7)
-    p.add_argument("--bloom-strength", type=float, default=0.5)
+    p.add_argument("--bloom-strength", type=float, default=0.25)
     p.add_argument("--bloom-sigma", type=float, default=6.0)
     p.add_argument("--save-hdr", action="store_true", help="Also keep 16-bit TIFF frames.")
     p.add_argument("--crf", type=int, default=16)

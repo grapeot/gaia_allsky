@@ -120,6 +120,7 @@ python src/render_big_dipper_video.py \
 ```
 
 两个视频都会先并行渲染 PNG 帧，再用 ffmpeg 合成 SDR H.264 mp4。帧目录默认保留，便于检查和重新编码。
+当前默认辉光强度偏克制：VR equirectangular 为 `--bloom-strength 0.25`，前向透视为 `--bloom-strength 0.175`。
 
 ## 代码结构
 

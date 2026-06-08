@@ -45,7 +45,7 @@ def build_parser():
     p.add_argument("--end-look-dir", help="Override final look direction as x,y,z in equatorial Cartesian coordinates.")
     p.add_argument("--gamma", type=float, default=2.2)
     p.add_argument("--pct", type=float, default=99.7)
-    p.add_argument("--bloom-strength", type=float, default=0.35)
+    p.add_argument("--bloom-strength", type=float, default=0.175)
     p.add_argument("--bloom-sigma", type=float, default=3.0)
     p.add_argument("--no-dipper-overlay", action="store_true", help="Disable Big Dipper guide lines in perspective mode.")
     p.add_argument("--overlay-width", type=int, default=1)
