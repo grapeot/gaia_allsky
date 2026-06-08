@@ -39,8 +39,8 @@ def build_parser():
     p.add_argument("--end-look-dir", help="Override final look direction as x,y,z in equatorial Cartesian coordinates.")
     p.add_argument("--gamma", type=float, default=2.2)
     p.add_argument("--pct", type=float, default=99.7)
-    p.add_argument("--bloom-strength", type=float, default=1.0)
-    p.add_argument("--bloom-sigma", type=float, default=8.0)
+    p.add_argument("--bloom-strength", type=float, default=0.35)
+    p.add_argument("--bloom-sigma", type=float, default=3.0)
     p.add_argument("--no-dipper-overlay", action="store_true", help="Disable Big Dipper guide lines in perspective mode.")
     p.add_argument("--overlay-width", type=int, default=1)
     p.add_argument("--save-hdr", action="store_true", help="Also keep 16-bit TIFF frames.")
@@ -51,18 +51,18 @@ def build_parser():
 
 def config_from_args(args):
     frames = resolve_frame_count(args.frames, args.fps, args.duration)
-    first_leg_dir = galactic_center_direction()
-    second_leg_dir = galactic_pole_direction()
+    first_leg_dir = big_dipper_direction()
+    second_leg_target = galactic_center_direction() * args.leg1_pc + galactic_pole_direction() * args.leg2_pc
     positions, phase = shared_l_positions(
         frames,
         args.leg1_pc,
         args.leg2_pc,
         args.split,
         leg1_dir=first_leg_dir,
-        leg2_dir=second_leg_dir,
+        leg2_target=second_leg_target,
     )
     start_dir = parse_triplet(args.start_look_dir) if args.start_look_dir else big_dipper_direction()
-    end_dir = parse_triplet(args.end_look_dir) if args.end_look_dir else -galactic_pole_direction()
+    end_dir = parse_triplet(args.end_look_dir) if args.end_look_dir else galactic_center_direction()
     return {
         "width": args.width,
         "height": args.height,

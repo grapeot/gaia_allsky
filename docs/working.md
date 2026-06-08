@@ -144,3 +144,28 @@ Verification:
 
 - `python -m pytest tests/ -q` -> 27 passed.
 - Low-resolution 10-second 60fps previews were regenerated for both VR and Big Dipper outputs.
+
+## 2026-06-08: Big Dipper-First Trajectory and Softer Bloom
+
+The forward preview should physically move toward the Big Dipper during the first leg, not merely look at it. The second leg should then head toward a point above the galactic center, with the camera turning toward the galactic center.
+
+Updated shared position path:
+
+- first leg target: `big_dipper_direction * leg1_pc`
+- second leg target: `galactic_center_direction * leg1_pc + galactic_pole_direction * leg2_pc`
+- both VR and forward videos use this same position sequence
+
+Updated forward camera path:
+
+- start look direction: Big Dipper center
+- end look direction: galactic center
+- interpolation: smooth slerp driven by second-leg phase
+
+Visual tuning:
+
+- Forward preview default FOV remains 60 degrees so the Big Dipper occupies a meaningful part of the frame.
+- Bloom was reduced to `--bloom-strength 0.35 --bloom-sigma 3.0`, because the previous default was too large for the tighter perspective view.
+
+Verification:
+
+- `python -m pytest tests/ -q` -> 28 passed.

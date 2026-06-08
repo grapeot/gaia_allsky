@@ -32,12 +32,13 @@ def slerp(a, b, t):
 
 
 def l_motion(frames, leg1_pc=400.0, leg2_pc=2500.0, split=0.5,
-             leg1_dir=None, leg2_dir=None):
-    """Shared L-shaped path: first leg forward, second leg upward from the galactic disk."""
+             leg1_dir=None, leg2_dir=None, leg2_target=None):
+    """Shared L-shaped path: first leg forward, then toward a second-leg target or direction."""
     if frames <= 0:
         raise ValueError("frames must be positive")
     d1 = normalize(leg1_dir if leg1_dir is not None else r3.flight_direction("galactic_plane"))
     d2 = normalize(leg2_dir if leg2_dir is not None else r3.flight_direction("galactic_pole"))
+    target2 = np.asarray(leg2_target, dtype=float) if leg2_target is not None else None
     split_index = max(1, min(frames - 1, int(round(frames * split)))) if frames > 1 else 1
     positions = np.zeros((frames, 3), dtype=float)
     phase = np.zeros(frames, dtype=float)
@@ -47,7 +48,11 @@ def l_motion(frames, leg1_pc=400.0, leg2_pc=2500.0, split=0.5,
             positions[i] = d1 * (ease(t) * leg1_pc)
         else:
             t = (i - split_index) / max(frames - split_index - 1, 1)
-            positions[i] = d1 * leg1_pc + d2 * (ease(t) * leg2_pc)
+            base = d1 * leg1_pc
+            if target2 is not None:
+                positions[i] = base + (target2 - base) * ease(t)
+            else:
+                positions[i] = base + d2 * (ease(t) * leg2_pc)
             phase[i] = ease(t)
     return positions, phase
 

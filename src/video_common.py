@@ -182,7 +182,7 @@ def draw_dipper_overlay(frame, obs_pos, look_dir, fov_deg, width=1):
     return np.asarray(img).astype(np.float32) / 255.0
 
 
-def shared_l_positions(frames, leg1_pc, leg2_pc, split, leg1_dir=None, leg2_dir=None):
+def shared_l_positions(frames, leg1_pc, leg2_pc, split, leg1_dir=None, leg2_dir=None, leg2_target=None):
     return motion.l_motion(
         frames,
         leg1_pc=leg1_pc,
@@ -190,6 +190,7 @@ def shared_l_positions(frames, leg1_pc, leg2_pc, split, leg1_dir=None, leg2_dir=
         split=split,
         leg1_dir=leg1_dir,
         leg2_dir=leg2_dir,
+        leg2_target=leg2_target,
     )
 
 

@@ -182,8 +182,8 @@ def test_vr_cli_duration_sets_frame_count():
     assert cfg["positions"].shape == (600, 3)
 
 
-def test_big_dipper_cli_default_camera_starts_at_dipper_then_looks_down():
-    """前向版本默认先看北斗，第二段向下回望；位置沿银心再上升。"""
+def test_big_dipper_cli_default_path_dipper_then_above_gc():
+    """前向版本默认先朝北斗跑，再斜向银心上方；相机从北斗转银心。"""
     args = bdv.build_parser().parse_args(["--frames", "7"])
     cfg = bdv.config_from_args(args)
     assert cfg["positions"].shape == (7, 3)
@@ -191,10 +191,19 @@ def test_big_dipper_cli_default_camera_starts_at_dipper_then_looks_down():
     assert np.isclose(np.linalg.norm(cfg["look_dirs"][0]), 1.0)
     assert np.isclose(np.linalg.norm(cfg["look_dirs"][-1]), 1.0)
     assert np.dot(cfg["look_dirs"][0], vc.big_dipper_direction()) > 0.99
-    assert np.dot(cfg["look_dirs"][-1], -r3.flight_direction("galactic_pole")) > 0.99
+    assert np.dot(cfg["look_dirs"][-1], r3.flight_direction("galactic_plane")) > 0.99
     first_leg_dir = cfg["positions"][3] / np.linalg.norm(cfg["positions"][3])
-    assert np.dot(first_leg_dir, r3.flight_direction("galactic_plane")) > 0.99
+    assert np.dot(first_leg_dir, vc.big_dipper_direction()) > 0.99
+    target = r3.flight_direction("galactic_plane") * args.leg1_pc + r3.flight_direction("galactic_pole") * args.leg2_pc
+    assert np.linalg.norm(cfg["positions"][-1] - target) < 1e-6
     assert cfg["dipper_overlay"]
+
+
+def test_vr_cli_uses_same_default_position_path():
+    """VR 和前向版默认共享同一条位置轨迹。"""
+    vr_args = rvv.build_parser().parse_args(["--frames", "9"])
+    fw_args = bdv.build_parser().parse_args(["--frames", "9"])
+    assert np.allclose(rvv.config_from_args(vr_args)["positions"], bdv.config_from_args(fw_args)["positions"])
 
 
 def test_shared_l_motion_has_two_legs():
