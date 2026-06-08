@@ -285,6 +285,17 @@ Verification:
 - `python -m pytest tests/ -q` -> 37 passed.
 - `outputs/knob_bortle_eye_grid.png` regenerated with the horizon-bottom projection.
 
+## 2026-06-08: Portrait Bortle Grid Defaults
+
+The Bortle comparison grid is intended for a vertical “standing under the sky” read, not a horizontal strip. Updated defaults:
+
+- panel size: `540 x 960`
+- full 3-column x 2-row grid: `1620 x 1920`
+- azimuth window: `140°`
+- altitude window: horizon at the bottom edge up to `90°` at the top
+
+`outputs/knob_bortle_eye_grid.png` is the primary visual/subjective comparison. `outputs/knob_bortle_exposure_snr_grid.png` remains useful as a scientific side panel for the light-pollution SNR question, but it is not the main “what does it look like to the eye?” output.
+
 ## 2026-06-08: Sky-Limited SNR Mode
 
 The adapted visual grid can be misleading if interpreted as “long exposure can overcome light pollution.” It models eye/camera adaptation for display, not detection SNR. A brighter sky contributes Poisson shot noise. Source signal grows linearly with exposure, but noise grows as the square root of source plus sky background:

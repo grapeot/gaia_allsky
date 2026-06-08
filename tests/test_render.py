@@ -128,6 +128,10 @@ def test_bortle_grid_separates_eye_delta_and_exposure_defaults():
     args = beg.build_parser().parse_args([])
     assert args.eye_deltas == "0,2,4"
     assert args.exposures == "1,10,100"
+    assert args.panel_width == 540
+    assert args.panel_height == 960
+    assert args.az_width_deg == 140.0
+    assert args.max_alt_deg == 90.0
     assert beg.column_label("adapted", 2).startswith("eye +2mag")
     assert "NELM~" in beg.column_label("adapted", 2, 1)
     assert beg.column_label("snr", 10) == "exp 10x"
