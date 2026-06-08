@@ -175,8 +175,8 @@ def test_sky_adapted_normalization_equalizes_background():
     """Median sky adaptation 让不同背景光污染映射到相近背景亮度。"""
     c1 = np.full((20, 20, 3), 0.01, np.float32)
     c2 = np.full((20, 20, 3), 1.0, np.float32)
-    n1 = beg.normalize_sky_adapted(c1, target_sky=0.12, gamma=2.2)
-    n2 = beg.normalize_sky_adapted(c2, target_sky=0.12, gamma=2.2)
+    n1 = beg.normalize_sky_adapted(c1, target_sky=0.03, gamma=2.2)
+    n2 = beg.normalize_sky_adapted(c2, target_sky=0.03, gamma=2.2)
     assert np.isclose(np.median(n1.sum(-1)), np.median(n2.sum(-1)))
 
 
@@ -186,8 +186,8 @@ def test_sky_adapted_reduces_star_contrast_in_bright_sky():
     bright = np.full((20, 20, 3), 1.0, np.float32)
     dark[10, 10] += 0.1
     bright[10, 10] += 0.1
-    nd = beg.normalize_sky_adapted(dark, target_sky=0.12, gamma=2.2, white_pct=100.0).sum(-1)
-    nb = beg.normalize_sky_adapted(bright, target_sky=0.12, gamma=2.2, white_pct=100.0).sum(-1)
+    nd = beg.normalize_sky_adapted(dark, target_sky=0.03, gamma=2.2, white_pct=100.0, star_contrast=4.0).sum(-1)
+    nb = beg.normalize_sky_adapted(bright, target_sky=0.03, gamma=2.2, white_pct=100.0, star_contrast=4.0).sum(-1)
     dark_contrast = nd[10, 10] - np.median(nd)
     bright_contrast = nb[10, 10] - np.median(nb)
     assert bright_contrast < dark_contrast
@@ -197,9 +197,19 @@ def test_sky_adapted_highlight_compression_limits_clipping():
     """高光白点压缩后，极少数亮点允许接近白，但整体不会大片过曝。"""
     c = np.full((100, 100, 3), 0.02, np.float32)
     c[0:5, 0:5] = 10.0
-    out = beg.normalize_sky_adapted(c, target_sky=0.12, gamma=2.2, white_pct=99.5)
+    out = beg.normalize_sky_adapted(c, target_sky=0.03, gamma=2.2, white_pct=99.5)
     saturated = (out >= 1.0).all(axis=-1).mean()
     assert saturated < 0.01
+
+
+def test_star_contrast_boosts_signal_above_sky():
+    """暗背景保持固定时，star_contrast 应提升背景以上的信号。"""
+    c = np.full((20, 20, 3), 0.02, np.float32)
+    c[10, 10] += 0.02
+    low = beg.normalize_sky_adapted(c, target_sky=0.03, gamma=2.2, white_pct=100.0, star_contrast=1.0).sum(-1)
+    high = beg.normalize_sky_adapted(c, target_sky=0.03, gamma=2.2, white_pct=100.0, star_contrast=4.0).sum(-1)
+    assert np.isclose(np.median(low), np.median(high))
+    assert high[10, 10] - np.median(high) > low[10, 10] - np.median(low)
 
 
 def test_sky_limited_snr_penalizes_bright_sky():

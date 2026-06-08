@@ -349,6 +349,37 @@ python src/render_bortle_eye_grid.py \
 
 This is a 3x3 grid showing the Milky Way fading as skyglow increases.
 
+## 2026-06-08: Darker Background Normalization
+
+After increasing output resolution, the old sky adaptation target made even Bortle 1 look gray. The cause was not resolution by itself: the adapted sky level was too high, and full-image median could be affected by large Milky Way/star coverage.
+
+Updated normalization:
+
+- `--target-sky` default changed from `0.12` to `0.03` in linear RGB-channel units.
+- Background estimate changed from image median to a low percentile, default `--sky-pct 25`.
+- Highlight compression still uses `--white-pct 99.5`, but it no longer rescales the whole image by the white point.
+
+Measured high-resolution output after the change:
+
+- Bortle scale grid panel p25 RGB-sum is stable around `0.365`.
+- Bortle 1 no longer has the previous gray background.
+- Higher median in the darkest, highest-sensitivity panels comes from visible Milky Way/star coverage, not from sky background drift.
+
+## 2026-06-08: Restore Star Contrast After Darker Adaptation
+
+Lowering `--target-sky` fixed the gray background, but it also made stars and the Milky Way too dim because the whole image was scaled down together. The tone map now separates the adapted sky floor from signal above the sky:
+
+- estimate sky background with `--sky-pct 25`
+- map that background to `--target-sky 0.03`
+- boost signal above the background with `--star-contrast 4.0`
+- then apply highlight compression with `--white-pct 99.5`
+
+Measured high-resolution output after this change:
+
+- Bortle scale panel p25 RGB-sum stays around `0.365`, so the sky floor remains stable.
+- Stars and Milky Way structure regain contrast above the adapted sky.
+- The most extreme dark-sky +4mag sensitivity panel can saturate some highlights; lower `--star-contrast` to 3 if a softer presentation is desired.
+
 Verification:
 
 - `python -m pytest tests/ -q` -> 39 passed.

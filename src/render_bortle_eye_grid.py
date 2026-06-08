@@ -57,12 +57,15 @@ def add_skyglow(canvas, bortle):
     return canvas + rh.skyglow_level(bortle)
 
 
-def normalize_sky_adapted(canvas, target_sky=0.12, gamma=2.2, white_pct=99.5):
+def normalize_sky_adapted(canvas, target_sky=0.03, gamma=2.2, white_pct=99.5, sky_pct=25.0,
+                          star_contrast=4.0):
     """Normalize like eye/camera adaptation: median sky stable, highlights compressed."""
     y = canvas.sum(axis=-1)
-    median_sky = float(np.median(y))
-    scale = target_sky / max(median_sky, 1e-9)
+    sky_level = float(np.percentile(y, sky_pct))
+    scale = target_sky / max(sky_level, 1e-9)
     adapted = canvas * scale
+    sky_rgb = target_sky / 3.0
+    adapted = sky_rgb + np.maximum(adapted - sky_rgb, 0.0) * star_contrast
     # Keep the adapted sky median fixed. Only compress highlights above a high
     # percentile; do not renormalize the whole image by the white point.
     y = adapted.sum(axis=-1)
@@ -74,9 +77,9 @@ def normalize_sky_adapted(canvas, target_sky=0.12, gamma=2.2, white_pct=99.5):
     return np.clip(adapted, 0, 1) ** (1 / gamma)
 
 
-def normalize_panel(canvas, mode, pct, gamma, target_sky, white_pct):
+def normalize_panel(canvas, mode, pct, gamma, target_sky, white_pct, sky_pct, star_contrast):
     if mode == "sky_median":
-        return (normalize_sky_adapted(canvas, target_sky, gamma, white_pct) * 255).astype(np.uint8)
+        return (normalize_sky_adapted(canvas, target_sky, gamma, white_pct, sky_pct, star_contrast) * 255).astype(np.uint8)
     return (rs.normalize_brightness(canvas, pct, "gamma", gamma) * 255).astype(np.uint8)
 
 
@@ -165,7 +168,7 @@ def project_horizon_camera(az, alt, center_az, width, height, h_fov_deg, v_fov_d
 
 def render_window_panel(l, b, g, bv, bortle, value, width, height, lat_deg, lst_hours,
                         center_az, az_width_deg, max_alt_deg, pct, gamma, normalization,
-                        target_sky, white_pct, mode):
+                        target_sky, white_pct, sky_pct, star_contrast, mode):
     az, alt = rh.gal_to_altaz(l, b, lat_deg, lst_hours)
     gain = gain_for_mag_delta(value) if mode != "snr" else float(value)
     L = rs.mag_to_luminance(g, 8.0)
@@ -178,12 +181,12 @@ def render_window_panel(l, b, g, bv, bortle, value, width, height, lat_deg, lst_
     else:
         canvas = rs.accumulate_stars(height, width, px, py, inside, L * gain, cols, psf_px=1.0)
         canvas = add_skyglow(canvas, bortle)
-    return normalize_panel(canvas, normalization, pct, gamma, target_sky, white_pct)
+    return normalize_panel(canvas, normalization, pct, gamma, target_sky, white_pct, sky_pct, star_contrast)
 
 
 def render_perspective_panel(l, b, g, bv, bortle, value, width, height, lat_deg, lst_hours,
                              look_az, look_alt, fov_deg, pct, gamma, normalization,
-                             target_sky, white_pct, mode):
+                             target_sky, white_pct, sky_pct, star_contrast, mode):
     az, alt = rh.gal_to_altaz(l, b, lat_deg, lst_hours)
     gain = gain_for_mag_delta(value) if mode != "snr" else float(value)
     L = rs.mag_to_luminance(g, 8.0)
@@ -196,11 +199,11 @@ def render_perspective_panel(l, b, g, bv, bortle, value, width, height, lat_deg,
     else:
         canvas = rs.accumulate_stars(height, width, px, py, inside, L * gain, cols, psf_px=1.0)
         canvas = add_skyglow(canvas, bortle)
-    return normalize_panel(canvas, normalization, pct, gamma, target_sky, white_pct)
+    return normalize_panel(canvas, normalization, pct, gamma, target_sky, white_pct, sky_pct, star_contrast)
 
 
 def render_equirect_panel(l, b, g, bv, bortle, value, width, height, lat_deg, lst_hours,
-                          pct, gamma, normalization, target_sky, white_pct, mode):
+                          pct, gamma, normalization, target_sky, white_pct, sky_pct, star_contrast, mode):
     canvas, _az, _alt = rh.render_horizon_map(
         l,
         b,
@@ -220,7 +223,7 @@ def render_equirect_panel(l, b, g, bv, bortle, value, width, height, lat_deg, ls
         canvas = sky_limited_snr(canvas, sky, float(value))
     else:
         canvas = add_skyglow(canvas, bortle)
-    return normalize_panel(canvas, normalization, pct, gamma, target_sky, white_pct)
+    return normalize_panel(canvas, normalization, pct, gamma, target_sky, white_pct, sky_pct, star_contrast)
 
 
 def galactic_center_altaz(lat_deg, lst_hours):
@@ -246,7 +249,7 @@ def label_panel(img, text):
 
 def render_grid(data_path, output, bortles, values, panel_width, panel_height, lat_deg, lst_hours,
                 pct, gamma, projection, look_az, look_alt, fov_deg, normalization, target_sky,
-                white_pct, az_width_deg, max_alt_deg, mode, columns_per_row=None):
+                white_pct, sky_pct, star_contrast, az_width_deg, max_alt_deg, mode, columns_per_row=None):
     from PIL import Image
 
     d = np.load(data_path)
@@ -260,20 +263,20 @@ def render_grid(data_path, output, bortles, values, panel_width, panel_height, l
             if projection == "equirect":
                 panel = render_equirect_panel(
                     l, b, g, bv, bortle, value, panel_width, panel_height,
-                    lat_deg, lst_hours, pct, gamma, normalization, target_sky, white_pct, mode,
+                    lat_deg, lst_hours, pct, gamma, normalization, target_sky, white_pct, sky_pct, star_contrast, mode,
                 )
                 label = f"Bortle {bortle}  {column_label(mode, value, bortle)}  equirect"
             elif projection == "horizon_window":
                 panel = render_window_panel(
                     l, b, g, bv, bortle, value, panel_width, panel_height,
                     lat_deg, lst_hours, look_az, az_width_deg, max_alt_deg,
-                    pct, gamma, normalization, target_sky, white_pct, mode,
+                    pct, gamma, normalization, target_sky, white_pct, sky_pct, star_contrast, mode,
                 )
                 label = f"Bortle {bortle}  {column_label(mode, value, bortle)}  Beijing horizon"
             else:
                 panel = render_perspective_panel(
                     l, b, g, bv, bortle, value, panel_width, panel_height, lat_deg, lst_hours,
-                    look_az, look_alt, fov_deg, pct, gamma, normalization, target_sky, white_pct, mode,
+                    look_az, look_alt, fov_deg, pct, gamma, normalization, target_sky, white_pct, sky_pct, star_contrast, mode,
                 )
                 label = f"Bortle {bortle}  {column_label(mode, value, bortle)}  Beijing wide"
             panels_flat.append(label_panel(panel, label))
@@ -318,8 +321,12 @@ def build_parser():
     p.add_argument("--az-width-deg", type=float, default=90.0, help="Horizontal FOV for horizon_window camera.")
     p.add_argument("--max-alt-deg", type=float, default=75.0, help="Vertical FOV; bottom-center is horizon.")
     p.add_argument("--normalization", choices=["sky_median", "percentile"], default="sky_median")
-    p.add_argument("--target-sky", type=float, default=0.12,
-                   help="Median sky RGB-channel level after adaptation normalization.")
+    p.add_argument("--target-sky", type=float, default=0.03,
+                   help="Linear sky RGB-channel level after adaptation normalization.")
+    p.add_argument("--sky-pct", type=float, default=25.0,
+                   help="Low percentile used as background sky estimate for adaptation.")
+    p.add_argument("--star-contrast", type=float, default=4.0,
+                   help="Contrast boost for signal above the adapted sky background.")
     p.add_argument("--white-pct", type=float, default=99.5,
                    help="Highlight percentile mapped to white after sky adaptation.")
     p.add_argument("--mode", choices=["adapted", "snr"], default="adapted",
@@ -351,6 +358,8 @@ def main(argv=None):
         args.normalization,
         args.target_sky,
         args.white_pct,
+        args.sky_pct,
+        args.star_contrast,
         args.az_width_deg,
         args.max_alt_deg,
         args.mode,
