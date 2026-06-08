@@ -73,12 +73,36 @@ src/
   render_horizon.py   地平坐标 + skyglow 光污染模型
   render_3d.py        3D reproject(视差→笛卡尔, 平移重投影), 鱼眼下俯, blooming, L 轨迹
   render_l_video.py   L 飞行视频 + ffmpeg 合成
+  render_vr_video.py  纯 equirectangular VR 飞行视频 CLI
+  render_big_dipper_video.py  朝北斗方向飞行的前向鱼眼视频 CLI
+  video_common.py     多进程逐帧渲染 + 帧落盘 + SDR mp4 合成
   fetch_gaia_3d.py    带 parallax 子集获取
 tests/test_render.py  18 个物理正确性测试
 data/raw/             Gaia 子集缓存(gitignore)
 outputs/              渲染图/视频(gitignore)
 docs/                 bortle_skyglow.md 等
 ```
+
+## 两版视频 CLI
+
+两个 CLI 都是先并行渲染 PNG 帧，再用 ffmpeg 合成 SDR H.264 mp4；帧目录默认保留。
+`--workers` 默认使用本机全部 CPU 核心，可按内存或 I/O 情况手动降低。
+
+低分辨率预览：
+
+```bash
+python src/render_vr_video.py \
+  --width 640 --height 320 --frames 60 --fps 30 --workers 32 \
+  --frames-dir outputs/vr_equirect_lowres_frames \
+  --output outputs/vr_equirect_lowres.mp4
+
+python src/render_big_dipper_video.py \
+  --width 640 --height 640 --frames 60 --fps 30 --workers 32 \
+  --frames-dir outputs/big_dipper_forward_lowres_frames \
+  --output outputs/big_dipper_forward_lowres.mp4
+```
+
+高分辨率 VR 可直接把 VR 版本调到 2:1，例如 `--width 8192 --height 4096`。前向版本默认朝北斗七星中心方向看并沿同方向飞，`--look-dir x,y,z` 和 `--flight-dir x,y,z` 可覆盖。
 
 ## 不做
 

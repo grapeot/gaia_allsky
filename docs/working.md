@@ -1,0 +1,47 @@
+# Working Notes
+
+## 2026-06-08: Split L-flight Video Into Two CLIs
+
+Goal: keep the existing mixed `render_l_video.py` behavior intact, but add two separate render paths so viewers do not need to switch between VR/equirectangular and fisheye viewing modes inside one video.
+
+Implemented:
+
+- Added `src/video_common.py` for shared SDR video rendering helpers: data loading, easing, Big Dipper direction, parallel frame rendering, PNG/TIFF frame writing, and H.264 mp4 assembly.
+- Added `src/render_vr_video.py` for a pure equirectangular VR flight along the galactic plane.
+- Added `src/render_big_dipper_video.py` for a forward fisheye flight looking and flying toward the Big Dipper center.
+- Added CLI flags for resolution, frame count, fps, worker count, output paths, CRF, optional 16-bit TIFF frame retention, and direction overrides.
+- Kept frame directories as first-class outputs; ffmpeg runs only after frames are written.
+
+Parallelization:
+
+- The M3 Ultra host reports 32 CPU cores.
+- The new CLIs default `--workers` to `os.cpu_count()` and were tested with `--workers 32`.
+- Workers write frames directly to disk, avoiding large frame-array IPC back to the parent process. This matters for future 8K equirectangular rendering.
+
+Low-resolution previews generated:
+
+```bash
+python src/render_vr_video.py \
+  --width 640 --height 320 --frames 60 --fps 30 --workers 32 \
+  --frames-dir outputs/vr_equirect_lowres_frames \
+  --output outputs/vr_equirect_lowres.mp4
+
+python src/render_big_dipper_video.py \
+  --width 640 --height 640 --frames 60 --fps 30 --workers 32 \
+  --frames-dir outputs/big_dipper_forward_lowres_frames \
+  --output outputs/big_dipper_forward_lowres.mp4
+```
+
+Verification:
+
+- `python -m pytest tests/ -q` -> 22 passed.
+- `outputs/vr_equirect_lowres_frames/` contains 60 PNG frames.
+- `outputs/big_dipper_forward_lowres_frames/` contains 60 PNG frames.
+- `outputs/vr_equirect_lowres.mp4`: H.264, `yuv420p`, 640x320, 30 fps, 60 frames, 2 seconds.
+- `outputs/big_dipper_forward_lowres.mp4`: H.264, `yuv420p`, 640x640, 30 fps, 60 frames, 2 seconds.
+
+Notes for next render pass:
+
+- Full VR target can be produced by increasing `render_vr_video.py` to `--width 8192 --height 4096` and using the desired frame count/fps.
+- The forward version is currently fisheye because `render_3d.render_fisheye_lookdir` already exists. A rectilinear/perspective renderer would be a separate addition if a non-fisheye forward camera is preferred.
+- Preview frames and videos remain under `outputs/`, which is gitignored.
