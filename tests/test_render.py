@@ -14,6 +14,7 @@ import render_3d as r3
 import render_horizon as rh
 import render_big_dipper_video as bdv
 import render_vr_video as rvv
+import render_bortle_eye_grid as beg
 import video_common as vc
 import motion
 
@@ -113,6 +114,51 @@ def test_skyglow_monotonic_increasing():
 def test_skyglow_additive_floods_milky_way():
     """高 Bortle 辉光基底 > 银河带典型亮度(淹没银河)。"""
     assert rh.skyglow_level(9) > rh.skyglow_level(1) * 10   # 市中心 >> 荒漠
+
+
+def test_eye_sensitivity_gain_scales_by_magnitude():
+    """NELM 每提升 1 等，对应约 2.512 倍灵敏度增益。"""
+    assert np.isclose(beg.gain_for_nelm(7) / beg.gain_for_nelm(6), 10 ** 0.4)
+    assert np.isclose(beg.gain_for_nelm(11), 100.0)
+
+
+def test_beijing_galactic_center_view_is_above_horizon():
+    """默认北京广角视角对准上中天附近的银心，高度应在地平线上。"""
+    az, alt = beg.galactic_center_altaz(39.9, 17.76)
+    assert 15.0 < alt < 25.0
+    assert 160.0 < az < 200.0
+
+
+def test_perspective_altaz_projection_centers_look_direction():
+    """人眼广角投影应把 look az/alt 放到画面中心。"""
+    px, py, inside = beg.project_perspective_altaz(
+        np.array([180.0]), np.array([20.0]), 180.0, 20.0, 960, 540, 110.0
+    )
+    assert inside[0]
+    assert abs(px[0] - 480) <= 1
+    assert abs(py[0] - 270) <= 1
+
+
+def test_sky_adapted_normalization_equalizes_background():
+    """Median sky adaptation 让不同背景光污染映射到相近背景亮度。"""
+    c1 = np.full((20, 20, 3), 0.01, np.float32)
+    c2 = np.full((20, 20, 3), 1.0, np.float32)
+    n1 = beg.normalize_sky_adapted(c1, target_sky=0.12, gamma=2.2)
+    n2 = beg.normalize_sky_adapted(c2, target_sky=0.12, gamma=2.2)
+    assert np.isclose(np.median(n1.sum(-1)), np.median(n2.sum(-1)))
+
+
+def test_sky_adapted_reduces_star_contrast_in_bright_sky():
+    """同样星光叠加在亮背景上，适应归一后相对对比更低。"""
+    dark = np.full((20, 20, 3), 0.01, np.float32)
+    bright = np.full((20, 20, 3), 1.0, np.float32)
+    dark[10, 10] += 0.1
+    bright[10, 10] += 0.1
+    nd = beg.normalize_sky_adapted(dark, target_sky=0.12, gamma=2.2).sum(-1)
+    nb = beg.normalize_sky_adapted(bright, target_sky=0.12, gamma=2.2).sum(-1)
+    dark_contrast = nd[10, 10] - np.median(nd)
+    bright_contrast = nb[10, 10] - np.median(nb)
+    assert bright_contrast < dark_contrast
 
 
 # ---------- 地平坐标变换 ----------

@@ -227,3 +227,37 @@ The forward perspective FOV was widened by 50%:
 Verification:
 
 - `python -m pytest tests/ -q` -> 30 passed.
+
+## 2026-06-08: Bortle x Eye Sensitivity Grid
+
+Existing outputs already covered the two one-dimensional knobs:
+
+- `outputs/knob_light_pollution.png`: light pollution sweep
+- `outputs/knob_eye_sensitivity.png`: eye sensitivity sweep
+
+What was missing was the combined comparison requested for Bortle 1 vs Bortle 6 under different human-eye sensitivities. Added `src/render_bortle_eye_grid.py`.
+
+The first version used a horizon equirectangular projection, which is still a 360° x 180° all-sky map. That does not match the intended human-view simulation. The default is now a Beijing ground-level wide-angle perspective view, centered near galactic-center culmination.
+
+The normalization also changed. A direct percentile normalization makes light pollution look like “the whole image gets brighter.” Human vision and cameras adapt to the background. The default is now `--normalization sky_median`, which maps each panel’s median sky brightness to a stable gray level. This keeps the sky background comparable while making stars and the Milky Way lose contrast under Bortle 6.
+
+Default grid:
+
+- rows: Bortle 1 and Bortle 6
+- columns: NELM 6, NELM 8, NELM 11
+- projection: Beijing wide-angle perspective, default FOV 110 degrees
+- normalization: median sky adaptation
+- output: `outputs/knob_bortle_eye_grid.png`
+
+Command used:
+
+```bash
+python src/render_bortle_eye_grid.py \
+  --bortles 1,6 \
+  --nelms 6,8,11 \
+  --output outputs/knob_bortle_eye_grid.png
+```
+
+Verification:
+
+- `python -m pytest tests/ -q` -> 35 passed.

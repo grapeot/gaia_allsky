@@ -22,6 +22,8 @@
   倒过来就是"暗空旅行找回银河"。`outputs/knob_light_pollution.png`，依据见 `docs/bortle_skyglow.md`。
 - **眼睛敏感度**（`gain` / 星等 cutoff）：肉眼极限 NELM 6 等（正常人眼）→11 等（超人眼/Gaia 极限）。
   银河从朦胧光带解析成连续星海——"银河一直在，是你的眼睛不够格"。`outputs/knob_eye_sensitivity.png`。
+- **光污染 × 眼睛敏感度**（`render_bortle_eye_grid.py`）：默认生成北京地面广角视角的 Bortle 1/6 × NELM 6/8/11 组合对比，输出
+  `outputs/knob_bortle_eye_grid.png`。默认使用 median sky adaptation，把每个 panel 的背景天空归一到相近灰度，模拟人眼/相机适应后星星和银河相对背景的对比下降。
 - **宇宙位置**（`render_3d`）：Gaia 视差→3D 笛卡尔，观测者平移重投影（平方反比变亮 + 几何重投影）。
   飞出几百 pc，近处星座（北斗）散架，银河带不动（星座是视角幻觉，银河是大尺度结构）。
 
@@ -71,6 +73,7 @@
 src/
   render_starmap.py   基础: 星等→亮度, B-V→星色, 投影, tonemap(linear/gamma/log), accumulate_stars
   render_horizon.py   地平坐标 + skyglow 光污染模型
+  render_bortle_eye_grid.py  Bortle × NELM 组合对比图 CLI
   render_3d.py        3D reproject(视差→笛卡尔, 平移重投影), 鱼眼下俯, blooming, L 轨迹
   motion.py           共享 L 型运动轨迹 + 相机视线方向插值
   render_l_video.py   L 飞行视频 + ffmpeg 合成
