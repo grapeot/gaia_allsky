@@ -72,9 +72,10 @@ src/
   render_starmap.py   基础: 星等→亮度, B-V→星色, 投影, tonemap(linear/gamma/log), accumulate_stars
   render_horizon.py   地平坐标 + skyglow 光污染模型
   render_3d.py        3D reproject(视差→笛卡尔, 平移重投影), 鱼眼下俯, blooming, L 轨迹
+  motion.py           共享 L 型运动轨迹 + 相机视线方向插值
   render_l_video.py   L 飞行视频 + ffmpeg 合成
-  render_vr_video.py  纯 equirectangular VR 飞行视频 CLI
-  render_big_dipper_video.py  朝北斗方向飞行的前向鱼眼视频 CLI
+  render_vr_video.py  纯 equirectangular VR L 型飞行视频 CLI
+  render_big_dipper_video.py  同一条 L 轨迹的前向相机视频 CLI
   video_common.py     多进程逐帧渲染 + 帧落盘 + SDR mp4 合成
   fetch_gaia_3d.py    带 parallax 子集获取
 tests/test_render.py  18 个物理正确性测试
@@ -85,6 +86,8 @@ docs/                 bortle_skyglow.md 等
 
 ## 两版视频 CLI
 
+两个 CLI 共享同一条 L 型运动轨迹：第一段沿银道前进，第二段转向银北极上方。
+区别只在投影和相机朝向：VR 版输出全天 equirectangular，没有单一镜头方向；前向版默认是满画幅 perspective，相机从北斗七星中心方向看起，在第二段平滑转向银北极。
 两个 CLI 都是先并行渲染 PNG 帧，再用 ffmpeg 合成 SDR H.264 mp4；帧目录默认保留。
 `--workers` 默认使用本机全部 CPU 核心，可按内存或 I/O 情况手动降低。
 
@@ -102,7 +105,7 @@ python src/render_big_dipper_video.py \
   --output outputs/big_dipper_forward_lowres.mp4
 ```
 
-高分辨率 VR 可直接把 VR 版本调到 2:1，例如 `--width 8192 --height 4096`。前向版本默认朝北斗七星中心方向看并沿同方向飞，`--look-dir x,y,z` 和 `--flight-dir x,y,z` 可覆盖。
+高分辨率 VR 可直接把 VR 版本调到 2:1，例如 `--width 8192 --height 4096`。前向版本默认 `--projection perspective`，需要旧的圆形鱼眼画面时可显式设 `--projection fisheye`。`--start-look-dir x,y,z` 和 `--end-look-dir x,y,z` 可覆盖相机视线插值端点。
 
 ## 不做
 

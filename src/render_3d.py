@@ -114,6 +114,42 @@ def render_fisheye_lookdir(xyz_star, g_mag, bv, obs_pos, look_dir, S, fov_deg=17
     return cv
 
 
+def render_perspective_lookdir(xyz_star, g_mag, bv, obs_pos, look_dir, W, H, fov_deg=90.0,
+                               up_hint=None, m_ref=8.0, gain=1.0, bloom=True,
+                               bloom_strength=0.5, bloom_sigma=5.0):
+    """Rectilinear forward camera looking along look_dir, filling the full WxH frame."""
+    rel = xyz_star - obs_pos[None, :]
+    d_new = np.sqrt((rel ** 2).sum(-1))
+    d_old = np.sqrt((xyz_star ** 2).sum(-1))
+    svec = rel / np.maximum(d_new[:, None], 1e-9)
+    vis_mag = g_mag + 5.0 * np.log10(np.maximum(d_new, 1e-6) / np.maximum(d_old, 1e-6))
+
+    forward = look_dir / np.linalg.norm(look_dir)
+    up_hint = np.asarray(up_hint if up_hint is not None else [0.0, 0.0, 1.0], dtype=float)
+    if abs(np.dot(forward, up_hint) / max(np.linalg.norm(up_hint), 1e-9)) > 0.95:
+        up_hint = np.array([1.0, 0.0, 0.0])
+    right = np.cross(forward, up_hint)
+    right /= np.linalg.norm(right)
+    up = np.cross(right, forward)
+
+    z = svec @ forward
+    x = svec @ right
+    y = svec @ up
+    tan_half = np.tan(np.radians(fov_deg) / 2.0)
+    aspect = W / H
+    nx = x / np.maximum(z, 1e-9) / (tan_half * aspect)
+    ny = y / np.maximum(z, 1e-9) / tan_half
+    px = ((nx * 0.5 + 0.5) * W).astype(int)
+    py = ((0.5 - ny * 0.5) * H).astype(int)
+    inside = (z > 0) & (np.abs(nx) <= 1) & (np.abs(ny) <= 1) & (px >= 0) & (px < W) & (py >= 0) & (py < H)
+    L = rs.mag_to_luminance(vis_mag, m_ref) * gain
+    cols = rs.bv_to_rgb(bv)
+    cv = rs.accumulate_stars(H, W, px, py, inside, L, cols)
+    if bloom:
+        cv = add_bloom(cv, sigma=bloom_sigma, strength=bloom_strength)
+    return cv
+
+
 def render_3d_frame(xyz_star, g_mag, bv, obs_pos, W, H, m_ref=8.0,
                     psf_px=1.0, gain=1.0, bloom=True, bloom_strength=0.6, bloom_sigma=8.0):
     """渲一帧 3D reproject 全天图(赤道 equirectangular) → (H,W,3) 线性画布。"""

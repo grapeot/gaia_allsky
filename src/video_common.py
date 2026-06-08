@@ -7,6 +7,7 @@ import numpy as np
 
 import render_3d as r3
 import render_starmap as rs
+import motion
 
 
 DATA_DEFAULT = os.path.join(os.path.dirname(__file__), "..", "data", "raw", "gaia_3d_deep.npz")
@@ -14,10 +15,6 @@ OUTPUTS_DIR = os.path.join(os.path.dirname(__file__), "..", "outputs")
 
 
 _CTX = None
-
-
-def ease(t):
-    return 0.5 - 0.5 * np.cos(np.pi * np.clip(t, 0, 1))
 
 
 def unit_from_radec(ra_deg, dec_deg):
@@ -71,8 +68,7 @@ def init_worker(data_path, config):
 
 def render_vr_frame(i):
     cfg = _CTX["config"]
-    t = i / max(cfg["frames"] - 1, 1)
-    obs = cfg["flight_dir"] * (ease(t) * cfg["distance_pc"])
+    obs = cfg["positions"][i]
     canvas = r3.render_3d_frame(
         _CTX["xyz"], _CTX["g"], _CTX["bv"], obs, cfg["width"], cfg["height"],
         gain=1.0, bloom=True, bloom_strength=cfg["bloom_strength"], bloom_sigma=cfg["bloom_sigma"],
@@ -82,20 +78,35 @@ def render_vr_frame(i):
 
 def render_forward_frame(i):
     cfg = _CTX["config"]
-    t = i / max(cfg["frames"] - 1, 1)
-    obs = cfg["flight_dir"] * (ease(t) * cfg["distance_pc"])
-    side = min(cfg["width"], cfg["height"])
-    disk = r3.render_fisheye_lookdir(
-        _CTX["xyz"], _CTX["g"], _CTX["bv"], obs, cfg["look_dir"], side,
+    obs = cfg["positions"][i]
+    look_dir = cfg["look_dirs"][i]
+    if cfg["projection"] == "fisheye":
+        side = min(cfg["width"], cfg["height"])
+        disk = r3.render_fisheye_lookdir(
+            _CTX["xyz"], _CTX["g"], _CTX["bv"], obs, look_dir, side,
+            fov_deg=cfg["fov_deg"], gain=1.0, bloom=True,
+            bloom_strength=cfg["bloom_strength"], bloom_sigma=cfg["bloom_sigma"],
+        )
+        lin = expose(disk, cfg["gamma"], cfg["pct"])
+        frame = np.zeros((cfg["height"], cfg["width"], 3), np.float32)
+        y0 = (cfg["height"] - side) // 2
+        x0 = (cfg["width"] - side) // 2
+        frame[y0:y0 + side, x0:x0 + side] = lin
+        return frame
+    canvas = r3.render_perspective_lookdir(
+        _CTX["xyz"], _CTX["g"], _CTX["bv"], obs, look_dir, cfg["width"], cfg["height"],
         fov_deg=cfg["fov_deg"], gain=1.0, bloom=True,
         bloom_strength=cfg["bloom_strength"], bloom_sigma=cfg["bloom_sigma"],
     )
-    lin = expose(disk, cfg["gamma"], cfg["pct"])
-    frame = np.zeros((cfg["height"], cfg["width"], 3), np.float32)
-    y0 = (cfg["height"] - side) // 2
-    x0 = (cfg["width"] - side) // 2
-    frame[y0:y0 + side, x0:x0 + side] = lin
-    return frame
+    return expose(canvas, cfg["gamma"], cfg["pct"])
+
+
+def shared_l_positions(frames, leg1_pc, leg2_pc, split):
+    return motion.l_motion(frames, leg1_pc=leg1_pc, leg2_pc=leg2_pc, split=split)
+
+
+def shared_l_look_dirs(frames, start_dir, end_dir, phase):
+    return motion.look_path(frames, start_dir, end_dir, phase)
 
 
 def write_frame(index, frame, outdir, save_hdr):

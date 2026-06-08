@@ -2,8 +2,7 @@
 import argparse
 import os
 
-import render_3d as r3
-from video_common import DATA_DEFAULT, OUTPUTS_DIR, assemble_mp4, render_frames_parallel, render_vr_frame
+from video_common import DATA_DEFAULT, OUTPUTS_DIR, assemble_mp4, render_frames_parallel, render_vr_frame, shared_l_positions
 
 
 def build_parser():
@@ -15,7 +14,9 @@ def build_parser():
     p.add_argument("--height", type=int, default=1024)
     p.add_argument("--frames", type=int, default=300)
     p.add_argument("--fps", type=int, default=60)
-    p.add_argument("--distance-pc", type=float, default=400.0)
+    p.add_argument("--leg1-pc", type=float, default=400.0)
+    p.add_argument("--leg2-pc", type=float, default=2500.0)
+    p.add_argument("--split", type=float, default=0.5)
     p.add_argument("--workers", type=int, default=os.cpu_count() or 1)
     p.add_argument("--gamma", type=float, default=2.2)
     p.add_argument("--pct", type=float, default=99.7)
@@ -28,12 +29,12 @@ def build_parser():
 
 
 def config_from_args(args):
+    positions, _phase = shared_l_positions(args.frames, args.leg1_pc, args.leg2_pc, args.split)
     return {
         "width": args.width,
         "height": args.height,
         "frames": args.frames,
-        "distance_pc": args.distance_pc,
-        "flight_dir": r3.flight_direction("galactic_plane"),
+        "positions": positions,
         "gamma": args.gamma,
         "pct": args.pct,
         "bloom_strength": args.bloom_strength,

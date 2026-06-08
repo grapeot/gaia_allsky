@@ -15,6 +15,7 @@ import render_horizon as rh
 import render_big_dipper_video as bdv
 import render_vr_video as rvv
 import video_common as vc
+import motion
 
 DATA = os.path.join(os.path.dirname(__file__), "..", "data", "raw")
 
@@ -168,11 +169,37 @@ def test_vr_cli_config_uses_equirect_dimensions():
 
 
 def test_big_dipper_cli_look_and_flight_default_match():
-    """前向版本默认朝北斗看，也朝北斗方向飞。"""
+    """前向版本默认从北斗视线平滑转向银北极。"""
     args = bdv.build_parser().parse_args(["--frames", "7"])
     cfg = bdv.config_from_args(args)
-    assert np.allclose(cfg["look_dir"], cfg["flight_dir"])
-    assert np.isclose(np.linalg.norm(cfg["look_dir"]), 1.0)
+    assert cfg["positions"].shape == (7, 3)
+    assert cfg["look_dirs"].shape == (7, 3)
+    assert np.isclose(np.linalg.norm(cfg["look_dirs"][0]), 1.0)
+    assert np.isclose(np.linalg.norm(cfg["look_dirs"][-1]), 1.0)
+    assert np.dot(cfg["look_dirs"][0], vc.big_dipper_direction()) > 0.99
+    assert np.dot(cfg["look_dirs"][-1], r3.flight_direction("galactic_pole")) > 0.99
+
+
+def test_shared_l_motion_has_two_legs():
+    """共享 L motion 第一段沿银道，第二段沿银北极。"""
+    positions, phase = motion.l_motion(11, leg1_pc=400, leg2_pc=1000, split=0.5)
+    d1 = r3.flight_direction("galactic_plane")
+    d2 = r3.flight_direction("galactic_pole")
+    assert np.dot(positions[5] / np.linalg.norm(positions[5]), d1) > 0.99
+    delta2 = positions[-1] - positions[5]
+    assert np.dot(delta2 / np.linalg.norm(delta2), d2) > 0.99
+    assert phase[0] == 0
+    assert phase[-1] == 1
+
+
+def test_perspective_render_fills_rectangular_frame():
+    """Perspective 前向相机返回满画幅矩形，不是鱼眼圆盘。"""
+    xyz = r3._radec_dist_to_xyz(np.array([0.0]), np.array([0.0]), np.array([100.0]))
+    g = np.array([2.0])
+    bv = np.array([0.7])
+    frame = r3.render_perspective_lookdir(xyz, g, bv, np.zeros(3), np.array([1.0, 0.0, 0.0]), 80, 40)
+    assert frame.shape == (40, 80, 3)
+    assert frame.sum() > 0
 
 
 # ---------- tonemap 编码 ----------

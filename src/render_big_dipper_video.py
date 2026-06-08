@@ -10,7 +10,10 @@ from video_common import (
     parse_triplet,
     render_forward_frame,
     render_frames_parallel,
+    shared_l_look_dirs,
+    shared_l_positions,
 )
+import render_3d as r3
 
 
 def build_parser():
@@ -22,11 +25,14 @@ def build_parser():
     p.add_argument("--height", type=int, default=1024)
     p.add_argument("--frames", type=int, default=300)
     p.add_argument("--fps", type=int, default=60)
-    p.add_argument("--distance-pc", type=float, default=400.0)
+    p.add_argument("--leg1-pc", type=float, default=400.0)
+    p.add_argument("--leg2-pc", type=float, default=2500.0)
+    p.add_argument("--split", type=float, default=0.5)
     p.add_argument("--workers", type=int, default=os.cpu_count() or 1)
-    p.add_argument("--fov-deg", type=float, default=170.0)
-    p.add_argument("--look-dir", help="Override look direction as normalized x,y,z in equatorial Cartesian coordinates.")
-    p.add_argument("--flight-dir", help="Override flight direction as normalized x,y,z in equatorial Cartesian coordinates.")
+    p.add_argument("--projection", choices=["perspective", "fisheye"], default="perspective")
+    p.add_argument("--fov-deg", type=float, default=100.0)
+    p.add_argument("--start-look-dir", help="Override initial look direction as x,y,z in equatorial Cartesian coordinates.")
+    p.add_argument("--end-look-dir", help="Override final look direction as x,y,z in equatorial Cartesian coordinates.")
     p.add_argument("--gamma", type=float, default=2.2)
     p.add_argument("--pct", type=float, default=99.7)
     p.add_argument("--bloom-strength", type=float, default=0.5)
@@ -38,14 +44,16 @@ def build_parser():
 
 
 def config_from_args(args):
-    default_dir = big_dipper_direction()
+    positions, phase = shared_l_positions(args.frames, args.leg1_pc, args.leg2_pc, args.split)
+    start_dir = parse_triplet(args.start_look_dir) if args.start_look_dir else big_dipper_direction()
+    end_dir = parse_triplet(args.end_look_dir) if args.end_look_dir else r3.flight_direction("galactic_pole")
     return {
         "width": args.width,
         "height": args.height,
         "frames": args.frames,
-        "distance_pc": args.distance_pc,
-        "look_dir": parse_triplet(args.look_dir) if args.look_dir else default_dir,
-        "flight_dir": parse_triplet(args.flight_dir) if args.flight_dir else default_dir,
+        "positions": positions,
+        "look_dirs": shared_l_look_dirs(args.frames, start_dir, end_dir, phase),
+        "projection": args.projection,
         "fov_deg": args.fov_deg,
         "gamma": args.gamma,
         "pct": args.pct,
