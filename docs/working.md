@@ -117,3 +117,30 @@ python src/render_big_dipper_video.py \
 Verification after this change:
 
 - `python -m pytest tests/ -q` -> 26 passed.
+
+## 2026-06-08: Big Dipper Visibility and Look-Down Leg
+
+Two issues showed up in the Big Dipper forward preview.
+
+First, the Big Dipper was technically inside the first frame, but it was hard to recognize as asterism geometry. The projected first-frame star coordinates were roughly x=187-430 and y=255-371 after tightening FOV to 60 degrees. The fix is to draw a thin guide overlay connecting the seven Big Dipper stars. The overlay uses approximate 3D positions for the seven stars, so the connected shape is reprojected every frame and changes with the observer position.
+
+Second, moving literally toward the Big Dipper conflicts with the “stay near the disk, then leave the disk and look down” story. The Big Dipper direction is already close to the galactic pole, so flying toward it moves strongly out of the disk before the second leg. The shared position path is therefore restored to the physically intended L path:
+
+- first leg: move along the galactic center direction inside/near the disk
+- second leg: move toward the galactic pole
+
+The forward camera is independent of the first-leg motion direction:
+
+- first leg look direction: Big Dipper center, with guide-line overlay
+- second leg look direction: `-galactic_pole`, looking back/down toward the region being left behind
+
+Updated behavior:
+
+- `render_big_dipper_video.py` defaults to `--fov-deg 60`, stronger bloom, and Big Dipper guide lines.
+- `--no-dipper-overlay` disables the guide lines.
+- `outputs/big_dipper_first_frame_overlay.png` was generated as a quick QA image for first-frame asterism placement.
+
+Verification:
+
+- `python -m pytest tests/ -q` -> 27 passed.
+- Low-resolution 10-second 60fps previews were regenerated for both VR and Big Dipper outputs.

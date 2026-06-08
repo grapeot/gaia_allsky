@@ -182,8 +182,8 @@ def test_vr_cli_duration_sets_frame_count():
     assert cfg["positions"].shape == (600, 3)
 
 
-def test_big_dipper_cli_default_camera_starts_at_dipper_then_gc():
-    """前向版本默认先看北斗并朝北斗走，第二段看银心。"""
+def test_big_dipper_cli_default_camera_starts_at_dipper_then_looks_down():
+    """前向版本默认先看北斗，第二段向下回望；位置沿银心再上升。"""
     args = bdv.build_parser().parse_args(["--frames", "7"])
     cfg = bdv.config_from_args(args)
     assert cfg["positions"].shape == (7, 3)
@@ -191,9 +191,10 @@ def test_big_dipper_cli_default_camera_starts_at_dipper_then_gc():
     assert np.isclose(np.linalg.norm(cfg["look_dirs"][0]), 1.0)
     assert np.isclose(np.linalg.norm(cfg["look_dirs"][-1]), 1.0)
     assert np.dot(cfg["look_dirs"][0], vc.big_dipper_direction()) > 0.99
-    assert np.dot(cfg["look_dirs"][-1], r3.flight_direction("galactic_plane")) > 0.99
+    assert np.dot(cfg["look_dirs"][-1], -r3.flight_direction("galactic_pole")) > 0.99
     first_leg_dir = cfg["positions"][3] / np.linalg.norm(cfg["positions"][3])
-    assert np.dot(first_leg_dir, vc.big_dipper_direction()) > 0.99
+    assert np.dot(first_leg_dir, r3.flight_direction("galactic_plane")) > 0.99
+    assert cfg["dipper_overlay"]
 
 
 def test_shared_l_motion_has_two_legs():
@@ -216,6 +217,21 @@ def test_perspective_render_fills_rectangular_frame():
     frame = r3.render_perspective_lookdir(xyz, g, bv, np.zeros(3), np.array([1.0, 0.0, 0.0]), 80, 40)
     assert frame.shape == (40, 80, 3)
     assert frame.sum() > 0
+
+
+def test_big_dipper_overlay_projection_inside_first_frame():
+    """默认第一帧看北斗时，北斗连线点应落在 perspective 画面内。"""
+    pts, inside = vc.project_perspective_points(
+        vc.big_dipper_xyz(),
+        np.zeros(3),
+        vc.big_dipper_direction(),
+        640,
+        640,
+        60.0,
+    )
+    assert inside.all()
+    assert pts[:, 0].min() > 150 and pts[:, 0].max() < 500
+    assert pts[:, 1].min() > 200 and pts[:, 1].max() < 450
 
 
 # ---------- tonemap 编码 ----------

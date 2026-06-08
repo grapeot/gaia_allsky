@@ -86,8 +86,8 @@ docs/                 bortle_skyglow.md 等
 
 ## 两版视频 CLI
 
-两个 CLI 共享同一条 L 型运动轨迹：第一段朝北斗七星方向前进，第二段转向银北极、离开银盘。
-区别只在投影和相机朝向：VR 版输出全天 equirectangular，没有单一镜头方向；前向版默认是满画幅 perspective，第一段看向北斗并朝北斗方向走，让北斗形状随视差逐渐改变；第二段相机平滑转向银心方向。
+两个 CLI 共享同一条 L 型运动轨迹：第一段沿银心方向在银盘内前进，第二段转向银北极、离开银盘。
+区别只在投影和相机朝向：VR 版输出全天 equirectangular，没有单一镜头方向；前向版默认是满画幅 perspective，第一段看向北斗七星，并用细线连接七颗星，让北斗形状随视差逐渐改变；第二段相机平滑转成向下回望。
 两个 CLI 都是先并行渲染 PNG 帧，再用 ffmpeg 合成 SDR H.264 mp4；帧目录默认保留。
 `--workers` 默认使用本机全部 CPU 核心，可按内存或 I/O 情况手动降低。
 时间分辨率可用 `--duration` + `--fps` 表达，程序会自动计算帧数；需要精确帧数时仍可直接传 `--frames`。
@@ -106,7 +106,7 @@ python src/render_big_dipper_video.py \
   --output outputs/big_dipper_forward_lowres.mp4
 ```
 
-高分辨率 VR 可直接把 VR 版本调到 2:1，例如 `--width 8192 --height 4096`。前向版本默认 `--projection perspective`，需要旧的圆形鱼眼画面时可显式设 `--projection fisheye`。`--start-look-dir x,y,z` 和 `--end-look-dir x,y,z` 可覆盖相机视线插值端点。
+高分辨率 VR 可直接把 VR 版本调到 2:1，例如 `--width 8192 --height 4096`。前向版本默认 `--projection perspective` 且开启北斗连线；需要旧的圆形鱼眼画面时可显式设 `--projection fisheye`，需要关闭连线时用 `--no-dipper-overlay`。`--start-look-dir x,y,z` 和 `--end-look-dir x,y,z` 可覆盖相机视线插值端点。
 
 ## 不做
 

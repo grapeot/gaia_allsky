@@ -6,7 +6,7 @@ from video_common import (
     DATA_DEFAULT,
     OUTPUTS_DIR,
     assemble_mp4,
-    big_dipper_direction,
+    galactic_center_direction,
     galactic_pole_direction,
     render_frames_parallel,
     render_vr_frame,
@@ -46,7 +46,7 @@ def config_from_args(args):
         args.leg1_pc,
         args.leg2_pc,
         args.split,
-        leg1_dir=big_dipper_direction(),
+        leg1_dir=galactic_center_direction(),
         leg2_dir=galactic_pole_direction(),
     )
     return {

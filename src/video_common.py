@@ -39,6 +39,20 @@ def big_dipper_direction():
     return vec / np.linalg.norm(vec)
 
 
+def big_dipper_xyz():
+    """Approximate 3D positions for the seven Big Dipper stars in parsec."""
+    stars = np.array([
+        [165.93, 61.75, 123.0],
+        [165.46, 56.38, 79.0],
+        [178.46, 53.69, 84.0],
+        [183.86, 57.03, 81.0],
+        [193.51, 55.96, 81.0],
+        [200.98, 54.93, 83.0],
+        [206.89, 49.31, 104.0],
+    ])
+    return r3._radec_dist_to_xyz(stars[:, 0], stars[:, 1], stars[:, 2])
+
+
 def galactic_center_direction():
     return r3.flight_direction("galactic_plane")
 
@@ -119,7 +133,53 @@ def render_forward_frame(i):
         fov_deg=cfg["fov_deg"], gain=1.0, bloom=True,
         bloom_strength=cfg["bloom_strength"], bloom_sigma=cfg["bloom_sigma"],
     )
-    return expose(canvas, cfg["gamma"], cfg["pct"])
+    frame = expose(canvas, cfg["gamma"], cfg["pct"])
+    if cfg.get("dipper_overlay", False):
+        frame = draw_dipper_overlay(frame, obs, look_dir, cfg["fov_deg"], cfg.get("overlay_width", 1))
+    return frame
+
+
+def project_perspective_points(xyz_points, obs_pos, look_dir, W, H, fov_deg):
+    rel = xyz_points - obs_pos[None, :]
+    d = np.sqrt((rel ** 2).sum(-1))
+    svec = rel / np.maximum(d[:, None], 1e-9)
+    forward = look_dir / np.linalg.norm(look_dir)
+    up_hint = np.array([0.0, 0.0, 1.0])
+    if abs(np.dot(forward, up_hint)) > 0.95:
+        up_hint = np.array([1.0, 0.0, 0.0])
+    right = np.cross(forward, up_hint)
+    right /= np.linalg.norm(right)
+    up = np.cross(right, forward)
+    z = svec @ forward
+    x = svec @ right
+    y = svec @ up
+    tan_half = np.tan(np.radians(fov_deg) / 2.0)
+    aspect = W / H
+    nx = x / np.maximum(z, 1e-9) / (tan_half * aspect)
+    ny = y / np.maximum(z, 1e-9) / tan_half
+    px = (nx * 0.5 + 0.5) * W
+    py = (0.5 - ny * 0.5) * H
+    inside = (z > 0) & (np.abs(nx) <= 1) & (np.abs(ny) <= 1)
+    return np.stack([px, py], axis=-1), inside
+
+
+def draw_dipper_overlay(frame, obs_pos, look_dir, fov_deg, width=1):
+    from PIL import Image, ImageDraw
+
+    H, W = frame.shape[:2]
+    pts, inside = project_perspective_points(big_dipper_xyz(), obs_pos, look_dir, W, H, fov_deg)
+    img = Image.fromarray((np.clip(frame, 0, 1) * 255).astype("uint8"))
+    draw = ImageDraw.Draw(img, "RGBA")
+    color = (160, 190, 255, 150)
+    dot_color = (210, 225, 255, 190)
+    for a, b in [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)]:
+        if inside[a] and inside[b]:
+            draw.line((pts[a, 0], pts[a, 1], pts[b, 0], pts[b, 1]), fill=color, width=width)
+    for p, ok in zip(pts, inside):
+        if ok:
+            r = max(2, width + 1)
+            draw.ellipse((p[0] - r, p[1] - r, p[0] + r, p[1] + r), outline=dot_color, width=width)
+    return np.asarray(img).astype(np.float32) / 255.0
 
 
 def shared_l_positions(frames, leg1_pc, leg2_pc, split, leg1_dir=None, leg2_dir=None):

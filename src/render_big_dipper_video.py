@@ -34,13 +34,15 @@ def build_parser():
     p.add_argument("--split", type=float, default=0.5)
     p.add_argument("--workers", type=int, default=os.cpu_count() or 1)
     p.add_argument("--projection", choices=["perspective", "fisheye"], default="perspective")
-    p.add_argument("--fov-deg", type=float, default=100.0)
+    p.add_argument("--fov-deg", type=float, default=60.0)
     p.add_argument("--start-look-dir", help="Override initial look direction as x,y,z in equatorial Cartesian coordinates.")
     p.add_argument("--end-look-dir", help="Override final look direction as x,y,z in equatorial Cartesian coordinates.")
     p.add_argument("--gamma", type=float, default=2.2)
     p.add_argument("--pct", type=float, default=99.7)
-    p.add_argument("--bloom-strength", type=float, default=0.5)
-    p.add_argument("--bloom-sigma", type=float, default=5.0)
+    p.add_argument("--bloom-strength", type=float, default=1.0)
+    p.add_argument("--bloom-sigma", type=float, default=8.0)
+    p.add_argument("--no-dipper-overlay", action="store_true", help="Disable Big Dipper guide lines in perspective mode.")
+    p.add_argument("--overlay-width", type=int, default=1)
     p.add_argument("--save-hdr", action="store_true", help="Also keep 16-bit TIFF frames.")
     p.add_argument("--crf", type=int, default=16)
     p.add_argument("--no-mp4", action="store_true")
@@ -49,7 +51,7 @@ def build_parser():
 
 def config_from_args(args):
     frames = resolve_frame_count(args.frames, args.fps, args.duration)
-    first_leg_dir = big_dipper_direction()
+    first_leg_dir = galactic_center_direction()
     second_leg_dir = galactic_pole_direction()
     positions, phase = shared_l_positions(
         frames,
@@ -59,8 +61,8 @@ def config_from_args(args):
         leg1_dir=first_leg_dir,
         leg2_dir=second_leg_dir,
     )
-    start_dir = parse_triplet(args.start_look_dir) if args.start_look_dir else first_leg_dir
-    end_dir = parse_triplet(args.end_look_dir) if args.end_look_dir else galactic_center_direction()
+    start_dir = parse_triplet(args.start_look_dir) if args.start_look_dir else big_dipper_direction()
+    end_dir = parse_triplet(args.end_look_dir) if args.end_look_dir else -galactic_pole_direction()
     return {
         "width": args.width,
         "height": args.height,
@@ -73,6 +75,8 @@ def config_from_args(args):
         "pct": args.pct,
         "bloom_strength": args.bloom_strength,
         "bloom_sigma": args.bloom_sigma,
+        "dipper_overlay": not args.no_dipper_overlay,
+        "overlay_width": args.overlay_width,
     }
 
 
