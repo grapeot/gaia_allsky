@@ -8,15 +8,15 @@
   <style>
     :root {
       color-scheme: dark;
-      --bg: #070910;
-      --panel: #101520;
-      --panel-2: #151b26;
-      --text: #eef3ff;
-      --muted: #9ca8ba;
-      --line: rgba(213, 226, 255, 0.16);
-      --gold: #d8b46a;
-      --blue: #87a7ff;
-      --cyan: #9ddde2;
+      --bg: #050607;
+      --panel: #0d1117;
+      --panel-2: #121820;
+      --text: #e6edf3;
+      --muted: #8d99a8;
+      --line: rgba(178, 191, 208, 0.18);
+      --gold: #c4ad73;
+      --blue: #93a4b8;
+      --cyan: #a7bbc7;
       --max: 1180px;
     }
 
@@ -37,8 +37,8 @@
     body {
       margin: 0;
       background:
-        radial-gradient(circle at 72% 5%, rgba(82, 111, 202, 0.24), transparent 35rem),
-        radial-gradient(circle at 10% 30%, rgba(216, 180, 106, 0.10), transparent 28rem),
+        radial-gradient(circle at 72% 5%, rgba(84, 104, 126, 0.20), transparent 35rem),
+        radial-gradient(circle at 12% 28%, rgba(124, 111, 84, 0.10), transparent 28rem),
         var(--bg);
       color: var(--text);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
@@ -85,10 +85,10 @@
     .brand-mark {
       width: 24px;
       height: 24px;
-      border: 1px solid rgba(216, 180, 106, 0.7);
+      border: 1px solid rgba(196, 173, 115, 0.62);
       border-radius: 50%;
-      background: radial-gradient(circle at 50% 50%, #f4d487 0 2px, transparent 3px), radial-gradient(circle at 65% 34%, #9ddde2 0 1px, transparent 2px);
-      box-shadow: 0 0 24px rgba(216, 180, 106, 0.28);
+      background: radial-gradient(circle at 50% 50%, #d0bc82 0 2px, transparent 3px), radial-gradient(circle at 65% 34%, #a7bbc7 0 1px, transparent 2px);
+      box-shadow: 0 0 16px rgba(196, 173, 115, 0.18);
     }
 
     .nav {
@@ -113,11 +113,11 @@
     }
 
     .repo-link {
-      border: 1px solid rgba(216, 180, 106, 0.52);
+      border: 1px solid rgba(196, 173, 115, 0.52);
       border-radius: 999px;
       padding: 7px 13px;
-      color: #f4d487;
-      background: rgba(216, 180, 106, 0.08);
+      color: #d2bd82;
+      background: rgba(196, 173, 115, 0.08);
     }
 
     main {
@@ -195,7 +195,7 @@
       justify-content: center;
       min-height: 44px;
       padding: 10px 18px;
-      border-radius: 999px;
+      border-radius: 8px;
       border: 1px solid var(--line);
       background: rgba(255, 255, 255, 0.04);
       color: var(--text);
@@ -204,14 +204,14 @@
 
     .button.primary {
       border-color: rgba(216, 180, 106, 0.74);
-      background: #d8b46a;
-      color: #12100a;
+      background: #c4ad73;
+      color: #11100c;
     }
 
     .hero-plate {
       position: relative;
       border: 1px solid var(--line);
-      border-radius: 28px;
+      border-radius: 16px;
       overflow: hidden;
       background: #03050a;
       box-shadow: 0 30px 90px rgba(0, 0, 0, 0.48);
@@ -230,7 +230,7 @@
       bottom: 18px;
       padding: 14px 16px;
       border: 1px solid var(--line);
-      border-radius: 18px;
+      border-radius: 10px;
       background: rgba(5, 8, 15, 0.94);
       color: #d8e0ee;
       font-size: 14px;
@@ -246,7 +246,7 @@
     .stat {
       padding: 16px;
       border: 1px solid var(--line);
-      border-radius: 18px;
+      border-radius: 12px;
       background: rgba(255, 255, 255, 0.035);
     }
 
@@ -273,7 +273,7 @@
 
     .card {
       border: 1px solid var(--line);
-      border-radius: 24px;
+      border-radius: 14px;
       padding: 24px;
       background: linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.026));
     }
@@ -293,100 +293,113 @@
 
     .showcase {
       display: grid;
-      grid-template-columns: minmax(320px, 430px) minmax(0, 1fr);
-      gap: 34px;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 26px;
       align-items: start;
       margin-top: 34px;
     }
 
-    .bortle-stage {
-      position: sticky;
-      top: 88px;
-      border: 1px solid var(--line);
-      border-radius: 28px;
-      overflow: hidden;
-      background: #02040a;
-    }
-
-    .bortle-stage img {
-      width: 100%;
-      aspect-ratio: 9 / 16;
-      object-fit: cover;
-    }
-
-    .bortle-label {
-      position: absolute;
-      top: 16px;
-      left: 16px;
-      display: inline-flex;
-      gap: 8px;
-      align-items: center;
-      padding: 8px 11px;
-      border-radius: 999px;
-      background: rgba(0, 0, 0, 0.72);
-      color: #f4d487;
-      font-weight: 700;
-    }
-
     .controls {
       border: 1px solid var(--line);
-      border-radius: 24px;
+      border-radius: 16px;
       padding: 22px;
       background: var(--panel);
     }
 
-    .range-row {
+    .bortle-slices {
       display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 16px;
-      align-items: center;
-      margin: 20px 0;
-    }
-
-    input[type="range"] {
-      width: 100%;
-      accent-color: var(--gold);
-    }
-
-    .thumbs {
-      display: grid;
-      grid-template-columns: repeat(9, 1fr);
       gap: 8px;
-      margin-top: 18px;
+      margin-top: 30px;
     }
 
-    .thumb {
-      min-height: 54px;
+    .bortle-slice {
+      position: relative;
+      width: 100%;
+      min-height: 58px;
+      height: 58px;
+      overflow: hidden;
       border: 1px solid var(--line);
       border-radius: 12px;
-      overflow: hidden;
       padding: 0;
-      background: #03050a;
+      background-color: #040506;
+      background-position: center 48%;
+      background-size: cover;
       cursor: pointer;
+      transition: height 180ms ease, border-color 180ms ease, filter 180ms ease;
+      filter: saturate(0.9) brightness(0.78);
+      text-align: left;
     }
 
-    .thumb img {
-      width: 100%;
-      height: 70px;
-      object-fit: cover;
+    .bortle-slice::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg, rgba(5, 6, 7, 0.88), rgba(5, 6, 7, 0.36) 45%, rgba(5, 6, 7, 0.72));
     }
 
-    .thumb span {
-      display: block;
-      padding: 4px 0 6px;
+    .bortle-slice.active {
+      height: min(68vh, 560px);
+      border-color: rgba(196, 173, 115, 0.72);
+      filter: saturate(1) brightness(0.96);
+    }
+
+    .slice-meta {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: 104px 1fr;
+      gap: 18px;
+      align-items: center;
+      min-height: 58px;
+      padding: 14px 18px;
+      color: var(--text);
+    }
+
+    .slice-index {
+      color: var(--gold);
+      font: 700 14px/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .slice-title {
+      font-weight: 740;
+      font-size: 18px;
+    }
+
+    .slice-copy {
+      position: absolute;
+      left: 18px;
+      right: 18px;
+      bottom: 18px;
+      z-index: 1;
+      max-width: 620px;
+      margin: 0;
+      padding: 14px 16px;
+      border: 1px solid rgba(178, 191, 208, 0.20);
+      border-radius: 10px;
+      background: rgba(5, 6, 7, 0.86);
+      color: #cbd5df;
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity 160ms ease, transform 160ms ease;
+    }
+
+    .bortle-slice.active .slice-copy {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .bortle-current {
+      margin-top: 18px;
       color: var(--muted);
-      font-size: 12px;
-    }
-
-    .thumb.active {
-      border-color: var(--gold);
-      box-shadow: 0 0 0 2px rgba(216, 180, 106, 0.18);
+      font-size: 15px;
     }
 
     .comparison-img {
       margin-top: 24px;
       border: 1px solid var(--line);
-      border-radius: 24px;
+      border-radius: 14px;
       overflow: hidden;
       background: #02040a;
     }
@@ -400,7 +413,7 @@
 
     .media-card {
       border: 1px solid var(--line);
-      border-radius: 24px;
+      border-radius: 14px;
       overflow: hidden;
       background: var(--panel);
     }
@@ -423,7 +436,7 @@
 
     .boundary-aside {
       border: 1px solid rgba(216, 180, 106, 0.42);
-      border-radius: 28px;
+      border-radius: 16px;
       padding: 26px;
       background: rgba(216, 180, 106, 0.08);
     }
@@ -441,9 +454,9 @@
       gap: 24px;
       align-items: center;
       border: 1px solid var(--line);
-      border-radius: 28px;
+      border-radius: 16px;
       padding: 30px;
-      background: linear-gradient(135deg, rgba(135, 167, 255, 0.12), rgba(216, 180, 106, 0.08));
+      background: linear-gradient(135deg, rgba(147, 164, 184, 0.10), rgba(196, 173, 115, 0.06));
     }
 
     code {
@@ -486,13 +499,6 @@
         margin: 0 auto;
       }
 
-      .bortle-stage {
-        position: relative;
-        top: auto;
-        max-width: 460px;
-        margin: 0 auto;
-      }
-
       .media-grid,
       .intro-grid,
       .stats {
@@ -517,12 +523,20 @@
         display: none;
       }
 
-      .thumbs {
-        grid-template-columns: repeat(3, 1fr);
+      .bortle-slice.active {
+        height: 420px;
       }
 
-      .range-row {
-        grid-template-columns: 1fr;
+      .slice-meta {
+        grid-template-columns: 58px 1fr;
+        gap: 10px;
+        padding: 12px 14px;
+      }
+
+      .slice-copy {
+        left: 14px;
+        right: 14px;
+        bottom: 14px;
       }
     }
   </style>
@@ -586,23 +600,13 @@
 
     <section id="bortle" class="section" aria-labelledby="bortle-title">
       <p class="eyebrow">交互结果 01</p>
-      <h2 id="bortle-title">拖动 Bortle，观察银河变淡。</h2>
+      <h2 id="bortle-title">从 Bortle 1 扫到 9，观察银河变淡。</h2>
       <div class="showcase">
-        <figure class="bortle-stage">
-          <span class="bortle-label" id="bortleLabel">Bortle 1</span>
-          <img id="bortleImage" src="assets/bortle_1.jpg" alt="Bortle 1 条件下的银河渲染">
-        </figure>
         <div class="controls">
           <h3 id="bortleName">Bortle 1：顶级暗空</h3>
-          <div class="copy" aria-live="polite">
-            <p id="bortleCopy">银河清晰饱满，暗尘埃的纹理和低空亮星同时可见。这就是暗空爱好者在远离城市灯光的地方看到的天空。</p>
-          </div>
-          <div class="range-row">
-            <input id="bortleRange" type="range" min="1" max="9" value="1" step="1" aria-label="选择 Bortle 暗空等级">
-            <strong id="bortleValue">1 / 9</strong>
-          </div>
-          <p class="note-copy">拖动滑块，或点下面 1-9 缩略图。数字越大，天空背景越亮，银河越难分辨。</p>
-          <div class="thumbs" id="bortleThumbs" role="group" aria-label="Bortle 等级缩略图"></div>
+          <p class="note-copy">把鼠标从上往下扫，或点击某一行。每一行是一种天空亮度，展开后就是对应等级的完整预览。</p>
+          <div class="bortle-slices" id="bortleSlices" role="group" aria-label="Bortle 1 到 9 图像切片"></div>
+          <p class="bortle-current" id="bortleCopy" aria-live="polite">Bortle 1 顶级暗空下，银河和暗尘埃结构同时可见。</p>
           <h3 style="margin-top: 26px;">同时看光污染和人眼极限星等</h3>
           <div class="comparison-img">
             <img src="assets/bortle_eye_grid.jpg" alt="Bortle 暗空等级和有效极限星等的交叉对比图">
@@ -682,24 +686,15 @@
       ["Bortle 9：城市中心", "同一片银河始终在天上，只是肉眼和普通屏幕都很难从背景里把它分辨出来。"]
     ];
 
-    const image = document.getElementById("bortleImage");
-    const label = document.getElementById("bortleLabel");
     const name = document.getElementById("bortleName");
     const copy = document.getElementById("bortleCopy");
-    const value = document.getElementById("bortleValue");
-    const range = document.getElementById("bortleRange");
-    const thumbs = document.getElementById("bortleThumbs");
+    const slices = document.getElementById("bortleSlices");
 
     function setBortle(level) {
       const n = Number(level);
-      image.src = `assets/bortle_${n}.jpg`;
-      image.alt = `Bortle ${n} 条件下的银河渲染`;
-      label.textContent = `Bortle ${n}`;
       name.textContent = bortleTexts[n - 1][0];
       copy.textContent = bortleTexts[n - 1][1];
-      value.textContent = `${n} / 9`;
-      range.value = String(n);
-      document.querySelectorAll(".thumb").forEach((button) => {
+      document.querySelectorAll(".bortle-slice").forEach((button) => {
         const active = Number(button.dataset.level) === n;
         button.classList.toggle("active", active);
         button.setAttribute("aria-pressed", String(active));
@@ -708,17 +703,19 @@
 
     for (let n = 1; n <= 9; n += 1) {
       const button = document.createElement("button");
-      button.className = "thumb";
+      button.className = "bortle-slice";
       button.type = "button";
       button.dataset.level = String(n);
-      button.setAttribute("aria-label", `查看 Bortle ${n}`);
+      button.style.backgroundImage = `url("assets/bortle_${n}.jpg")`;
+      button.setAttribute("aria-label", `查看 ${bortleTexts[n - 1][0]}`);
       button.setAttribute("aria-pressed", "false");
-      button.innerHTML = `<img src="assets/bortle_${n}.jpg" alt=""><span>${n}</span>`;
+      button.innerHTML = `<span class="slice-meta"><span class="slice-index">B${n}</span><span class="slice-title">${bortleTexts[n - 1][0].replace("：", " · ")}</span></span><span class="slice-copy">${bortleTexts[n - 1][1]}</span>`;
+      button.addEventListener("pointerenter", () => setBortle(n));
+      button.addEventListener("focus", () => setBortle(n));
       button.addEventListener("click", () => setBortle(n));
-      thumbs.appendChild(button);
+      slices.appendChild(button);
     }
 
-    range.addEventListener("input", (event) => setBortle(event.target.value));
     setBortle(1);
 
     const repoLinks = document.querySelectorAll("[data-repo-link]");
