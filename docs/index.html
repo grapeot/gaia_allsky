@@ -547,46 +547,46 @@
     <section class="hero" aria-labelledby="hero-title">
       <div>
         <p class="eyebrow">Gaia DR3 · 全天星图 · 光污染旋钮</p>
-        <h1 id="hero-title">用 Gaia 真实星表，让银河自己显出来。</h1>
-        <p class="lead">把 Gaia 星表里的恒星按真实位置、星等和颜色逐颗画出来，银河会从恒星密度里自然出现。这个页面把光污染、人眼极限星等和观测位置做成可见的实验。</p>
+        <h1 id="hero-title">用 Gaia 星表，显出银河。</h1>
+        <p class="lead">把 Gaia 星表里的恒星按真实位置、亮度和颜色画出来，银河会在恒星密集的地方显现出来。光污染、人眼极限、观测位置，每一样都可以上手试。调一下参数，画面跟着变。城市里为什么看不到银河，动手试一次就清楚了。</p>
         <div class="hero-actions">
-          <a class="button primary" href="#bortle">先看光污染怎么吞掉银河</a>
+          <a class="button primary" href="#bortle">从 Bortle 1 到 9，看银河怎么消失</a>
           <a class="button" data-repo-link href="https://github.com/grapeot/gaia_allsky">查看代码与复现方法</a>
         </div>
         <div class="stats" aria-label="项目摘要">
           <div class="stat"><strong>Gaia DR3</strong><span>真实恒星位置、星等、颜色</span></div>
           <div class="stat"><strong>Bortle 1-9</strong><span>从顶级暗空到城市中心</span></div>
-          <div class="stat"><strong>3D 视差</strong><span>移动观测者位置看星座散架</span></div>
+          <div class="stat"><strong>3D 视差</strong><span>移动观测者位置看星座散开</span></div>
         </div>
       </div>
       <figure class="hero-plate">
         <img src="assets/hero_milky_way.jpg" alt="广州纬度暗空下的银河地平视角渲染">
-        <figcaption class="plate-caption">广州纬度、Bortle 1 暗空、地平透视相机。星星来自 Gaia，银河来自恒星密度。</figcaption>
+        <figcaption class="plate-caption">广州纬度，Bortle 1 暗空，地平视角渲染。每一颗星都来自 Gaia 星表，银河来自这些星聚在一起的自然密度。</figcaption>
       </figure>
     </section>
 
     <section class="section" aria-labelledby="questions-title">
       <p class="eyebrow">为什么这件事有意思</p>
-      <h2 id="questions-title">普通星图告诉你天空有什么。这个实验问的是：你为什么看不到。</h2>
+      <h2 id="questions-title">这个实验解释城市为什么看不到银河。</h2>
       <div class="intro-grid">
         <article class="card">
-          <h3>光污染抬高了天空背景</h3>
-          <p>城市天空把背景抬亮，低对比度的星光和银河结构被埋进背景里。同一片天空还在那里，只是检测边界变了。</p>
+          <h3>光污染铺了一层底光</h3>
+          <p>城市灯光给天空铺上了一层底光。星光本身的亮度不变。底光越强，能分辨的暗结构就越少。同一片天空始终在天上，变化的是我们能看到多少。</p>
         </article>
         <article class="card">
-          <h3>人眼极限不是固定数值</h3>
-          <p>NELM 指裸眼极限星等，由人眼和天空背景共同决定。Bortle 1 顶级暗空能到约 7.6-8.0 等，常说的 6 等更接近普通暗天口径。</p>
+          <h3>人眼极限随天空亮度而变</h3>
+          <p>裸眼极限星等（NELM）说的是肉眼在最暗处还能看到多暗的星，这个数值由天空背景亮度和人眼灵敏度共同决定。Bortle 1 顶级暗空里，健康眼睛可以看到约 7.6–8.0 等；常说的肉眼可见 6 等，更接近普通暗空的实际情况。</p>
         </article>
         <article class="card">
-          <h3>星座是视角投影</h3>
-          <p>从太阳附近看，北斗像一个熟悉形状。观测者移动几十 pc（秒差距）后，近处恒星重排，星座会散架；银河带来自更大尺度的恒星分布。</p>
+          <h3>星座只是一个看的方向</h3>
+          <p>北斗七星从地球看过去连成一个勺子的形状，只是因为它们大致在我们视线的同一侧。如果移动到几十 pc 之外（1 pc 约 3.26 光年），近处的星在视野里会明显移位，勺子就散开了。银河带则来自更远处、更大范围的恒星分布，换一个角度看也不会消散。</p>
         </article>
       </div>
     </section>
 
     <section id="bortle" class="section" aria-labelledby="bortle-title">
       <p class="eyebrow">交互结果 01</p>
-      <h2 id="bortle-title">拖动 Bortle 等级，看银河如何从暗空里退场。</h2>
+      <h2 id="bortle-title">拖动 Bortle，观察银河变淡。</h2>
       <div class="showcase">
         <figure class="bortle-stage">
           <span class="bortle-label" id="bortleLabel">Bortle 1</span>
@@ -595,7 +595,7 @@
         <div class="controls">
           <h3 id="bortleName">Bortle 1：顶级暗空</h3>
           <div class="copy" aria-live="polite">
-            <p id="bortleCopy">银河清楚，暗尘埃结构和低空亮星都能在同一张图里读出来。这是暗空旅行想找回的那片天空。</p>
+            <p id="bortleCopy">银河清晰饱满，暗尘埃的纹理和低空亮星同时可见。这就是暗空爱好者在远离城市灯光的地方看到的天空。</p>
           </div>
           <div class="range-row">
             <input id="bortleRange" type="range" min="1" max="9" value="1" step="1" aria-label="选择 Bortle 暗空等级">
@@ -608,7 +608,7 @@
             <img src="assets/bortle_eye_grid.jpg" alt="Bortle 暗空等级和有效极限星等的交叉对比图">
           </div>
           <div class="note">
-            <p>上图的横向表示能看到更暗的星，纵向表示天空背景从暗到亮。所有小图使用同一套亮度基准，所以城市天空不会被后期单独提亮。</p>
+            <p>横轴表示能看到多暗的星（极限星等），纵轴表示天空从暗到亮（Bortle 等级）。所有小图使用同一套亮度基准，没有单独给城市天空提亮。</p>
           </div>
         </div>
       </div>
@@ -616,7 +616,7 @@
 
     <section id="flight" class="section" aria-labelledby="flight-title">
       <p class="eyebrow">交互结果 02</p>
-      <h2 id="flight-title">移动观测者位置，星座会散架，银河不会凭空消失。</h2>
+      <h2 id="flight-title">移动位置，星座散开，银河仍在。</h2>
       <div class="media-grid">
         <article class="media-card">
           <video controls playsinline preload="metadata" poster="assets/big_dipper_poster.jpg">
@@ -624,7 +624,7 @@
           </video>
           <div class="media-body">
             <h3>前向透视：先看北斗，再转向银盘</h3>
-            <p>第一段朝北斗方向移动，细线标出七颗星的位置变化。第二段从当前位置斜向飞向银心方向上方，镜头转向银盘目标点。这个视角接近普通相机的一小块视野，方向由镜头决定，适合看星座形状如何变化。预览视频无音频，看画面变化即可。</p>
+            <p>轨迹分两段：第一段朝北斗移动，细线标出了七颗星在空间中位移的过程；第二段转向飞向银心方向上方，镜头始终对准银盘。这是一个普通的前向视角，就像相机取景一样只看前方区域。看的时候注意细线怎么从勺子的形状慢慢散开。预览视频无声，看画面变化即可。</p>
           </div>
         </article>
         <article class="media-card">
@@ -633,7 +633,7 @@
           </video>
           <div class="media-body">
             <h3>VR 全天：同一条轨迹的球面视频</h3>
-            <p>equirectangular 指全天球面展开格式，可以放进手机或 VR 查看器里转头看。它和前向透视使用同一条轨迹，但保留的是整个天空；2:1 画面边缘变形来自展开方式，不是渲染错误。预览视频无音频，看画面变化即可。</p>
+            <p>equirectangular 是一种把整个天球展开成 2:1 矩形图片的格式，放进手机或 VR 头显就可以转头看任意方向。它和前向视频走的是同一条空间轨迹，但保留了你周围整个天空的信息。画面边缘的拉伸变形是球面展开到平面的几何效果，属于格式特征。预览视频无声，看画面变化即可。</p>
           </div>
         </article>
       </div>
@@ -641,14 +641,14 @@
 
     <section id="boundary" class="section boundary" aria-labelledby="boundary-title">
       <aside class="boundary-aside">
-        <strong>边界</strong>
-        <p>这个项目追求定性正确和可解释，不追求测光级精确。</p>
+        <strong>项目的边界</strong>
+        <p>这个项目的目标是定性正确和可解释性。测光级精度验证不在设计范围之内。</p>
       </aside>
       <div class="copy">
         <p class="eyebrow">必须说清楚的部分</p>
-        <h2 id="boundary-title">Gaia 视差数据主要覆盖太阳附近的数据球。</h2>
-        <p>飞行视频能诚实地演示星座散架、局部星场重投影和数据边界。它不能生成真正的银河俯视图，因为 Gaia 可见光视差无法覆盖整个银河盘面。人类也没有银河系俯视照片，常见俯视图来自多波段观测和模型反演。</p>
-        <p>页面里的图像还经过 tone mapping，也就是亮度映射。星等到亮度、坐标投影、视差重投影这些部分有物理锚点；把线性亮度压进 SDR 标准动态范围屏幕，则属于显示层。代码把这两层分开，避免把显示参数说成物理常数。</p>
+        <h2 id="boundary-title">Gaia 视差数据覆盖的是太阳附近的数据球。</h2>
+        <p>飞行视频诚实地展示星座散开、星场重投影、以及数据覆盖的物理边界。当你在视频中移动到数据球边缘时，会看到恒星开始变稀疏：这就是可观测范围的尽头。人类目前还没有银河系的真实俯视照片；常见的银河俯视图来自多波段观测和模型反演。</p>
+        <p>页面图像还经过一道 tone mapping（亮度映射）。恒星的星等转物理亮度、天球坐标投影、视差重投影：这些步骤有物理公式作为锚点。最终要把天文级动态范围的亮度放进普通屏幕（SDR），就需要额外的亮度压缩。代码把这两层分开处理，避免将显示参数说成物理参数。</p>
       </div>
     </section>
 
@@ -656,7 +656,7 @@
       <div class="repo-panel">
         <div>
           <p class="eyebrow">复现与二次开发</p>
-          <h2 id="repo-title">代码、数据获取脚本、测试和渲染命令都在 GitHub 仓库里。</h2>
+          <h2 id="repo-title">代码、数据脚本、测试和渲染命令都在 GitHub 仓库里。</h2>
           <p class="lead">正常渲染和测试不需要密钥。Gaia 缓存和完整输出留在本地，Git 里只放代码、文档、测试和网页压缩资产。</p>
           <p>入口命令：<code>uv venv</code>、<code>uv pip install -r requirements.txt</code>、<code>python -m pytest tests/ -q</code>。</p>
         </div>
@@ -666,20 +666,20 @@
   </main>
 
   <footer>
-    <p>Gaia 全天星空实验。图像和视频由本仓库的渲染脚本生成，网页使用压缩预览资产。</p>
+    <p>Gaia 全天星空实验 · 图像和视频由本仓库的渲染脚本生成，网页使用压缩后的预览资产。</p>
   </footer>
 
   <script>
     const bortleTexts = [
-      ["Bortle 1：顶级暗空", "银河清楚，暗尘埃结构和低空亮星都能在同一张图里读出来。这是暗空旅行想找回的那片天空。"],
-      ["Bortle 2：典型暗空", "银河仍然很完整，天空背景略有抬升，但大尺度结构清楚。"],
-      ["Bortle 3：乡村天空", "银河还在，细节开始变少。对普通观测者来说，这已经是很好的天空。"],
-      ["Bortle 4：乡郊过渡", "天空背景继续变亮，银河从结构清楚变成一条低对比光带。"],
-      ["Bortle 5：郊区天空", "亮星还明显，银河主体开始难以稳定辨认。"],
-      ["Bortle 6：明亮郊区", "低对比结构基本被背景吞掉，只剩少量亮星。"],
-      ["Bortle 7：城市边缘", "银河几乎退出画面。天空还不是全白，但检测边界已经把大部分结构排除在外。"],
-      ["Bortle 8：城市天空", "画面里主要剩下天空背景和少数亮星。"],
-      ["Bortle 9：城市中心", "同一片银河仍在天上，但肉眼和普通显示都很难从背景里把它分出来。"]
+      ["Bortle 1：顶级暗空", "银河清晰饱满，暗尘埃的纹理和低空亮星同时可见。这就是暗空爱好者在远离城市灯光的地方看到的天空。"],
+      ["Bortle 2：典型暗空", "银河仍然完整，天空背景仅微微抬升，大尺度结构依然清楚。"],
+      ["Bortle 3：乡村天空", "银河还在，但细碎的暗尘埃纹理开始减少。对于多数观测者来说，这已经是很好的天空。"],
+      ["Bortle 4：乡郊过渡", "天空背景继续变亮，银河从清晰的结构变成一条低对比度的光带。"],
+      ["Bortle 5：郊区天空", "亮星仍然明显，但银河主体已经开始难以稳定辨认。"],
+      ["Bortle 6：明亮郊区", "低对比度的结构基本被背景遮蔽，画面里主要剩下亮星。"],
+      ["Bortle 7：城市边缘", "银河在画面中已经很难看到。天空还不是全白，但大部分暗弱结构已经低于可分辨的门槛。"],
+      ["Bortle 8：城市天空", "画面里主要剩下天空背景和屈指可数的亮星。"],
+      ["Bortle 9：城市中心", "同一片银河始终在天上，只是肉眼和普通屏幕都很难从背景里把它分辨出来。"]
     ];
 
     const image = document.getElementById("bortleImage");

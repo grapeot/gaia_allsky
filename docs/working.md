@@ -1,504 +1,97 @@
-# Working Notes
+# 工作记录
 
-## 2026-06-08: Split L-flight Video Into Two CLIs
+## Changelog
 
-Goal: keep the existing mixed `render_l_video.py` behavior intact, but add two separate render paths so viewers do not need to switch between VR/equirectangular and fisheye viewing modes inside one video.
+### 2026-06-08
 
-Implemented:
+- 新增 `src/video_common.py`：共享的 SDR 视频渲染辅助（数据加载、缓动函数、北斗七星方向、并行帧渲染、PNG/TIFF 帧写入、H.264 mp4 合成）。M3 Ultra 主机为 32 核，`--workers` 默认 `os.cpu_count()`，工作进程直写磁盘避免 IPC 传大帧数组。
 
-- Added `src/video_common.py` for shared SDR video rendering helpers: data loading, easing, Big Dipper direction, parallel frame rendering, PNG/TIFF frame writing, and H.264 mp4 assembly.
-- Added `src/render_vr_video.py` for a pure equirectangular VR flight along the galactic plane.
-- Added `src/render_big_dipper_video.py` for a forward fisheye flight looking and flying toward the Big Dipper center.
-- Added CLI flags for resolution, frame count, fps, worker count, output paths, CRF, optional 16-bit TIFF frame retention, and direction overrides.
-- Kept frame directories as first-class outputs; ffmpeg runs only after frames are written.
+- 新增 `src/render_vr_video.py`：等距柱状 VR 飞行。新增 `src/render_big_dipper_video.py`：前向飞行（面向北斗七星中心）。CLI 参数：分辨率、帧数、帧率、worker 数、输出路径、CRF、可选 16 位 TIFF 帧保留、方向覆盖。帧目录为独立输出，ffmpeg 仅在帧全部写完后运行。低分辨率预览：`outputs/vr_equirect_lowres.mp4`（640x320, 30fps, 60 帧）与 `outputs/big_dipper_forward_lowres.mp4`（640x640, 30fps, 60 帧）。`pytest` -> 22 passed。
 
-Parallelization:
+- **修正：共享运动轨迹，分离投影方式。** 第一次拆分错误地让 VR 和前向视频使用不同路径。新增 `src/motion.py` 统一 L 形路径（先沿银道面，再飞向银极）。两个视频使用相同位置序列，仅投影不同。前向渲染器默认改用 `perspective` 矩形投影，`--projection fisheye` 可选。首帧 QA：七颗北斗星投影在 640x640 内（x=255–373, y=288–345），若不易辨认是因为缺少连线叠加而非指向错误。`pytest` -> 24 passed。
 
-- The M3 Ultra host reports 32 CPU cores.
-- The new CLIs default `--workers` to `os.cpu_count()` and were tested with `--workers 32`.
-- Workers write frames directly to disk, avoiding large frame-array IPC back to the parent process. This matters for future 8K equirectangular rendering.
+- **时长参数。** CLI 新增 `--duration`（如 `--duration 10 --fps 60` 自动得 600 帧），`--frames` 仍可用于精确帧数。空间与时间分辨率分离。
 
-Low-resolution previews generated:
+- **前向相机修正。** 第一段运动方向改为北斗七星中心方向，第二段为银极方向；初始视线为北斗七星中心，终端视线为银心；第二段内 slerp 插值。`pytest` -> 26 passed。
 
-```bash
-python src/render_vr_video.py \
-  --width 640 --height 320 --frames 60 --fps 30 --workers 32 \
-  --frames-dir outputs/vr_equirect_lowres_frames \
-  --output outputs/vr_equirect_lowres.mp4
+- **北斗七星可见性。** FOV 收紧至 60°（首帧星点 x=187–430, y=255–371）。新增北斗七星引导线叠加层（七颗星的 3D 近似位置，逐帧重投影）。`--no-dipper-overlay` 可禁用。生成了 `outputs/big_dipper_first_frame_overlay.png` 作为 QA。`pytest` -> 27 passed。
 
-python src/render_big_dipper_video.py \
-  --width 640 --height 640 --frames 60 --fps 30 --workers 32 \
-  --frames-dir outputs/big_dipper_forward_lowres_frames \
-  --output outputs/big_dipper_forward_lowres.mp4
-```
+- **路径恢复为 L 形。** 飞向北斗七星会在第一段就离开银盘（北斗七星方向接近银极），与叙事冲突。共享路径恢复：第一段沿银心方向，第二段飞向银极。前向相机独立：第一段视线为北斗七星中心（附引导线），第二段视线为 `-galactic_pole` 回望被离开的区域。
 
-Verification:
+- **北斗七星优先轨迹。** 第一段目标 `big_dipper_direction * leg1_pc`，第二段目标 `galactic_center_direction * leg1_pc + galactic_pole_direction * leg2_pc`。辉光降至 `--bloom-strength 0.35 --bloom-sigma 3.0`。`pytest` -> 28 passed。
 
-- `python -m pytest tests/ -q` -> 22 passed.
-- `outputs/vr_equirect_lowres_frames/` contains 60 PNG frames.
-- `outputs/big_dipper_forward_lowres_frames/` contains 60 PNG frames.
-- `outputs/vr_equirect_lowres.mp4`: H.264, `yuv420p`, 640x320, 30 fps, 60 frames, 2 seconds.
-- `outputs/big_dipper_forward_lowres.mp4`: H.264, `yuv420p`, 640x640, 30 fps, 60 frames, 2 seconds.
+- **缩短第一段至 50pc。** 400pc 会飞过变形窗口。旧预览第 68 帧对应约 48.9pc。默认值：`--leg1-pc 50`, `--target-gc-pc 400`, `--leg2-pc 2500`。第二段目标独立于 `leg1_pc`：`target = galactic_center_direction * target_gc_pc + galactic_pole_direction * leg2_pc`。`pytest` -> 29 passed。
 
-Notes for next render pass:
+- **修正最终相机 bug。** 代码用固定的银心方向向量作终视线，从银盘上方望出去几乎平行于银盘（仅约 1,212 颗星）。改为看向银盘目标 `galactic_center_direction * target_gc_pc`（约 1,088,974 颗星）。`--end-look-dir` 可覆盖。`pytest` -> 29 passed。
 
-- Full VR target can be produced by increasing `render_vr_video.py` to `--width 8192 --height 4096` and using the desired frame count/fps.
-- The forward version is currently fisheye because `render_3d.render_fisheye_lookdir` already exists. A rectilinear/perspective renderer would be a separate addition if a non-fisheye forward camera is preferred.
-- Preview frames and videos remain under `outputs/`, which is gitignored.
+- **相机转向与位置解耦。** `--look-transition-sec 2.0`：第二段开始后 2 秒内完成转向，之后注视银盘目标，位置仍在整段第二段中缓动。前向 FOV 从 60° 放宽至 90°。`pytest` -> 30 passed。
 
-## 2026-06-08: Correction - Shared Motion, Separate Projection
+- 新增 `src/render_bortle_eye_grid.py`：Bortle 1 与 Bortle 6 × 肉眼感光度（+0/+2/+4mag）的 2×3 组合对比。默认广州地平线窗口视图（`--lat-deg 23.13`，银心中天时间），投影 `horizon_window`（后改为透视相机），归一化 `--normalization sky_median`（中位天空自适应而非百分位归一化）。输出 `outputs/knob_bortle_eye_grid.png`。命令：`python src/render_bortle_eye_grid.py --bortles 1,6 --eye-deltas 0,2,4 --output outputs/knob_bortle_eye_grid.png`。`pytest` -> 35 passed。
 
-The first split had a conceptual mistake: it made the VR video and the Big Dipper forward video use different motion paths. The intended design is different. Both outputs should render the same L-shaped motion; only the camera projection differs.
+- **透视地平线相机。** `horizon_window` 从线性 az/alt 展开改为透视相机：水平 FOV 90°，垂直 FOV 75°，底部中心射线为地平线，相机以银心方位角为中心。色调映射增加高光压缩（`--white-pct 99.5`）。`pytest` -> 37 passed。
 
-Updated model:
+- **竖版默认值。** 面板尺寸 1080×1920，3×2 网格为 3240×3840，3×3 Bortle 分级网格为 3240×5760。`outputs/knob_bortle_eye_grid.png` 为正式视觉输出，SNR 模式仅用于调试。
 
-- Added `src/motion.py` for the shared L-shaped path and direction interpolation.
-- `render_vr_video.py` now renders the full L path: first along the galactic plane, then upward toward the galactic pole.
-- `render_big_dipper_video.py` uses the same position sequence as VR.
-- The forward camera starts by looking toward the Big Dipper center and smoothly tilts toward the galactic pole during the second leg.
-- The forward renderer now defaults to full-frame `perspective`, so the preview is rectangular rather than a circular fisheye disk.
-- `--projection fisheye` remains available for the old circular fisheye look.
+- **SNR 调试模式。** 新增 `--mode snr`：SNR = source * exposure / sqrt(source * exposure + sky * exposure + read_noise²)。在相同总曝光下 Bortle 6 始终不如 Bortle 1。命令：`python src/render_bortle_eye_grid.py --bortles 1,6 --exposures 1,10,100 --mode snr --normalization percentile --output outputs/knob_bortle_exposure_snr_grid.png`。非正式交付物。
 
-Current CLI semantics:
+- **Bortle 1–9 分级序列。** 广州视图（银心约 39° 高度角），3×3 网格。命令：`python src/render_bortle_eye_grid.py --bortles 1,2,3,4,5,6,7,8,9 --eye-deltas 0 --columns-per-row 3 --output outputs/knob_bortle_scale_grid.png`。
 
-```bash
-python src/render_vr_video.py \
-  --width 640 --height 320 --frames 60 --fps 30 --workers 32 \
-  --leg1-pc 400 --leg2-pc 2500 \
-  --frames-dir outputs/vr_equirect_lowres_frames \
-  --output outputs/vr_equirect_lowres.mp4
+- **背景归一化优化。** `--target-sky` 从 0.12 降为 0.03（解决 Bortle 1 发灰）。背景估计从全图中位数改为低百分位（`--sky-pct 25`）。高光压缩不再按白点整体缩放图像。Bortle 面板 p25 RGB 和稳定于约 0.365。
 
-python src/render_big_dipper_video.py \
-  --width 640 --height 640 --frames 60 --fps 30 --workers 32 \
-  --leg1-pc 400 --leg2-pc 2500 --projection perspective \
-  --frames-dir outputs/big_dipper_forward_lowres_frames \
-  --output outputs/big_dipper_forward_lowres.mp4
-```
+- **恢复恒星对比度。** 将天空底板与信号分离：`--sky-pct 25` 估计天空 → 映射到 `--target-sky 0.03` → 用 `--star-contrast 4.0` 提升高于背景的信号 → `--white-pct 99.5` 压缩高光。暗天 +4mag 面板可能高光饱和，可降至 `--star-contrast 3`。`pytest` -> 39 passed。
 
-Verification after correction:
+- **NELM 锚定。** 旧 `limiting_mag_for_sky()` 使 Bortle 1–9 的极限星等仅从 4.50 变到 4.24，与经验值差异巨大。改用经验 Bortle/NELM 表：B1=7.8, B2=7.3, B3=6.8, B4=6.3, B5=5.8, B6=5.3, B7=4.8, B8=4.3, B9=4.0。公式：`effective_nelm = empirical_bortle_nelm + sensitivity_delta_mag`。刚好处于 `effective_nelm` 的恒星赋予固定点源对比度（`--limiting-contrast` 默认 0.5），更亮星按 Pogson 标度缩放。消除了 `+2mag` 双重计数（既平移极限星等又乘增益）。极限对比度 0.5（从 0.08 提升）保持 Bortle 1 银河在 SDR 中可见。
 
-- `python -m pytest tests/ -q` -> 24 passed.
-- `outputs/vr_equirect_lowres_frames/` contains 60 PNG frames.
-- `outputs/big_dipper_forward_lowres_frames/` contains 60 PNG frames.
-- `outputs/vr_equirect_lowres.mp4`: H.264, `yuv420p`, 640x320, 30 fps, 60 frames, 2 seconds.
-- `outputs/big_dipper_forward_lowres.mp4`: H.264, `yuv420p`, 640x640, 30 fps, 60 frames, 2 seconds.
-- First-frame Big Dipper QA: all seven Big Dipper stars project inside the 640x640 perspective frame, roughly x=255-373 and y=288-345. If the asterism is hard to recognize visually, the issue is lack of constellation line/marker overlay, not camera pointing.
+- **双层 PSF 渲染。** 物理锚定的 1px 星点场在全宽 3240px 网格被 UI 缩小后显得空洞。改为 `--point-psf-px 1.0`（锐利点源层，亮星）+ `--psf-px 6.0 --diffuse-strength 1.0`（宽扩散层，银河辉光与缩小预览）。
 
-## 2026-06-08: Duration Flag and Forward Camera Correction
+- **参考拉伸。** 纯靠逐面板归一化会掩盖光污染差异。改为：每面板独立调整天空底板 → 用共享参考面板从 `--white-pct` 到 `--target-white` 计算单一信号拉伸 → 同一拉伸应用于所有面板。NELM 锚定的最终测量值 `outputs/knob_bortle_scale_grid.png`：Bortle 1 p25/50/95/99.5 = 93/102/162/286，Bortle 6 = 93/98/141/262，Bortle 9 = 93/93/96/110。`outputs/knob_bortle_eye_grid.png`：Bortle 1 +0mag = 93/94/109/150，Bortle 1 +4mag = 96/137/326/620，Bortle 6 +0mag = 93/93/95/103，Bortle 6 +4mag = 93/99/144/273。`pytest` -> 45 passed。
 
-Two clarifications changed the CLI defaults.
+- **最终 Bortle 网格调优。** 宽 PSF 辉光强度降至 0.33，`--target-white` 设为 2.0。新增 `--reference-bortle` 和 `--reference-value`。感光度网格默认 `--reference-mode brightest`（Bortle 1/+4mag 为参考）。Bortle 分级网格用 `--reference-bortle 1 --reference-value 2` 匹配 `knob_bortle_eye_grid.png` 中 Bortle 1/+2mag 效果，Bortle 7–9 保持暗黑。这里的 reference 只改变显示校准，不改变物理星等或 skyglow。
 
-First, spatial resolution and temporal resolution are separate controls. The CLIs now accept `--duration` so callers can say `--duration 10 --fps 60`; the program computes 600 frames internally. `--frames` remains available when exact frame count is preferred.
+- **最终渲染命令：**
+  ```bash
+  python src/render_bortle_eye_grid.py --bortles 1,6 --eye-deltas 0,2,4 --output outputs/knob_bortle_eye_grid.png
+  python src/render_bortle_eye_grid.py --bortles 1,2,3,4,5,6,7,8,9 --eye-deltas 0 --columns-per-row 3 --reference-bortle 1 --reference-value 2 --output outputs/knob_bortle_scale_grid.png
+  ```
 
-Second, the forward camera and first-leg motion should start toward the Big Dipper. The intended effect is that the familiar Big Dipper shape is initially obvious, then changes as the observer flies toward it and the nearby bright stars reproject. During the second leg, motion leaves the disk toward the galactic pole while the camera turns toward the galactic center. Updated defaults:
+- **高清视频渲染。** 最终命令如下：
+  ```bash
+  python src/render_vr_video.py \
+    --width 4096 --height 2048 --duration 10 --fps 60 --workers 32 \
+    --leg1-pc 50 --target-gc-pc 400 --leg2-pc 2500 \
+    --frames-dir outputs/vr_equirect_hires_frames \
+    --output outputs/vr_equirect_hires.mp4
 
-- first leg motion: Big Dipper center direction
-- second leg motion: galactic pole direction
-- start look direction: Big Dipper center direction
-- end look direction: galactic center direction
-- interpolation: smooth slerp driven by second-leg phase
+  python src/render_big_dipper_video.py \
+    --width 2160 --height 2160 --duration 10 --fps 60 --workers 32 \
+    --leg1-pc 50 --target-gc-pc 400 --leg2-pc 2500 \
+    --frames-dir outputs/big_dipper_forward_hires_frames \
+    --output outputs/big_dipper_forward_hires.mp4
+  ```
+  输出为 `outputs/vr_equirect_hires.mp4`（H.264，`yuv420p`，4096×2048，60fps，600 帧）和 `outputs/big_dipper_forward_hires.mp4`（H.264，`yuv420p`，2160×2160，60fps，600 帧）。`pytest` -> 48 passed。
 
-Updated 10-second low-resolution preview commands:
+## Lessons Learned
 
-```bash
-python src/render_vr_video.py \
-  --width 640 --height 320 --duration 10 --fps 60 --workers 32 \
-  --leg1-pc 400 --leg2-pc 2500 \
-  --frames-dir outputs/vr_equirect_lowres_frames \
-  --output outputs/vr_equirect_lowres.mp4
+- VR 视频与前向视频共享同一个位置路径（`src/motion.py`），仅在投影和相机倾向上分化。不要在两个 CLI 里各自重新计算位置，否则出现路径不一致。
 
-python src/render_big_dipper_video.py \
-  --width 640 --height 640 --duration 10 --fps 60 --workers 32 \
-  --leg1-pc 400 --leg2-pc 2500 --projection perspective \
-  --frames-dir outputs/big_dipper_forward_lowres_frames \
-  --output outputs/big_dipper_forward_lowres.mp4
-```
+- 最终默认路径分两段：第一段沿 `big_dipper_direction()` 朝北斗方向短距离移动；第二段飞向 `galactic_center_direction() * target_gc_pc + galactic_pole_direction() * leg2_pc`，也就是银心方向上方的目标点。前向相机的视线独立插值，第一段看北斗，第二段 look-at 银盘目标点。
 
-Verification after this change:
+- 前向相机视线过渡与位置缓动是两个独立的时序控制，不要共用同一个 phase 变量。用 `--look-transition-sec` 控制相机转向窗口。
 
-- `python -m pytest tests/ -q` -> 26 passed.
+- 前向相机从高处望银盘时，终端视线必须用 look-at（指向银盘目标点），不能用固定方向向量，否则几乎看不到星。
 
-## 2026-06-08: Big Dipper Visibility and Look-Down Leg
+- `horizon_window` 投影必须用透视相机（rectilinear），不能是线性 az/alt 展开，否则不符合人眼/相机视觉。
 
-Two issues showed up in the Big Dipper forward preview.
+- Bortle × 感光度对比的真实物理锚点是经验 NELM（肉眼极限星等），不是凭空设计的天空直方图。务必引用经验表：Bortle 1 NELM≈7.8，Bortle 6 NELM≈5.3。不要用自拟合的 SNR 模型替代：旧 `limiting_mag_for_sky()` 根本拉不开 Bortle 阶梯。
 
-First, the Big Dipper was technically inside the first frame, but it was hard to recognize as asterism geometry. The projected first-frame star coordinates were roughly x=187-430 and y=255-371 after tightening FOV to 60 degrees. The fix is to draw a thin guide overlay connecting the seven Big Dipper stars. The overlay uses approximate 3D positions for the seven stars, so the connected shape is reprojected every frame and changes with the observer position.
+- NELM 是给定天空背景下的裸眼极限星等，不是眼睛硬件的固定规格。`+2mag` 表示在当前 Bortle baseline 上把有效极限星等提高 2 等。
 
-Second, moving literally toward the Big Dipper conflicts with the “stay near the disk, then leave the disk and look down” story. The Big Dipper direction is already close to the galactic pole, so flying toward it moves strongly out of the disk before the second leg. The shared position path is therefore restored to the physically intended L path:
+- `+2mag` 不应同时平移极限星等又乘渲染增益（双重计数）。感光度变更只应改变 `effective_nelm`，所有恒星亮度按 Pogson 标度相对该极限缩放。
 
-- first leg: move along the galactic center direction inside/near the disk
-- second leg: move toward the galactic pole
+- 显示拉伸必须基于共享参考面板（user-specified reference），不能逐面板独立拉伸到 white，否则归一化会掩盖光污染差异。
 
-The forward camera is independent of the first-leg motion direction:
+- 输出网格在 UI 中缩小后，1px 星点会导致银河/星场空洞。必须用双层 PSF：锐利点源层（`--point-psf-px 1.0`）加宽扩散层（`--psf-px 6.0 --diffuse-strength`）。
 
-- first leg look direction: Big Dipper center, with guide-line overlay
-- second leg look direction: `-galactic_pole`, looking back/down toward the region being left behind
+- `--target-sky` 设为 0.03（不是 0.12），背景估计用低百分位（`--sky-pct 25`）。全图中位数会被大面积银河拉高，导致暗天面板发灰。
 
-Updated behavior:
-
-- `render_big_dipper_video.py` defaults to `--fov-deg 60`, stronger bloom, and Big Dipper guide lines.
-- `--no-dipper-overlay` disables the guide lines.
-- `outputs/big_dipper_first_frame_overlay.png` was generated as a quick QA image for first-frame asterism placement.
-
-Verification:
-
-- `python -m pytest tests/ -q` -> 27 passed.
-- Low-resolution 10-second 60fps previews were regenerated for both VR and Big Dipper outputs.
-
-## 2026-06-08: Big Dipper-First Trajectory and Softer Bloom
-
-The forward preview should physically move toward the Big Dipper during the first leg, not merely look at it. The second leg should then head toward a point above the galactic center, with the camera turning toward the galactic center.
-
-Updated shared position path:
-
-- first leg target: `big_dipper_direction * leg1_pc`
-- second leg target: `galactic_center_direction * leg1_pc + galactic_pole_direction * leg2_pc`
-- both VR and forward videos use this same position sequence
-
-Updated forward camera path:
-
-- start look direction: Big Dipper center
-- end look direction: galactic center
-- interpolation: smooth slerp driven by second-leg phase
-
-Visual tuning:
-
-- Forward preview default FOV remains 60 degrees so the Big Dipper occupies a meaningful part of the frame.
-- Bloom was reduced to `--bloom-strength 0.35 --bloom-sigma 3.0`, because the previous default was too large for the tighter perspective view.
-
-Verification:
-
-- `python -m pytest tests/ -q` -> 28 passed.
-
-## 2026-06-08: Use Old Frame 68 as First-Leg Endpoint
-
-The 400pc first leg flies past the useful Big Dipper deformation window. In the 10-second 60fps preview, frame 68 of the old 400pc first leg corresponds to about 48.9pc along the eased first-leg path. This is close to the desired state: the Big Dipper remains in frame, visibly deforms, and has not been overflown.
-
-Updated defaults:
-
-- `--leg1-pc 50`: first leg endpoint, toward Big Dipper
-- `--target-gc-pc 400`: horizontal galactic-center component of the second-leg target
-- `--leg2-pc 2500`: vertical galactic-pole component of the second-leg target
-
-The second-leg target is now independent of `leg1_pc`:
-
-```text
-target = galactic_center_direction * target_gc_pc + galactic_pole_direction * leg2_pc
-```
-
-This keeps the first leg short enough for the Big Dipper shape study while still sending the second leg toward a meaningful point above the galactic-center direction.
-
-Verification:
-
-- `python -m pytest tests/ -q` -> 29 passed.
-
-## 2026-06-08: Fix Final Camera to Look At the Disk Target
-
-The sparse final Big Dipper forward view came from a camera semantics bug. The code used a fixed “galactic center direction” vector as the final look direction. From a point above the disk, that means looking roughly parallel to the disk from an elevated position, not looking at the disk/galaxy target below.
-
-Diagnostic star counts in the final 60-degree FOV:
-
-- fixed galactic-center direction: about 1,212 Gaia stars
-- look-at disk target (`galactic_center_direction * target_gc_pc`): about 1,088,974 Gaia stars
-
-Updated default camera behavior:
-
-- first leg: look toward Big Dipper center
-- second leg: smoothly transition to looking at the fixed disk target point
-- `--end-look-dir` remains available as an explicit override for fixed direction experiments
-
-Verification:
-
-- `python -m pytest tests/ -q` -> 29 passed.
-
-## 2026-06-08: Faster Camera Turn and Wider Forward FOV
-
-The second leg looked better when the camera turn completed early, then held on the disk target while the observer kept moving. The forward CLI now separates camera turn timing from position interpolation:
-
-- `--look-transition-sec 2.0` by default: after the second leg starts, the camera finishes turning in 2 seconds of video time.
-- Position motion still eases over the full second leg.
-- Look phase is computed from frame time, not from position easing phase.
-
-The forward perspective FOV was widened by 50%:
-
-- old default: `--fov-deg 60`
-- new default: `--fov-deg 90`
-
-Verification:
-
-- `python -m pytest tests/ -q` -> 30 passed.
-
-## 2026-06-08: Bortle x Eye Sensitivity Grid
-
-Existing outputs already covered the two one-dimensional knobs:
-
-- `outputs/knob_light_pollution.png`: light pollution sweep
-- `outputs/knob_eye_sensitivity.png`: eye sensitivity sweep
-
-What was missing was the combined comparison requested for Bortle 1 vs Bortle 6 under different human-eye sensitivities. Added `src/render_bortle_eye_grid.py`.
-
-The first version used a horizon equirectangular projection, which is still a 360° x 180° all-sky map. That does not match the intended human-view simulation. The default is now a low-latitude Guangzhou ground-level sky window centered near galactic-center culmination, so the Milky Way is higher and more recognizable than in Beijing.
-
-The normalization also changed. A direct percentile normalization makes light pollution look like “the whole image gets brighter.” Human vision and cameras adapt to the background. The default is now `--normalization sky_median`, which maps each panel’s median sky brightness to a stable gray level. This keeps the sky background comparable while making stars and the Milky Way lose contrast under Bortle 6.
-
-Default adapted-vision grid:
-
-- rows: Bortle 1 and Bortle 6
-- columns: sensitivity cost +0mag, +2mag, +4mag
-- panel labels include computed NELM; NELM is an output, not a CLI input
-- projection: Guangzhou horizon-window view, horizon on the lower edge
-- normalization: median sky adaptation
-- output: `outputs/knob_bortle_eye_grid.png`
-
-Command used:
-
-```bash
-python src/render_bortle_eye_grid.py \
-  --bortles 1,6 \
-  --eye-deltas 0,2,4 \
-  --output outputs/knob_bortle_eye_grid.png
-```
-
-Verification:
-
-- `python -m pytest tests/ -q` -> 35 passed.
-
-## 2026-06-08: Horizon-Bottom View and Highlight Compression
-
-The wide-angle perspective view still felt clipped because the horizon was not a stable visual baseline. The default projection for `render_bortle_eye_grid.py` is now `horizon_window`, implemented as a rectilinear camera rather than a linear az/alt unwrap:
-
-- camera azimuth: centered on the galactic-center azimuth
-- bottom-center ray: horizon
-- vertical FOV: `--max-alt-deg`
-- horizontal FOV: `--az-width-deg`
-
-This makes the bottom edge a horizontal horizon line and the image read as “standing in Guangzhou, looking upward,” not as a VR all-sky unwrap.
-
-The tone mapping now also compresses highlights after median sky adaptation:
-
-- median sky adaptation handles background brightness adaptation
-- `--white-pct 99.5` maps a high percentile to white
-- a small fraction of saturated pixels is allowed, but large overexposed regions are avoided
-
-Verification:
-
-- `python -m pytest tests/ -q` -> 37 passed.
-- `outputs/knob_bortle_eye_grid.png` regenerated with the horizon-bottom projection.
-
-## 2026-06-08: Portrait Bortle Grid Defaults
-
-The Bortle comparison grid is intended for a vertical “standing under the sky” read, not a horizontal strip. Updated defaults:
-
-- panel size: `1080 x 1920`
-- full 3-column x 2-row grid: `3240 x 3840`
-- full 3-column x 3-row Bortle scale grid: `3240 x 5760`
-- horizontal FOV: `90°`
-- vertical FOV: `75°`
-
-`outputs/knob_bortle_eye_grid.png` is the primary visual/subjective comparison. The SNR mode remains a debug/sanity-check path in the CLI, but `outputs/knob_bortle_exposure_snr_grid.png` is no longer a formal output.
-
-## 2026-06-08: Rectilinear Horizon Camera
-
-The focused Bortle scale view had the right normalization and framing, but the “horizon window” projection was still a linear azimuth/altitude map. That is not what a camera or eye sees. The renderer now uses a rectilinear perspective camera for `horizon_window`:
-
-- horizontal FOV defaults to `90°`
-- vertical FOV defaults to `75°`
-- the bottom-center ray is the horizon
-- the camera is centered on the galactic-center azimuth
-
-The temporary QA overlay with the galactic plane curve was useful for projection validation, but is no longer a formal output. Formal outputs are unannotated.
-
-## 2026-06-08: Sky-Limited SNR Mode
-
-The adapted visual grid can be misleading if interpreted as “long exposure can overcome light pollution.” It models eye/camera adaptation for display, not detection SNR. A brighter sky contributes Poisson shot noise. Source signal grows linearly with exposure, but noise grows as the square root of source plus sky background:
-
-```text
-SNR = source * exposure / sqrt(source * exposure + sky * exposure + read_noise^2)
-```
-
-This means longer exposure helps, but bright sky still imposes a penalty. Under the same total exposure, Bortle 6 remains worse than Bortle 1; recovering the same SNR requires disproportionately more exposure and may still run into dynamic range, gradients, and processing limits.
-
-Added `--mode snr` to `render_bortle_eye_grid.py` as a debug mode. It is not a formal deliverable because it is a detectability map, not a visual appearance map.
-
-Command used:
-
-```bash
-python src/render_bortle_eye_grid.py \
-  --bortles 1,6 \
-  --exposures 1,10,100 \
-  --mode snr \
-  --normalization percentile \
-  --output outputs/knob_bortle_exposure_snr_grid.png
-```
-
-Here the column values are exposure multipliers. Use this only for physics sanity checks; the formal visual output is `outputs/knob_bortle_eye_grid.png`.
-
-## 2026-06-08: Guangzhou View and Bortle 1-9 Scale
-
-The Beijing view puts the galactic center too low, so the grid does not read strongly as Milky Way. Defaults now use Guangzhou latitude (`--lat-deg 23.13`) with galactic-center culmination LST. This places the galactic center around 39 degrees altitude.
-
-Added a Bortle 1-9 sequence using the same horizon-window view:
-
-```bash
-python src/render_bortle_eye_grid.py \
-  --bortles 1,2,3,4,5,6,7,8,9 \
-  --eye-deltas 0 \
-  --columns-per-row 3 \
-  --output outputs/knob_bortle_scale_grid.png
-```
-
-This is a 3x3 grid showing the Milky Way fading as skyglow increases.
-
-## 2026-06-08: Darker Background Normalization
-
-After increasing output resolution, the old sky adaptation target made even Bortle 1 look gray. The cause was not resolution by itself: the adapted sky level was too high, and full-image median could be affected by large Milky Way/star coverage.
-
-Updated normalization:
-
-- `--target-sky` default changed from `0.12` to `0.03` in linear RGB-channel units.
-- Background estimate changed from image median to a low percentile, default `--sky-pct 25`.
-- Highlight compression still uses `--white-pct 99.5`, but it no longer rescales the whole image by the white point.
-
-Measured high-resolution output after the change:
-
-- Bortle scale grid panel p25 RGB-sum is stable around `0.365`.
-- Bortle 1 no longer has the previous gray background.
-- Higher median in the darkest, highest-sensitivity panels comes from visible Milky Way/star coverage, not from sky background drift.
-
-## 2026-06-08: Restore Star Contrast After Darker Adaptation
-
-Lowering `--target-sky` fixed the gray background, but it also made stars and the Milky Way too dim because the whole image was scaled down together. The tone map now separates the adapted sky floor from signal above the sky:
-
-- estimate sky background with `--sky-pct 25`
-- map that background to `--target-sky 0.03`
-- boost signal above the background with `--star-contrast 4.0`
-- then apply highlight compression with `--white-pct 99.5`
-
-Measured high-resolution output after this change:
-
-- Bortle scale panel p25 RGB-sum stays around `0.365`, so the sky floor remains stable.
-- Stars and Milky Way structure regain contrast above the adapted sky.
-- The most extreme dark-sky +4mag sensitivity panel can saturate some highlights; lower `--star-contrast` to 3 if a softer presentation is desired.
-
-Verification:
-
-- `python -m pytest tests/ -q` -> 39 passed.
-
-## 2026-06-08: Anchor Visual Brightness to Empirical NELM
-
-The previous adapted visual path still had too much display tuning in the physical layer. The biggest diagnostic was `limiting_mag_for_sky()`: with the old sky/SNR approximation, Bortle 1 through Bortle 9 only moved from about 4.50 to 4.24 mag. That is far from the empirical Bortle naked-eye limiting magnitude scale, where Bortle 1 is around 7.6-8.0 and Bortle 6 is around 5.1-5.5.
-
-The formal visual mode now uses an explicit empirical Bortle/NELM table as its visibility anchor:
-
-```text
-B1 7.8, B2 7.3, B3 6.8, B4 6.3, B5 5.8, B6 5.3, B7 4.8, B8 4.3, B9 4.0
-```
-
-For each panel:
-
-```text
-effective_nelm = empirical_bortle_nelm + sensitivity_delta_mag
-```
-
-A star at `effective_nelm` is assigned a fixed point-source contrast relative to the current skyglow (`--limiting-contrast`, default 0.5). Brighter stars follow Pogson scaling relative to that limit. This removes the previous double-counting path where `+2mag` both shifted the limiting magnitude and multiplied the rendered star signal by a separate gain.
-
-A quick sweep showed that 0.08 made the Bortle 1 panel nearly indistinguishable from the adapted sky floor. That was not caused by `--white-pct 99.5`: the high percentiles were too low before highlight compression became relevant. Raising the limiting contrast to 0.5 keeps the empirical NELM anchor while making the Bortle 1 Milky Way visible in SDR.
-
-Display tone mapping remains separate from detectability physics. `--target-sky`, `--sky-pct`, `--star-contrast`, and `--white-pct` are still display controls for mapping the physically anchored canvas into SDR. The scientific claim is therefore narrower and cleaner: the relative star/Milky-Way visibility is anchored to empirical NELM, while final contrast is an SDR rendering choice.
-
-One more display-layer issue showed up in portal preview: a physically anchored 1px star field can look empty after the full 3240px-wide grid is downscaled in the UI. That is especially bad for the Milky Way, which should read as extended low-frequency structure rather than isolated bright pixels. A single wide PSF fixed the low-frequency glow but made bright stars too soft and crushed the histogram into a narrow range. The adapted visual mode now uses two layers:
-
-- `--point-psf-px 1.0`: sharp point-source layer for bright stars.
-- `--psf-px 6.0 --diffuse-strength 1.0`: wide diffuse layer for Milky-Way glow and portal/downscaled previews.
-
-This keeps the NELM/star brightness anchor intact while preserving both point stars and the extended Milky Way band.
-
-NELM semantics also need to be explicit. NELM is not a fixed hardware spec for the eye. It is the naked-eye limiting magnitude under a given sky background. The often quoted “6th magnitude naked-eye limit” is a rough normal/dark-sky convention, not the Bortle 1 maximum. Empirical Bortle tables put Bortle 1 around 7.6-8.0, and Bortle 5 around 5.6-6.0. Therefore `Bortle 1  NELM~7.8` and `Bortle 5  NELM~5.8` are internally consistent.
-
-The next issue was histogram usage. A Bortle 1 single panel with the old highlight compression had RGB-sum p99.5 around 128/765, wasting most SDR dynamic range. The fix is reference-based display stretching:
-
-1. Adapt each panel's sky floor independently, so the background remains comparable.
-2. Use a shared reference panel to compute a single signal stretch from `--white-pct` to `--target-white`.
-3. Apply that same stretch to every panel, so the reference uses the display range while other panels are not independently pulled up to white.
-
-Measured `outputs/knob_bortle_scale_grid.png` after the reference stretch:
-
-The final defaults are deliberately conservative:
-
-- `--target-white 2.0`, not 3.0, so Bortle 1 is readable without looking like a long-exposure photo.
-- `--diffuse-strength 0.33`, one third of the initial wide-PSF bloom layer.
-- `--reference-mode brightest` for the sensitivity grid, so Bortle 1/+4mag is the display reference and the high-sensitivity column does not overexpose.
-- `--reference-bortle 1 --reference-value 2` for the Bortle scale grid, so Bortle 1/+0mag is rendered with a display stretch similar to the more legible Bortle 1/+2mag panel in `knob_bortle_eye_grid.png`.
-
-Measured `outputs/knob_bortle_scale_grid.png` after the final reference stretch:
-
-```text
-Bortle 1 RGB-sum p25/50/95/99.5:  93 / 102 / 162 / 286
-Bortle 6 RGB-sum p25/50/95/99.5:  93 /  98 / 141 / 262
-Bortle 9 RGB-sum p25/50/95/99.5:  93 /  93 /  96 / 110
-```
-
-Measured `outputs/knob_bortle_eye_grid.png` after the final reference stretch:
-
-```text
-Bortle 1 +0mag RGB-sum p25/50/95/99.5:  93 /  94 / 109 / 150
-Bortle 1 +2mag RGB-sum p25/50/95/99.5:  93 / 102 / 166 / 295
-Bortle 1 +4mag RGB-sum p25/50/95/99.5:  96 / 137 / 326 / 620
-Bortle 6 +0mag RGB-sum p25/50/95/99.5:  93 /  93 /  95 / 103
-Bortle 6 +4mag RGB-sum p25/50/95/99.5:  93 /  99 / 144 / 273
-```
-
-This is the intended split: the display reference uses SDR dynamic range, while light pollution and lower sensitivity still suppress high percentiles instead of being hidden by per-panel normalization.
-
-Verification:
-
-- `python -m pytest tests/ -q` -> 45 passed.
-- Regenerated `outputs/knob_bortle_eye_grid.png` and `outputs/knob_bortle_scale_grid.png` with the NELM-anchored defaults.
-
-## 2026-06-08: Final Bortle Grid Tuning and Hi-Res Videos
-
-Final visual-grid changes after manual inspection:
-
-- Reduced wide-PSF bloom strength from 1.0 to 0.33.
-- Added explicit reference overrides: `--reference-bortle` and `--reference-value`.
-- Kept `--reference-mode brightest` as the default for sensitivity grids, so the brightest/highest-sensitivity panel calibrates shared stretch.
-- Rendered `outputs/knob_bortle_scale_grid.png` with `--reference-bortle 1 --reference-value 2`, matching the useful Bortle 1/+2mag look from `outputs/knob_bortle_eye_grid.png` while still keeping Bortle 7-9 dark.
-
-Final commands:
-
-```bash
-python src/render_bortle_eye_grid.py \
-  --bortles 1,6 \
-  --eye-deltas 0,2,4 \
-  --output outputs/knob_bortle_eye_grid.png
-
-python src/render_bortle_eye_grid.py \
-  --bortles 1,2,3,4,5,6,7,8,9 \
-  --eye-deltas 0 \
-  --columns-per-row 3 \
-  --reference-bortle 1 \
-  --reference-value 2 \
-  --output outputs/knob_bortle_scale_grid.png
-```
-
-High-resolution video outputs were also generated:
-
-```bash
-python src/render_vr_video.py \
-  --width 4096 --height 2048 --duration 10 --fps 60 --workers 32 \
-  --leg1-pc 50 --target-gc-pc 400 --leg2-pc 2500 \
-  --frames-dir outputs/vr_equirect_hires_frames \
-  --output outputs/vr_equirect_hires.mp4
-
-python src/render_big_dipper_video.py \
-  --width 2160 --height 2160 --duration 10 --fps 60 --workers 32 \
-  --leg1-pc 50 --target-gc-pc 400 --leg2-pc 2500 \
-  --frames-dir outputs/big_dipper_forward_hires_frames \
-  --output outputs/big_dipper_forward_hires.mp4
-```
-
-Verification:
-
-- `python -m pytest tests/ -q` -> 48 passed.
-- `outputs/vr_equirect_hires.mp4`: H.264, `yuv420p`, 4096x2048, 60fps, 600 frames.
-- `outputs/big_dipper_forward_hires.mp4`: H.264, `yuv420p`, 2160x2160, 60fps, 600 frames.
+- `outputs/` 已在 gitignore 中，帧目录（`--frames-dir`）和最终 mp4/png 均落在此目录下。帧目录是独立输出，ffmpeg 只在帧写完后运行，避免帧数据通过 IPC 传回主进程。
