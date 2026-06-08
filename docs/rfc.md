@@ -1,77 +1,160 @@
-# RFC：实现设计
+# 实现设计
 
-## 总览
+## 管线分层的动机
 
-渲染管线分为四层，层层分离，每层只做一件事：
+把星表查询、坐标投影、显示调参全写进同一个循环，前几次迭代很快，但后续每增加一种投影、每换一个 Bortle 参数、每出一个新输出格式，都要在同一个文件里到处改。改显示参数的人只需要面对第三层，改投影的人只需要面对第二层。各自处理的都是 numpy 数组和明确的坐标与亮度值。
 
-1. **星表数据**：从 Gaia DR3 拿到恒星的基本物理量：位置、亮度、颜色。这是唯一涉及外部科学数据的层。
-2. **物理投影**：把物理量变成屏幕上的位置和线性亮度。不涉及显示美学。
-3. **显示映射（tone mapping）**：把线性亮度压到 SDR 屏幕能显示的范围。这是工程显示层，参数全部显式暴露，不会混进物理模型。
-4. **输出包装**：把渲染结果写成 PNG/TIFF/MP4，为 GitHub Pages 生成压缩预览。
+管线切成四层，每层只做一件事，层与层之间通过显式的数值传递：
 
-这样分层的好处是：修改显示风格不会影响星表查询，换一种投影也不需要改动 tone mapping。
+1. **星表数据** — 从 Gaia DR3 拿到恒星的基本物理量（位置、亮度、颜色）。
+2. **物理投影** — 把物理量变成屏幕上的像素位置和线性亮度。
+3. **显示映射** — 把线性亮度压到 SDR 屏幕能显示的范围。
+4. **输出包装** — 把渲染结果写成 PNG / TIFF / MP4，生成 Web 预览资产。
 
-星表数据来自 Gaia DR3。基础全天图使用 `src/fetch_gaia_allsky.py` 获取银道坐标、G 星等和 BP-RP 颜色；3D 飞行使用 `src/fetch_gaia_3d.py` 获取 RA/Dec、视差和 G 星等。
+换一种星表（比如 Hipparcos）只需要重写第一层；换一种投影只需要改第二层；想用 HDR 输出只需要改第三层。每层之间的接口由 numpy 数组和明确的坐标与亮度值构成，不传参数名，不传配置对象。每个脚本可以独立 debug，不需要理解整条管线。
 
-物理投影把恒星放到屏幕上。全天图支持 equirectangular（用于 VR 视频）和 Mollweide（用于静态全天地图）；地面视角先把银道坐标转为赤道坐标，再按观测纬度和地方恒星时转为地平坐标；飞行视频先把视差转为三维笛卡尔坐标，再从移动观测者位置重投影。
+## 第一层：星表数据
 
-显示映射把线性亮度压到 SDR。正式图显式记录 reference、white percentile、PSF 和 gamma。这些是显示参数，不是物理常数。
+这是唯一涉及外部科学数据的层。两个脚本分别应对两种观测场景：
 
-输出包装负责生成 PNG/TIFF/MP4 和 GitHub Pages 所需的压缩资产。
+- `src/fetch_gaia_allsky.py` — 从 Gaia DR3 查询全天恒星，输出银道坐标 `(l, b)`、G 星等和 BP-RP 颜色。这是静态全天图的数据基础。
+- `src/fetch_gaia_3d.py` — 查询恒星的三维信息：RA / Dec、视差（parallax）和 G 星等。视差反推距离后用于 3D 飞行。
+
+一层设计的关键 trade-off：星表查询和后续渲染完全解耦。查询结果的缓存是独立的 `.npz` 文件，渲染脚本只读不写这些文件。可以离线跑一次慢的 Gaia ADQL 查询，然后无数次用不同参数跑渲染，每轮渲染耗时相同，不重新查数据库。代价是 `data/raw/` 不进 Git——它是外部数据的本地拷贝，不是源码。
+
+## 第二层：物理投影
+
+物理投影把恒星的物理坐标和物理亮度映射到屏幕坐标系，不涉及任何显示美学。
+
+- **静态全天图**：支持 equirectangular（等距圆柱投影，用于 VR 视频）和 Mollweide（用于传统全天地图展示）。
+- **地面视角**：先把银道坐标 `(l, b)` 转为赤道坐标（RA/Dec），再按观测纬度（`lat_deg`）和地方恒星时（`lst_hours`）转为地平坐标（方位角/高度角），最后从地平坐标投影到相机视场。
+- **飞行视频**：先把恒星视差转为三维笛卡尔坐标（视差→距离→ `(x, y, z)`），然后从移动观测者位置重新投影这些三维点到相机平面。
+
+投影是几何运算，tone mapping 是感知运算，两者分开处理。如果有人想用同样的星表数据做光谱分析或星等统计，直接读第二层的线性亮度输出，完全不受 gamma、PSF、skyglow 这些参数的干扰。
+
+## 第三层：显示映射（tone mapping）
+
+这是整个管线中工程决策最密集的一层，核心问题是：Gaia 恒星的线性光通量跨度超过 10^6，而 SDR 屏幕对比度只有几百，必须把天文亮度动态范围压缩到屏幕范围内，同时保持可读的视觉层次。
+
+处理步骤（由 `render_bortle_eye_grid.py` 和 `render_starmap.py` 实现）：
+
+1. **估计 sky floor**：对每个 panel，取低百分位（`sky_pct=25.0`）的亮度作为天空背景估计。
+2. **锚定 sky floor**：把每个 panel 的 sky floor 映射到同一个固定深灰值（`target_sky=0.03`）。
+3. **增强信号对比**：sky floor 以上的信号乘以 `star_contrast=4.0`，让恒星光点从背景中分离。
+4. **shared stretch**：选一个 reference panel，计算一个 white percentile（`white_pct=99.5`）到 `target_white` 的统一映射。
+5. **统一 gamma 输出**：所有 panel 用同一个 signal stretch，再做 `gamma=2.2` 输出。
+
+第五步 shared stretch 的核心效果：如果每个 Bortle 等级的 panel 独立做 normalization，Bortle 7-9 的 panel 会被强行拉亮，读者会误以为光污染下也能看到差不多的星光，这与真实夜空观测经验相反。统一 stretch 保证了高光污染 panel 真正变暗，读者看到的是客观的对比，而不是被独立归一化补救过的假夜空。
+
+所有参数——`star_contrast`、`target_sky`、`sky_pct`、`white_pct`、`target_white`、`gamma`——都在 CLI 参数里显式暴露。这是刻意的设计：任何一个参数的含义和影响都是透明的，不会被藏在物理模型里假装是天体物理常数。
+
+## 第四层：输出包装
+
+渲染结果被写成 PNG / TIFF / MP4，同时为 GitHub Pages 生成压缩预览（JPEG / WebP / 小尺寸 MP4）。
+
+不同发布渠道对格式、分辨率、文件大小的要求不同。GitHub Pages 需要 WebP 和低分辨率 JPEG；开发者在本地想用 TIFF 做灰阶检查；VR 视频需要 equirectangular 格式。输出层不改变渲染结果的内容，只改变容器格式。
 
 ## 星等与颜色
 
-星等转亮度使用 Pogson 公式：
+星等转线性亮度的基本公式是 Pogson 公式：
 
 ```text
 L = 10 ^ (-0.4 * (m - m_ref))
 ```
 
-星色使用 BP-RP 或 B-V 的简化映射。它不是精确色彩科学，但足以让蓝白星和橙红星在大尺度图里产生可见差异。
+这是对数换底——差 5 等相当于亮度差 100 倍。`m_ref` 是人为选定的参考星等，它决定整个系统的亮度 anchor。`m_ref` 是显示层参数而不是物理常数，因为 Pogson 公式本身是比例关系，参考点的选取不影响恒星之间的相对亮度比值。
 
-## Bortle 和 NELM
+颜色方面，恒星温度通过 BP-RP 或 B-V 色指数映射到 RGB。人眼在暗光下对色彩的敏感度远低于星际介质的消光精度，这个映射不需要追求精确的光谱色彩还原。它只需要让蓝白星和橙红星在大尺度全天图里产生可见的颜色差异。这已足够让银河从星表里自然出现：银盘带里的颜色梯度来自真实恒星的温度分布。
 
-Bortle 暗空等级通过天空面亮度转换成线性 skyglow。skyglow 是加性背景：
+## Bortle 暗空等级和 NELM
+
+Bortle 等级是一种主观的暗空质量分类，从 1（最暗）到 9（城市中心）。代码里用了两条独立的经验映射：一条把 Bortle 映射到天空面亮度，再换算成 skyglow；另一条把 Bortle 映射到 NELM（裸眼极限星等，Naked-Eye Limiting Magnitude）。
+
+NELM 表如下：
+
+| Bortle | NELM |
+|--------|------|
+| 1 | 7.8 |
+| 2 | 7.3 |
+| 3 | 6.8 |
+| 4 | 6.3 |
+| 5 | 5.8 |
+| 6 | 5.3 |
+| 7 | 4.8 |
+| 8 | 4.3 |
+| 9 | 4.0 |
+
+skyglow 来自 `render_horizon.py` 中的 Bortle 面亮度表，不由 NELM 反推。skyglow 是一个加性的线性背景，叠加在恒星信号之上：
 
 ```text
 observed = stars + skyglow
 ```
 
-NELM 使用经验表锚定：Bortle 1 约 7.8，Bortle 6 约 5.3。正式视觉图中，处在有效极限星等的星被设为当前 skyglow 的固定点源对比。`+2mag` 表示有效极限星等在当前 Bortle baseline 上提高 2 等。
+skyglow 越大，星光对比度越低，直到暗星被淹没。这个加性模型解释了为什么 Bortle 9 的城市只能看到几十颗最亮的星，而 Bortle 1 的暗空能看到银河结构。
 
-## 正式视觉图的 tone mapping
+代码中，有效极限星等由 `+delta_mag` 参数控制：对于给定 Bortle，`effective_nelm = BORTLE_NELM[bortle] + delta_mag`。正 delta 表示通过望远镜或长曝光提高了极限星等；`+2mag` 意味着比当前 Bortle baseline 高 2 等。处在有效极限星等位置的恒星被渲染为 skyglow 的 `limiting_contrast=0.5` 倍——这个对比度直接锚定在 skyglow 上，对应极限星等位置恒星的可见度阈值。
 
-正式视觉图使用 `render_bortle_eye_grid.py`。
+## Bortle Eye Grid 的 tone mapping 算法
 
-处理步骤：
+`render_bortle_eye_grid.py` 的正式视觉模式是整个项目的核心可视化产物。它在一个网格里展示多个 Bortle × delta_mag 组合，每个 panel 是给定观测条件下地平坐标视角的夜空。
 
-1. 每个 panel 单独估计低百分位 sky floor。
-2. 把 sky floor 映射到固定深灰。
-3. sky floor 以上的信号乘 `star_contrast`。
-4. 用 shared reference panel 计算 signal stretch。
-5. 所有 panel 使用同一个 stretch，再做 gamma 输出。
+shared reference stretch 的具体做法（对应 `render_grid` 函数中的逻辑）：
 
-这样做有两个目的。第一，背景适应符合人眼/相机直觉。第二，高光污染 panel 不会因为独立 normalization 被强行拉亮。
+1. 为每个 (Bortle, delta_mag) 组合独立渲染一次线性 canvas。渲染包括：坐标投影 → 星等转亮度（锚定在 NELM 上）→ 叠加 skyglow。
+2. 选一个 reference panel 作为亮度锚点。默认用所有 panel 中 white percentile 最亮的那个（`--reference-mode brightest`）；也可以显式指定 `--reference-bortle` 和 `--reference-value`（例如 Bortle 1 / +2mag）。
+3. 对 reference panel 做 `adapt_sky_floor`（sky floor → target_sky，然后 boost signal），得到参考信号范围。
+4. 根据 reference panel 的信号范围计算单一个 `signal_stretch`，使得 white percentile 映射到 `target_white`。
+5. 所有 panel 都用这个相同的 `signal_stretch` 做 gamma 输出。
 
-视觉层使用双层 PSF：
+shared stretch 的设计理由：手调每个 panel 的亮度对比度会把整个网格变成一个展示者决定的视图，而不是一个客观的对比视图。shared stretch 把自由度限制在一个维度上——选 reference 决定了整体对比尺度，但每个 panel 的相对亮度关系由物理层决定，不能被单独修亮。
 
-- `point_psf_px` 保留亮星点源。
-- `psf_px * diffuse_strength` 形成低频银河结构，避免网页缩略图里银河消失。
+## PSF 双层结构
 
-## Bortle scale reference
+恒星累积到 canvas 时用到双层 PSF：
 
-Bortle 1-9 图是同一脚本的另一种参数配置，使用 `--reference-bortle 1 --reference-value 2`。这不是改变物理星等，而是用 Bortle 1/+2mag 那个更可读的显示 reference 来校准整张 scale grid。Bortle 7-9 仍然按同一 stretch 变暗。
+- `point_psf_px=1.0`：窄高斯核，保留亮星的点源特征。亮星看起来是尖锐的点，符合肉眼或望远镜的直觉。
+- `psf_px=6.0`：宽高斯核，乘 `diffuse_strength=0.33`。用于形成银河的低频结构。
+
+第二层宽 PSF 解决了一个密度丢失问题：纯点源 PSF 下，当图片缩小到网页缩略图尺寸时，银河的低密度区域会因为点稀疏而完全消失。宽 PSF 层把星光扩散到邻近像素，让低密度区域的累积亮度形成连续的辉光。银河本身就是密集星场的视觉积分，宽 PSF 让低于一个像素的密度信息在缩放后不会丢失。
+
+两层的关系是：`canvas = point_canvas + diffuse_canvas * diffuse_strength`。亮星的点源特征保留，同时暗星群的集体辉光通过宽 PSF 保留在缩略图中。
+
+## Bortle scale reference（Bortle 1-9 对比图）
+
+Bortle 1-9 对比图用同一套代码渲染，通过参数区分：
+
+```bash
+--reference-bortle 1 --reference-value 2
+```
+
+这组参数的含义：用 Bortle 1 / +2mag 这个最佳可读 panel 来校准整张 scale grid 的显示 stretch。Bortle 7-9 的 panel 在同一 stretch 下自然变暗，让读者直观感受到光污染对可见星空的压制。Bortle 1 的夜空在物理层并没有被调亮——reference 只改变了显示层的亮度映射，物理星等和 skyglow 数值保持不变。
+
+不同的 reference 参数产生不同对比度的图，都基于同一组物理输入。觉得 Bortle 1 / +2mag 太亮、Bortle 9 一片黑时，换 reference 即可获得不同的对比度分布。但物理层的数值没有被改动——不能因为显示效果不理想就说计算有误。
 
 ## 飞行视频
 
-两条视频共享同一条空间轨迹：先朝北斗方向短距离前进，再飞向银心方向上方的目标点。VR 版输出全天 equirectangular；forward 版输出透视相机，并绘制北斗连线帮助观察星座形状变化。
+项目包含两类飞行视频，共享同一条空间轨迹：
 
-所有视频先渲染 PNG 帧，再用 ffmpeg 合成。这样中间结果可检查，也方便后续用 H.264/H.265 重新编码。
+- **VR 版**（equirectangular 输出）：用于 VR 头显，观测者可以在任意方向转头。
+- **Forward 版**（透视相机输出）：标准平面视频，在画面上绘制北斗连线帮助观察星座形状如何随位移而变化。
+
+轨迹设计：先朝北斗方向做短距离飞行，验证走近了星座散架的视觉效果；再转向银心方向上方飞行，展示银河系盘面的三维深度和 Gaia 数据球边界。
+
+所有视频先渲染 PNG 帧再用 ffmpeg 合成。中间 PNG 帧不进 Git，但保留本地不删。保留中间帧的目的有两个。第一，可以逐帧检查渲染质量和投影正确性。第二，将来需要换编码格式（H.264 → H.265 → AV1）时，不需要重新跑整个渲染，直接换 ffmpeg 参数重新编码。
 
 ## 数据边界
 
-Gaia 可见光视差是局部数据球，不是银河系全盘。因此飞出数据球后看到的是数据边界，而不是银河系真实俯视图。代码和文档必须保留这个边界，不能把局部数据渲染包装成银河全貌。
+Gaia DR3 的视差数据覆盖范围有限——可见光波段的视差精度随距离衰减，高质量的距离数据只覆盖太阳附近的局部数据球，远不到覆盖整个银河系盘面所需的距离。当飞行视频的观测者位置飞出这个数据球，视野中的恒星消失，看到的是数据球的边界。
+
+这是 Gaia DR3 视差精度的物理限制。代码和文档必须明确保留这个边界，不能通过数据插值或外推来假装有个全盘视图。如果将来有其他星表（例如 Gaia DR5 或 LSST）覆盖了更大范围，换数据源只需要改第一层，其他三层不变，这正是分层设计希望达到的效果。
 
 ## 公开发布策略
 
-Git 仓库只放代码、文档、测试和小型网页资产。大 Gaia 缓存、完整渲染帧、完整视频输出不进入 Git。GitHub Pages 使用压缩 JPEG/WebP/MP4 预览和可选下载链接。
+Git 仓库只放代码、文档、测试和小型网页资产（如 GitHub Pages 的压缩预览）。大体积数据不进 Git：
+
+- **不进 Git**：`data/raw/` 中的大 `.npz` 缓存、完整渲染帧 PNG、完整视频 MP4。
+- **进 Git**：`src/`、`tests/`、`docs/`、`README.md`、`requirements.txt`、压缩后的 GitHub Pages 资产。
+
+发布时，GitHub Pages 使用压缩 JPEG / WebP / MP4 作为展示预览，并提供可选的原图下载链接（从外部存储或 release assets 获取，不存仓库内）。
+
+这个策略的 trade-off：新 clone 仓库的人不能直接跑 `python src/render_bortle_eye_grid.py`（缺少 `data/raw/gaia_g11.npz`），需要先跑一次 `python src/fetch_gaia_allsky.py --gmax 11 --output data/raw/gaia_g11.npz` 下载星表。换来的好处是仓库维持在较小体积，方便在 GitHub 上正常协作和 CI。

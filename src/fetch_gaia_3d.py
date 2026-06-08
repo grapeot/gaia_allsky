@@ -9,7 +9,7 @@
 import os
 import numpy as np
 
-OUT = os.path.join(os.path.dirname(__file__), "..", "data", "raw", "gaia_3d.npz")
+OUT = os.path.join(os.path.dirname(__file__), "..", "data", "raw", "gaia_3d_deep.npz")
 
 
 def fetch(gmax=9.0, snr_min=5.0, out=None):
