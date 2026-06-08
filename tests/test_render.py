@@ -139,12 +139,22 @@ def test_perspective_altaz_projection_centers_look_direction():
     assert abs(py[0] - 270) <= 1
 
 
+def test_horizon_window_places_horizon_on_bottom_edge():
+    """人眼窗口投影把地平线放在图像下缘，高度越高 y 越小。"""
+    px, py, inside = beg.project_horizon_window(
+        np.array([180.0, 180.0]), np.array([0.0, 70.0]), 180.0, 960, 540, 120.0, 70.0
+    )
+    assert inside.all()
+    assert py[0] == 540 or py[0] == 539
+    assert py[1] == 0
+
+
 def test_sky_adapted_normalization_equalizes_background():
     """Median sky adaptation 让不同背景光污染映射到相近背景亮度。"""
     c1 = np.full((20, 20, 3), 0.01, np.float32)
     c2 = np.full((20, 20, 3), 1.0, np.float32)
-    n1 = beg.normalize_sky_adapted(c1, target_sky=0.12, gamma=2.2)
-    n2 = beg.normalize_sky_adapted(c2, target_sky=0.12, gamma=2.2)
+    n1 = beg.normalize_sky_adapted(c1, target_sky=0.12, gamma=2.2, white_pct=100.0)
+    n2 = beg.normalize_sky_adapted(c2, target_sky=0.12, gamma=2.2, white_pct=100.0)
     assert np.isclose(np.median(n1.sum(-1)), np.median(n2.sum(-1)))
 
 
@@ -154,11 +164,20 @@ def test_sky_adapted_reduces_star_contrast_in_bright_sky():
     bright = np.full((20, 20, 3), 1.0, np.float32)
     dark[10, 10] += 0.1
     bright[10, 10] += 0.1
-    nd = beg.normalize_sky_adapted(dark, target_sky=0.12, gamma=2.2).sum(-1)
-    nb = beg.normalize_sky_adapted(bright, target_sky=0.12, gamma=2.2).sum(-1)
+    nd = beg.normalize_sky_adapted(dark, target_sky=0.12, gamma=2.2, white_pct=100.0).sum(-1)
+    nb = beg.normalize_sky_adapted(bright, target_sky=0.12, gamma=2.2, white_pct=100.0).sum(-1)
     dark_contrast = nd[10, 10] - np.median(nd)
     bright_contrast = nb[10, 10] - np.median(nb)
     assert bright_contrast < dark_contrast
+
+
+def test_sky_adapted_highlight_compression_limits_clipping():
+    """高光白点压缩后，极少数亮点允许接近白，但整体不会大片过曝。"""
+    c = np.full((100, 100, 3), 0.02, np.float32)
+    c[0:5, 0:5] = 10.0
+    out = beg.normalize_sky_adapted(c, target_sky=0.12, gamma=2.2, white_pct=99.5)
+    saturated = (out >= 1.0).all(axis=-1).mean()
+    assert saturated < 0.01
 
 
 # ---------- 地平坐标变换 ----------

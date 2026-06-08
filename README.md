@@ -23,7 +23,7 @@
 - **眼睛敏感度**（`gain` / 星等 cutoff）：肉眼极限 NELM 6 等（正常人眼）→11 等（超人眼/Gaia 极限）。
   银河从朦胧光带解析成连续星海——"银河一直在，是你的眼睛不够格"。`outputs/knob_eye_sensitivity.png`。
 - **光污染 × 眼睛敏感度**（`render_bortle_eye_grid.py`）：默认生成北京地面广角视角的 Bortle 1/6 × NELM 6/8/11 组合对比，输出
-  `outputs/knob_bortle_eye_grid.png`。默认使用 median sky adaptation，把每个 panel 的背景天空归一到相近灰度，模拟人眼/相机适应后星星和银河相对背景的对比下降。
+  `outputs/knob_bortle_eye_grid.png`。默认 `horizon_window` 投影把地平线放在图像下缘、向上展开天空；默认使用 median sky adaptation，把每个 panel 的背景天空归一到相近灰度，并用高百分位白点压缩避免大片过曝。
 - **宇宙位置**（`render_3d`）：Gaia 视差→3D 笛卡尔，观测者平移重投影（平方反比变亮 + 几何重投影）。
   飞出几百 pc，近处星座（北斗）散架，银河带不动（星座是视角幻觉，银河是大尺度结构）。
 

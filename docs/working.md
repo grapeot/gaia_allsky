@@ -261,3 +261,25 @@ python src/render_bortle_eye_grid.py \
 Verification:
 
 - `python -m pytest tests/ -q` -> 35 passed.
+
+## 2026-06-08: Horizon-Bottom View and Highlight Compression
+
+The wide-angle perspective view still felt clipped because the horizon was not a stable visual baseline. The default projection for `render_bortle_eye_grid.py` is now `horizon_window`:
+
+- x-axis: azimuth window centered on the galactic-center azimuth
+- y-axis: altitude from 0 degrees at the bottom edge to `--max-alt-deg` at the top
+- default azimuth window: `--az-width-deg 120`
+- default max altitude: `--max-alt-deg 70`
+
+This makes the bottom edge a horizontal horizon line and the image read as “standing in Beijing, looking upward,” not as a VR all-sky unwrap.
+
+The tone mapping now also compresses highlights after median sky adaptation:
+
+- median sky adaptation handles background brightness adaptation
+- `--white-pct 99.5` maps a high percentile to white
+- a small fraction of saturated pixels is allowed, but large overexposed regions are avoided
+
+Verification:
+
+- `python -m pytest tests/ -q` -> 37 passed.
+- `outputs/knob_bortle_eye_grid.png` regenerated with the horizon-bottom projection.
