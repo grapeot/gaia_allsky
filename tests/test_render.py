@@ -12,6 +12,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 import render_starmap as rs
 import render_3d as r3
 import render_horizon as rh
+import render_big_dipper_video as bdv
+import render_vr_video as rvv
+import video_common as vc
 
 DATA = os.path.join(os.path.dirname(__file__), "..", "data", "raw")
 
@@ -140,6 +143,36 @@ def test_l_trajectory_two_legs_orthogonal():
     d1 = r3.flight_direction("galactic_plane")
     d2 = r3.flight_direction("galactic_pole")
     assert abs(np.dot(d1, d2)) < 0.05                     # 近正交
+
+
+def test_big_dipper_direction_is_unit_vector():
+    """北斗默认视线方向是归一化 3D 向量。"""
+    d = vc.big_dipper_direction()
+    assert d.shape == (3,)
+    assert np.isclose(np.linalg.norm(d), 1.0)
+
+
+def test_parse_triplet_normalizes_direction():
+    """CLI 方向覆盖值解析后归一，便于直接作为 look/flight dir。"""
+    d = vc.parse_triplet("2,0,0")
+    assert np.allclose(d, np.array([1.0, 0.0, 0.0]))
+
+
+def test_vr_cli_config_uses_equirect_dimensions():
+    """VR CLI config 保留 2:1 equirectangular 分辨率参数。"""
+    args = rvv.build_parser().parse_args(["--width", "640", "--height", "320", "--frames", "7"])
+    cfg = rvv.config_from_args(args)
+    assert cfg["width"] == 640
+    assert cfg["height"] == 320
+    assert cfg["frames"] == 7
+
+
+def test_big_dipper_cli_look_and_flight_default_match():
+    """前向版本默认朝北斗看，也朝北斗方向飞。"""
+    args = bdv.build_parser().parse_args(["--frames", "7"])
+    cfg = bdv.config_from_args(args)
+    assert np.allclose(cfg["look_dir"], cfg["flight_dir"])
+    assert np.isclose(np.linalg.norm(cfg["look_dir"]), 1.0)
 
 
 # ---------- tonemap 编码 ----------
