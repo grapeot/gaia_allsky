@@ -1,0 +1,734 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="用 Gaia DR3 恒星星表渲染全天星空，观察光污染、人眼极限星等和观测位置如何改变我们看到的银河。">
+  <title>Gaia 全天星空实验</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #070910;
+      --panel: #101520;
+      --panel-2: #151b26;
+      --text: #eef3ff;
+      --muted: #9ca8ba;
+      --line: rgba(213, 226, 255, 0.16);
+      --gold: #d8b46a;
+      --blue: #87a7ff;
+      --cyan: #9ddde2;
+      --max: 1180px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html {
+        scroll-behavior: auto;
+      }
+    }
+
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 72% 5%, rgba(82, 111, 202, 0.24), transparent 35rem),
+        radial-gradient(circle at 10% 30%, rgba(216, 180, 106, 0.10), transparent 28rem),
+        var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      line-height: 1.7;
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    img,
+    video {
+      display: block;
+      max-width: 100%;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      border-bottom: 1px solid var(--line);
+      background: rgba(7, 9, 16, 0.96);
+    }
+
+    .topbar-inner {
+      width: min(var(--max), calc(100% - 32px));
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      min-height: 64px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+    }
+
+    .brand-mark {
+      width: 24px;
+      height: 24px;
+      border: 1px solid rgba(216, 180, 106, 0.7);
+      border-radius: 50%;
+      background: radial-gradient(circle at 50% 50%, #f4d487 0 2px, transparent 3px), radial-gradient(circle at 65% 34%, #9ddde2 0 1px, transparent 2px);
+      box-shadow: 0 0 24px rgba(216, 180, 106, 0.28);
+    }
+
+    .nav {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      color: var(--muted);
+      font-size: 14px;
+      white-space: nowrap;
+    }
+
+    .nav a:hover,
+    .repo-link:hover {
+      color: var(--text);
+    }
+
+    a:focus-visible,
+    button:focus-visible,
+    input:focus-visible {
+      outline: 2px solid var(--cyan);
+      outline-offset: 4px;
+    }
+
+    .repo-link {
+      border: 1px solid rgba(216, 180, 106, 0.52);
+      border-radius: 999px;
+      padding: 7px 13px;
+      color: #f4d487;
+      background: rgba(216, 180, 106, 0.08);
+    }
+
+    main {
+      overflow: hidden;
+    }
+
+    .section {
+      width: min(var(--max), calc(100% - 32px));
+      margin: 0 auto;
+      padding: 88px 0;
+    }
+
+    .hero {
+      width: min(1320px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 64px 0 44px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(340px, 520px);
+      gap: 44px;
+      align-items: center;
+      min-height: calc(100vh - 64px);
+    }
+
+    .eyebrow {
+      margin: 0 0 14px;
+      color: var(--gold);
+      font-size: 13px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    h1,
+    h2,
+    h3 {
+      margin: 0;
+      line-height: 1.14;
+      letter-spacing: -0.03em;
+    }
+
+    h1 {
+      max-width: 780px;
+      font-size: clamp(44px, 7vw, 92px);
+      font-weight: 780;
+    }
+
+    h2 {
+      max-width: 780px;
+      font-size: clamp(30px, 4.6vw, 56px);
+      font-weight: 760;
+    }
+
+    h3 {
+      font-size: 22px;
+      font-weight: 720;
+    }
+
+    .lead {
+      max-width: 720px;
+      margin: 28px 0 0;
+      color: #c9d3e5;
+      font-size: clamp(18px, 2vw, 22px);
+    }
+
+    .hero-actions,
+    .section-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 32px;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;
+      padding: 10px 18px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text);
+      font-weight: 650;
+    }
+
+    .button.primary {
+      border-color: rgba(216, 180, 106, 0.74);
+      background: #d8b46a;
+      color: #12100a;
+    }
+
+    .hero-plate {
+      position: relative;
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      overflow: hidden;
+      background: #03050a;
+      box-shadow: 0 30px 90px rgba(0, 0, 0, 0.48);
+    }
+
+    .hero-plate img {
+      width: 100%;
+      aspect-ratio: 9 / 16;
+      object-fit: cover;
+    }
+
+    .plate-caption {
+      position: absolute;
+      left: 18px;
+      right: 18px;
+      bottom: 18px;
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: rgba(5, 8, 15, 0.94);
+      color: #d8e0ee;
+      font-size: 14px;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-top: 34px;
+    }
+
+    .stat {
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.035);
+    }
+
+    .stat strong {
+      display: block;
+      color: var(--text);
+      font-size: 22px;
+      line-height: 1.2;
+    }
+
+    .stat span {
+      display: block;
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .intro-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-top: 34px;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      padding: 24px;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.026));
+    }
+
+    .card p,
+    .copy p,
+    .note p {
+      margin: 12px 0 0;
+      color: #c4cedd;
+    }
+
+    .note-copy {
+      margin: 4px 0 0;
+      color: #c4cedd;
+      font-size: 15px;
+    }
+
+    .showcase {
+      display: grid;
+      grid-template-columns: minmax(320px, 430px) minmax(0, 1fr);
+      gap: 34px;
+      align-items: start;
+      margin-top: 34px;
+    }
+
+    .bortle-stage {
+      position: sticky;
+      top: 88px;
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      overflow: hidden;
+      background: #02040a;
+    }
+
+    .bortle-stage img {
+      width: 100%;
+      aspect-ratio: 9 / 16;
+      object-fit: cover;
+    }
+
+    .bortle-label {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+      padding: 8px 11px;
+      border-radius: 999px;
+      background: rgba(0, 0, 0, 0.72);
+      color: #f4d487;
+      font-weight: 700;
+    }
+
+    .controls {
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      padding: 22px;
+      background: var(--panel);
+    }
+
+    .range-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 16px;
+      align-items: center;
+      margin: 20px 0;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--gold);
+    }
+
+    .thumbs {
+      display: grid;
+      grid-template-columns: repeat(9, 1fr);
+      gap: 8px;
+      margin-top: 18px;
+    }
+
+    .thumb {
+      min-height: 54px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      overflow: hidden;
+      padding: 0;
+      background: #03050a;
+      cursor: pointer;
+    }
+
+    .thumb img {
+      width: 100%;
+      height: 70px;
+      object-fit: cover;
+    }
+
+    .thumb span {
+      display: block;
+      padding: 4px 0 6px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .thumb.active {
+      border-color: var(--gold);
+      box-shadow: 0 0 0 2px rgba(216, 180, 106, 0.18);
+    }
+
+    .comparison-img {
+      margin-top: 24px;
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      overflow: hidden;
+      background: #02040a;
+    }
+
+    .media-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 18px;
+      margin-top: 34px;
+    }
+
+    .media-card {
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      overflow: hidden;
+      background: var(--panel);
+    }
+
+    .media-card video {
+      width: 100%;
+      background: #000;
+    }
+
+    .media-body {
+      padding: 22px;
+    }
+
+    .boundary {
+      display: grid;
+      grid-template-columns: 0.8fr 1.2fr;
+      gap: 24px;
+      align-items: stretch;
+    }
+
+    .boundary-aside {
+      border: 1px solid rgba(216, 180, 106, 0.42);
+      border-radius: 28px;
+      padding: 26px;
+      background: rgba(216, 180, 106, 0.08);
+    }
+
+    .boundary-aside strong {
+      display: block;
+      font-size: 48px;
+      line-height: 1;
+      color: var(--gold);
+    }
+
+    .repo-panel {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 24px;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      padding: 30px;
+      background: linear-gradient(135deg, rgba(135, 167, 255, 0.12), rgba(216, 180, 106, 0.08));
+    }
+
+    code {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 1px 5px;
+      background: rgba(255, 255, 255, 0.06);
+      color: #dbe6ff;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.92em;
+    }
+
+    footer {
+      width: min(var(--max), calc(100% - 32px));
+      margin: 0 auto;
+      padding: 42px 0 60px;
+      color: var(--muted);
+      border-top: 1px solid var(--line);
+      font-size: 14px;
+    }
+
+    @media (max-width: 900px) {
+      .nav a:not(.repo-link) {
+        display: none;
+      }
+
+      .hero,
+      .showcase,
+      .boundary,
+      .repo-panel {
+        grid-template-columns: 1fr;
+      }
+
+      .hero {
+        min-height: 0;
+      }
+
+      .hero-plate {
+        max-width: 460px;
+        margin: 0 auto;
+      }
+
+      .bortle-stage {
+        position: relative;
+        top: auto;
+        max-width: 460px;
+        margin: 0 auto;
+      }
+
+      .media-grid,
+      .intro-grid,
+      .stats {
+        grid-template-columns: 1fr;
+      }
+
+      .repo-panel .button {
+        width: 100%;
+      }
+    }
+
+    @media (max-width: 560px) {
+      .section {
+        padding: 64px 0;
+      }
+
+      .topbar-inner {
+        min-height: 58px;
+      }
+
+      .brand span {
+        display: none;
+      }
+
+      .thumbs {
+        grid-template-columns: repeat(3, 1fr);
+      }
+
+      .range-row {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="#top" aria-label="回到顶部">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span>Gaia 全天星空实验</span>
+      </a>
+      <nav class="nav" aria-label="页面导航">
+        <a href="#bortle">光污染</a>
+        <a href="#flight">飞行视频</a>
+        <a href="#boundary">科学边界</a>
+        <a class="repo-link" data-repo-link href="https://github.com/grapeot/gaia_allsky">GitHub 仓库</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="top">
+    <section class="hero" aria-labelledby="hero-title">
+      <div>
+        <p class="eyebrow">Gaia DR3 · 全天星图 · 光污染旋钮</p>
+        <h1 id="hero-title">用 Gaia 真实星表，让银河自己显出来。</h1>
+        <p class="lead">把 Gaia 星表里的恒星按真实位置、星等和颜色逐颗画出来，银河会从恒星密度里自然出现。这个页面把光污染、人眼极限星等和观测位置做成可见的实验。</p>
+        <div class="hero-actions">
+          <a class="button primary" href="#bortle">先看光污染怎么吞掉银河</a>
+          <a class="button" data-repo-link href="https://github.com/grapeot/gaia_allsky">查看代码与复现方法</a>
+        </div>
+        <div class="stats" aria-label="项目摘要">
+          <div class="stat"><strong>Gaia DR3</strong><span>真实恒星位置、星等、颜色</span></div>
+          <div class="stat"><strong>Bortle 1-9</strong><span>从顶级暗空到城市中心</span></div>
+          <div class="stat"><strong>3D 视差</strong><span>移动观测者位置看星座散架</span></div>
+        </div>
+      </div>
+      <figure class="hero-plate">
+        <img src="assets/hero_milky_way.jpg" alt="广州纬度暗空下的银河地平视角渲染">
+        <figcaption class="plate-caption">广州纬度、Bortle 1 暗空、地平透视相机。星星来自 Gaia，银河来自恒星密度。</figcaption>
+      </figure>
+    </section>
+
+    <section class="section" aria-labelledby="questions-title">
+      <p class="eyebrow">为什么这件事有意思</p>
+      <h2 id="questions-title">普通星图告诉你天空有什么。这个实验问的是：你为什么看不到。</h2>
+      <div class="intro-grid">
+        <article class="card">
+          <h3>光污染抬高了天空背景</h3>
+          <p>城市天空把背景抬亮，低对比度的星光和银河结构被埋进背景里。同一片天空还在那里，只是检测边界变了。</p>
+        </article>
+        <article class="card">
+          <h3>人眼极限不是固定数值</h3>
+          <p>NELM 指裸眼极限星等，由人眼和天空背景共同决定。Bortle 1 顶级暗空能到约 7.6-8.0 等，常说的 6 等更接近普通暗天口径。</p>
+        </article>
+        <article class="card">
+          <h3>星座是视角投影</h3>
+          <p>从太阳附近看，北斗像一个熟悉形状。观测者移动几十 pc（秒差距）后，近处恒星重排，星座会散架；银河带来自更大尺度的恒星分布。</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="bortle" class="section" aria-labelledby="bortle-title">
+      <p class="eyebrow">交互结果 01</p>
+      <h2 id="bortle-title">拖动 Bortle 等级，看银河如何从暗空里退场。</h2>
+      <div class="showcase">
+        <figure class="bortle-stage">
+          <span class="bortle-label" id="bortleLabel">Bortle 1</span>
+          <img id="bortleImage" src="assets/bortle_1.jpg" alt="Bortle 1 条件下的银河渲染">
+        </figure>
+        <div class="controls">
+          <h3 id="bortleName">Bortle 1：顶级暗空</h3>
+          <div class="copy" aria-live="polite">
+            <p id="bortleCopy">银河清楚，暗尘埃结构和低空亮星都能在同一张图里读出来。这是暗空旅行想找回的那片天空。</p>
+          </div>
+          <div class="range-row">
+            <input id="bortleRange" type="range" min="1" max="9" value="1" step="1" aria-label="选择 Bortle 暗空等级">
+            <strong id="bortleValue">1 / 9</strong>
+          </div>
+          <p class="note-copy">拖动滑块，或点下面 1-9 缩略图。数字越大，天空背景越亮，银河越难分辨。</p>
+          <div class="thumbs" id="bortleThumbs" role="group" aria-label="Bortle 等级缩略图"></div>
+          <h3 style="margin-top: 26px;">同时看光污染和人眼极限星等</h3>
+          <div class="comparison-img">
+            <img src="assets/bortle_eye_grid.jpg" alt="Bortle 暗空等级和有效极限星等的交叉对比图">
+          </div>
+          <div class="note">
+            <p>上图的横向表示能看到更暗的星，纵向表示天空背景从暗到亮。所有小图使用同一套亮度基准，所以城市天空不会被后期单独提亮。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="flight" class="section" aria-labelledby="flight-title">
+      <p class="eyebrow">交互结果 02</p>
+      <h2 id="flight-title">移动观测者位置，星座会散架，银河不会凭空消失。</h2>
+      <div class="media-grid">
+        <article class="media-card">
+          <video controls playsinline preload="metadata" poster="assets/big_dipper_poster.jpg">
+            <source src="assets/big_dipper_forward_preview.mp4" type="video/mp4">
+          </video>
+          <div class="media-body">
+            <h3>前向透视：先看北斗，再转向银盘</h3>
+            <p>第一段朝北斗方向移动，细线标出七颗星的位置变化。第二段从当前位置斜向飞向银心方向上方，镜头转向银盘目标点。这个视角接近普通相机的一小块视野，方向由镜头决定，适合看星座形状如何变化。预览视频无音频，看画面变化即可。</p>
+          </div>
+        </article>
+        <article class="media-card">
+          <video controls playsinline preload="metadata" poster="assets/vr_poster.jpg">
+            <source src="assets/vr_equirect_preview.mp4" type="video/mp4">
+          </video>
+          <div class="media-body">
+            <h3>VR 全天：同一条轨迹的球面视频</h3>
+            <p>equirectangular 指全天球面展开格式，可以放进手机或 VR 查看器里转头看。它和前向透视使用同一条轨迹，但保留的是整个天空；2:1 画面边缘变形来自展开方式，不是渲染错误。预览视频无音频，看画面变化即可。</p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section id="boundary" class="section boundary" aria-labelledby="boundary-title">
+      <aside class="boundary-aside">
+        <strong>边界</strong>
+        <p>这个项目追求定性正确和可解释，不追求测光级精确。</p>
+      </aside>
+      <div class="copy">
+        <p class="eyebrow">必须说清楚的部分</p>
+        <h2 id="boundary-title">Gaia 视差数据主要覆盖太阳附近的数据球。</h2>
+        <p>飞行视频能诚实地演示星座散架、局部星场重投影和数据边界。它不能生成真正的银河俯视图，因为 Gaia 可见光视差无法覆盖整个银河盘面。人类也没有银河系俯视照片，常见俯视图来自多波段观测和模型反演。</p>
+        <p>页面里的图像还经过 tone mapping，也就是亮度映射。星等到亮度、坐标投影、视差重投影这些部分有物理锚点；把线性亮度压进 SDR 标准动态范围屏幕，则属于显示层。代码把这两层分开，避免把显示参数说成物理常数。</p>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="repo-title">
+      <div class="repo-panel">
+        <div>
+          <p class="eyebrow">复现与二次开发</p>
+          <h2 id="repo-title">代码、数据获取脚本、测试和渲染命令都在 GitHub 仓库里。</h2>
+          <p class="lead">正常渲染和测试不需要密钥。Gaia 缓存和完整输出留在本地，Git 里只放代码、文档、测试和网页压缩资产。</p>
+          <p>入口命令：<code>uv venv</code>、<code>uv pip install -r requirements.txt</code>、<code>python -m pytest tests/ -q</code>。</p>
+        </div>
+        <a class="button primary" data-repo-link href="https://github.com/grapeot/gaia_allsky">打开 GitHub 仓库</a>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>Gaia 全天星空实验。图像和视频由本仓库的渲染脚本生成，网页使用压缩预览资产。</p>
+  </footer>
+
+  <script>
+    const bortleTexts = [
+      ["Bortle 1：顶级暗空", "银河清楚，暗尘埃结构和低空亮星都能在同一张图里读出来。这是暗空旅行想找回的那片天空。"],
+      ["Bortle 2：典型暗空", "银河仍然很完整，天空背景略有抬升，但大尺度结构清楚。"],
+      ["Bortle 3：乡村天空", "银河还在，细节开始变少。对普通观测者来说，这已经是很好的天空。"],
+      ["Bortle 4：乡郊过渡", "天空背景继续变亮，银河从结构清楚变成一条低对比光带。"],
+      ["Bortle 5：郊区天空", "亮星还明显，银河主体开始难以稳定辨认。"],
+      ["Bortle 6：明亮郊区", "低对比结构基本被背景吞掉，只剩少量亮星。"],
+      ["Bortle 7：城市边缘", "银河几乎退出画面。天空还不是全白，但检测边界已经把大部分结构排除在外。"],
+      ["Bortle 8：城市天空", "画面里主要剩下天空背景和少数亮星。"],
+      ["Bortle 9：城市中心", "同一片银河仍在天上，但肉眼和普通显示都很难从背景里把它分出来。"]
+    ];
+
+    const image = document.getElementById("bortleImage");
+    const label = document.getElementById("bortleLabel");
+    const name = document.getElementById("bortleName");
+    const copy = document.getElementById("bortleCopy");
+    const value = document.getElementById("bortleValue");
+    const range = document.getElementById("bortleRange");
+    const thumbs = document.getElementById("bortleThumbs");
+
+    function setBortle(level) {
+      const n = Number(level);
+      image.src = `assets/bortle_${n}.jpg`;
+      image.alt = `Bortle ${n} 条件下的银河渲染`;
+      label.textContent = `Bortle ${n}`;
+      name.textContent = bortleTexts[n - 1][0];
+      copy.textContent = bortleTexts[n - 1][1];
+      value.textContent = `${n} / 9`;
+      range.value = String(n);
+      document.querySelectorAll(".thumb").forEach((button) => {
+        const active = Number(button.dataset.level) === n;
+        button.classList.toggle("active", active);
+        button.setAttribute("aria-pressed", String(active));
+      });
+    }
+
+    for (let n = 1; n <= 9; n += 1) {
+      const button = document.createElement("button");
+      button.className = "thumb";
+      button.type = "button";
+      button.dataset.level = String(n);
+      button.setAttribute("aria-label", `查看 Bortle ${n}`);
+      button.setAttribute("aria-pressed", "false");
+      button.innerHTML = `<img src="assets/bortle_${n}.jpg" alt=""><span>${n}</span>`;
+      button.addEventListener("click", () => setBortle(n));
+      thumbs.appendChild(button);
+    }
+
+    range.addEventListener("input", (event) => setBortle(event.target.value));
+    setBortle(1);
+
+    const repoLinks = document.querySelectorAll("[data-repo-link]");
+    const pathRepo = location.hostname.endsWith("github.io") ? location.pathname.split("/").filter(Boolean)[0] : "";
+    const owner = location.hostname.endsWith("github.io") ? location.hostname.split(".")[0] : "grapeot";
+    if (pathRepo) {
+      repoLinks.forEach((link) => {
+        link.href = `https://github.com/${owner}/${pathRepo}`;
+      });
+    }
+  </script>
+</body>
+</html>

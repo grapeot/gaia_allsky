@@ -1,0 +1,7 @@
+numpy
+scipy
+Pillow
+astropy
+astroquery
+tifffile
+pytest

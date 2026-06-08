@@ -12,6 +12,19 @@ DATA_DEFAULT = os.path.join(os.path.dirname(__file__), "..", "data", "raw", "gai
 OUTPUT_DEFAULT = os.path.join(os.path.dirname(__file__), "..", "outputs", "knob_bortle_eye_grid.png")
 
 
+BORTLE_NELM = {
+    1: 7.8,
+    2: 7.3,
+    3: 6.8,
+    4: 6.3,
+    5: 5.8,
+    6: 5.3,
+    7: 4.8,
+    8: 4.3,
+    9: 4.0,
+}
+
+
 def parse_csv_numbers(text, cast=float):
     return [cast(x.strip()) for x in text.split(",") if x.strip()]
 
@@ -24,6 +37,14 @@ def gain_for_nelm(nelm, base_nelm=6.0):
 def gain_for_mag_delta(delta_mag):
     """Sensitivity/exposure gain for a limiting-magnitude improvement."""
     return float(10.0 ** (0.4 * delta_mag))
+
+
+def empirical_nelm_for_bortle(bortle):
+    return BORTLE_NELM[int(round(bortle))]
+
+
+def effective_nelm_for_panel(bortle, delta_mag):
+    return empirical_nelm_for_bortle(bortle) + float(delta_mag)
 
 
 def sky_limited_snr(star_signal, sky_signal, exposure=1.0, read_noise=0.0):
@@ -53,33 +74,77 @@ def limiting_mag_for_sky(bortle, gain=1.0, snr_threshold=5.0, m_ref=8.0):
     return lo
 
 
+def visual_luminance_for_mags(mag, bortle, delta_mag, limiting_contrast=0.5):
+    """Star luminance anchored to empirical Bortle NELM.
+
+    A star at the effective limiting magnitude is rendered as a fixed fraction of
+    the current skyglow. This ties the visual model to observed naked-eye limits
+    instead of arbitrary gain.
+    """
+    m_lim = effective_nelm_for_panel(bortle, delta_mag)
+    sky = rh.skyglow_level(bortle)
+    return sky * limiting_contrast * rs.mag_to_luminance(mag, m_lim)
+
+
+def visual_luminance_for_mag(mag, bortle, delta_mag, limiting_contrast=0.5):
+    return float(visual_luminance_for_mags(np.array([mag]), bortle, delta_mag, limiting_contrast)[0])
+
+
 def add_skyglow(canvas, bortle):
     return canvas + rh.skyglow_level(bortle)
 
 
-def normalize_sky_adapted(canvas, target_sky=0.03, gamma=2.2, white_pct=99.5, sky_pct=25.0,
-                          star_contrast=4.0):
-    """Normalize like eye/camera adaptation: median sky stable, highlights compressed."""
+def accumulate_visual_stars(height, width, px, py, inside, luminance, cols, psf_px=6.0,
+                            point_psf_px=1.0, diffuse_strength=1.0):
+    """Visual rendering keeps bright stars sharp while adding Milky-Way glow."""
+    point = rs.accumulate_stars(height, width, px, py, inside, luminance, cols, psf_px=point_psf_px)
+    if psf_px <= point_psf_px or diffuse_strength <= 0:
+        return point
+    diffuse = rs.accumulate_stars(height, width, px, py, inside, luminance, cols, psf_px=psf_px)
+    return point + diffuse * diffuse_strength
+
+
+def adapt_sky_floor(canvas, target_sky=0.03, sky_pct=25.0, star_contrast=4.0):
     y = canvas.sum(axis=-1)
     sky_level = float(np.percentile(y, sky_pct))
     scale = target_sky / max(sky_level, 1e-9)
     adapted = canvas * scale
     sky_rgb = target_sky / 3.0
-    adapted = sky_rgb + np.maximum(adapted - sky_rgb, 0.0) * star_contrast
-    # Keep the adapted sky median fixed. Only compress highlights above a high
-    # percentile; do not renormalize the whole image by the white point.
+    return sky_rgb + np.maximum(adapted - sky_rgb, 0.0) * star_contrast
+
+
+def signal_stretch_for_adapted(adapted, target_sky=0.03, white_pct=99.5, target_white=3.0):
     y = adapted.sum(axis=-1)
-    white = max(float(np.percentile(y, white_pct)), target_sky * 3.0, 1e-9)
-    over = y > white
+    white = max(float(np.percentile(y, white_pct)), target_sky + 1e-9)
+    return max((target_white - target_sky) / max(white - target_sky, 1e-9), 1.0)
+
+
+def finish_sky_adapted(adapted, target_sky=0.03, gamma=2.2, target_white=3.0, signal_stretch=1.0):
+    sky_rgb = target_sky / 3.0
+    adapted = sky_rgb + np.maximum(adapted - sky_rgb, 0.0) * signal_stretch
+    y = adapted.sum(axis=-1)
+    over = y > target_white
     if np.any(over):
         adapted = adapted.copy()
-        adapted[over] *= (white / np.maximum(y[over], 1e-9))[:, None]
+        adapted[over] *= (target_white / np.maximum(y[over], 1e-9))[:, None]
     return np.clip(adapted, 0, 1) ** (1 / gamma)
 
 
-def normalize_panel(canvas, mode, pct, gamma, target_sky, white_pct, sky_pct, star_contrast):
+def normalize_sky_adapted(canvas, target_sky=0.03, gamma=2.2, white_pct=99.5, sky_pct=25.0,
+                          star_contrast=4.0, target_white=3.0, signal_stretch=None):
+    """Normalize like eye/camera adaptation: stable sky floor, stretched signal."""
+    adapted = adapt_sky_floor(canvas, target_sky, sky_pct, star_contrast)
+    if target_white is None:
+        return np.clip(adapted, 0, 1) ** (1 / gamma)
+    if signal_stretch is None:
+        signal_stretch = signal_stretch_for_adapted(adapted, target_sky, white_pct, target_white)
+    return finish_sky_adapted(adapted, target_sky, gamma, target_white, signal_stretch)
+
+
+def normalize_panel(canvas, mode, pct, gamma, target_sky, white_pct, sky_pct, star_contrast, target_white,
+                    signal_stretch=None):
     if mode == "sky_median":
-        return (normalize_sky_adapted(canvas, target_sky, gamma, white_pct, sky_pct, star_contrast) * 255).astype(np.uint8)
+        return (normalize_sky_adapted(canvas, target_sky, gamma, white_pct, sky_pct, star_contrast, target_white, signal_stretch) * 255).astype(np.uint8)
     return (rs.normalize_brightness(canvas, pct, "gamma", gamma) * 255).astype(np.uint8)
 
 
@@ -168,42 +233,49 @@ def project_horizon_camera(az, alt, center_az, width, height, h_fov_deg, v_fov_d
 
 def render_window_panel(l, b, g, bv, bortle, value, width, height, lat_deg, lst_hours,
                         center_az, az_width_deg, max_alt_deg, pct, gamma, normalization,
-                        target_sky, white_pct, sky_pct, star_contrast, mode):
+                        target_sky, white_pct, sky_pct, star_contrast, limiting_contrast,
+                        target_white, psf_px, point_psf_px, diffuse_strength, mode):
     az, alt = rh.gal_to_altaz(l, b, lat_deg, lst_hours)
-    gain = gain_for_mag_delta(value) if mode != "snr" else float(value)
-    L = rs.mag_to_luminance(g, 8.0)
+    exposure = float(value) if mode == "snr" else 1.0
+    L = visual_luminance_for_mags(g, bortle, value, limiting_contrast) if mode != "snr" else rs.mag_to_luminance(g, 8.0)
     cols = rs.bv_to_rgb(bv)
     px, py, inside = project_horizon_camera(az, alt, center_az, width, height, az_width_deg, max_alt_deg)
     if mode == "snr":
         sky = rh.skyglow_level(bortle)
-        L = sky_limited_snr(L, sky, gain)
+        L = sky_limited_snr(L, sky, exposure)
         canvas = rs.accumulate_stars(height, width, px, py, inside, L, cols, psf_px=1.0)
     else:
-        canvas = rs.accumulate_stars(height, width, px, py, inside, L * gain, cols, psf_px=1.0)
+        canvas = accumulate_visual_stars(
+            height, width, px, py, inside, L, cols, psf_px, point_psf_px, diffuse_strength
+        )
         canvas = add_skyglow(canvas, bortle)
-    return normalize_panel(canvas, normalization, pct, gamma, target_sky, white_pct, sky_pct, star_contrast)
+    return normalize_panel(canvas, normalization, pct, gamma, target_sky, white_pct, sky_pct, star_contrast, target_white)
 
 
 def render_perspective_panel(l, b, g, bv, bortle, value, width, height, lat_deg, lst_hours,
                              look_az, look_alt, fov_deg, pct, gamma, normalization,
-                             target_sky, white_pct, sky_pct, star_contrast, mode):
+                             target_sky, white_pct, sky_pct, star_contrast, limiting_contrast,
+                             target_white, psf_px, point_psf_px, diffuse_strength, mode):
     az, alt = rh.gal_to_altaz(l, b, lat_deg, lst_hours)
-    gain = gain_for_mag_delta(value) if mode != "snr" else float(value)
-    L = rs.mag_to_luminance(g, 8.0)
+    exposure = float(value) if mode == "snr" else 1.0
+    L = visual_luminance_for_mags(g, bortle, value, limiting_contrast) if mode != "snr" else rs.mag_to_luminance(g, 8.0)
     cols = rs.bv_to_rgb(bv)
     px, py, inside = project_perspective_altaz(az, alt, look_az, look_alt, width, height, fov_deg)
     if mode == "snr":
         sky = rh.skyglow_level(bortle)
-        L = sky_limited_snr(L, sky, gain)
+        L = sky_limited_snr(L, sky, exposure)
         canvas = rs.accumulate_stars(height, width, px, py, inside, L, cols, psf_px=1.0)
     else:
-        canvas = rs.accumulate_stars(height, width, px, py, inside, L * gain, cols, psf_px=1.0)
+        canvas = accumulate_visual_stars(
+            height, width, px, py, inside, L, cols, psf_px, point_psf_px, diffuse_strength
+        )
         canvas = add_skyglow(canvas, bortle)
-    return normalize_panel(canvas, normalization, pct, gamma, target_sky, white_pct, sky_pct, star_contrast)
+    return normalize_panel(canvas, normalization, pct, gamma, target_sky, white_pct, sky_pct, star_contrast, target_white)
 
 
 def render_equirect_panel(l, b, g, bv, bortle, value, width, height, lat_deg, lst_hours,
-                          pct, gamma, normalization, target_sky, white_pct, sky_pct, star_contrast, mode):
+                          pct, gamma, normalization, target_sky, white_pct, sky_pct, star_contrast,
+                          limiting_contrast, target_white, psf_px, point_psf_px, diffuse_strength, mode):
     canvas, _az, _alt = rh.render_horizon_map(
         l,
         b,
@@ -215,15 +287,23 @@ def render_equirect_panel(l, b, g, bv, bortle, value, width, height, lat_deg, ls
         height,
         m_ref=8.0,
         psf_px=1.0,
-        gain=gain_for_mag_delta(value) if mode != "snr" else 1.0,
+        gain=1.0,
     )
     if mode == "snr":
         sky = rh.skyglow_level(bortle)
         # Approximate equirect SNR by applying sky-limited compression to rendered star signal.
         canvas = sky_limited_snr(canvas, sky, float(value))
     else:
+        # Re-render equirect visual mode with NELM-calibrated luminance.
+        az, alt = rh.gal_to_altaz(l, b, lat_deg, lst_hours)
+        L = visual_luminance_for_mags(g, bortle, value, limiting_contrast)
+        cols = rs.bv_to_rgb(bv)
+        px, py, inside = rh.project_horizon_equirect(az, alt, width, height)
+        canvas = accumulate_visual_stars(
+            height, width, px, py, inside, L, cols, psf_px, point_psf_px, diffuse_strength
+        )
         canvas = add_skyglow(canvas, bortle)
-    return normalize_panel(canvas, normalization, pct, gamma, target_sky, white_pct, sky_pct, star_contrast)
+    return normalize_panel(canvas, normalization, pct, gamma, target_sky, white_pct, sky_pct, star_contrast, target_white)
 
 
 def galactic_center_altaz(lat_deg, lst_hours):
@@ -247,9 +327,35 @@ def label_panel(img, text):
     return np.asarray(out)
 
 
+def render_panel_canvas(l, b, g, bv, bortle, value, width, height, lat_deg, lst_hours,
+                        projection, look_az, look_alt, fov_deg, az_width_deg, max_alt_deg,
+                        limiting_contrast, psf_px, point_psf_px, diffuse_strength, mode):
+    az, alt = rh.gal_to_altaz(l, b, lat_deg, lst_hours)
+    cols = rs.bv_to_rgb(bv)
+    if projection == "equirect":
+        px, py, inside = rh.project_horizon_equirect(az, alt, width, height)
+    elif projection == "horizon_window":
+        px, py, inside = project_horizon_camera(az, alt, look_az, width, height, az_width_deg, max_alt_deg)
+    else:
+        px, py, inside = project_perspective_altaz(az, alt, look_az, look_alt, width, height, fov_deg)
+
+    if mode == "snr":
+        L = rs.mag_to_luminance(g, 8.0)
+        L = sky_limited_snr(L, rh.skyglow_level(bortle), float(value))
+        return rs.accumulate_stars(height, width, px, py, inside, L, cols, psf_px=1.0)
+
+    L = visual_luminance_for_mags(g, bortle, value, limiting_contrast)
+    canvas = accumulate_visual_stars(
+        height, width, px, py, inside, L, cols, psf_px, point_psf_px, diffuse_strength
+    )
+    return add_skyglow(canvas, bortle)
+
+
 def render_grid(data_path, output, bortles, values, panel_width, panel_height, lat_deg, lst_hours,
                 pct, gamma, projection, look_az, look_alt, fov_deg, normalization, target_sky,
-                white_pct, sky_pct, star_contrast, az_width_deg, max_alt_deg, mode, columns_per_row=None):
+                white_pct, sky_pct, star_contrast, target_white, limiting_contrast, az_width_deg,
+                max_alt_deg, psf_px, point_psf_px, diffuse_strength, reference_mode,
+                reference_bortle, reference_value, mode, columns_per_row=None):
     from PIL import Image
 
     d = np.load(data_path)
@@ -258,27 +364,51 @@ def render_grid(data_path, output, bortles, values, panel_width, panel_height, l
     panels_flat = []
     if look_az is None or look_alt is None:
         look_az, look_alt = galactic_center_altaz(lat_deg, lst_hours)
+    signal_stretch = None
+    if mode != "snr" and normalization == "sky_median" and target_white is not None:
+        ref_bortle, ref_value = bortles[0], values[0]
+        if reference_bortle is not None:
+            ref_bortle = reference_bortle
+        if reference_value is not None:
+            ref_value = reference_value
+        if reference_bortle is None and reference_value is None and reference_mode == "brightest":
+            best_white = -np.inf
+            for b_ref in bortles:
+                for v_ref in values:
+                    candidate = render_panel_canvas(
+                        l, b, g, bv, b_ref, v_ref, panel_width, panel_height, lat_deg, lst_hours,
+                        projection, look_az, look_alt, fov_deg, az_width_deg, max_alt_deg,
+                        limiting_contrast, psf_px, point_psf_px, diffuse_strength, mode,
+                    )
+                    adapted = adapt_sky_floor(candidate, target_sky, sky_pct, star_contrast)
+                    white = float(np.percentile(adapted.sum(axis=-1), white_pct))
+                    if white > best_white:
+                        best_white = white
+                        ref_bortle, ref_value = b_ref, v_ref
+        ref_canvas = render_panel_canvas(
+            l, b, g, bv, ref_bortle, ref_value, panel_width, panel_height, lat_deg, lst_hours,
+            projection, look_az, look_alt, fov_deg, az_width_deg, max_alt_deg,
+            limiting_contrast, psf_px, point_psf_px, diffuse_strength, mode,
+        )
+        ref_adapted = adapt_sky_floor(ref_canvas, target_sky, sky_pct, star_contrast)
+        signal_stretch = signal_stretch_for_adapted(ref_adapted, target_sky, white_pct, target_white)
     for bortle in bortles:
         for value in values:
+            canvas = render_panel_canvas(
+                l, b, g, bv, bortle, value, panel_width, panel_height, lat_deg, lst_hours,
+                projection, look_az, look_alt, fov_deg, az_width_deg, max_alt_deg,
+                limiting_contrast, psf_px, point_psf_px, diffuse_strength, mode,
+            )
+            panel = normalize_panel(
+                canvas, normalization, pct, gamma, target_sky, white_pct, sky_pct,
+                star_contrast, target_white, signal_stretch,
+            )
             if projection == "equirect":
-                panel = render_equirect_panel(
-                    l, b, g, bv, bortle, value, panel_width, panel_height,
-                    lat_deg, lst_hours, pct, gamma, normalization, target_sky, white_pct, sky_pct, star_contrast, mode,
-                )
                 label = f"Bortle {bortle}  {column_label(mode, value, bortle)}  equirect"
             elif projection == "horizon_window":
-                panel = render_window_panel(
-                    l, b, g, bv, bortle, value, panel_width, panel_height,
-                    lat_deg, lst_hours, look_az, az_width_deg, max_alt_deg,
-                    pct, gamma, normalization, target_sky, white_pct, sky_pct, star_contrast, mode,
-                )
-                label = f"Bortle {bortle}  {column_label(mode, value, bortle)}  Beijing horizon"
+                label = f"Bortle {bortle}  {column_label(mode, value, bortle)}  Guangzhou horizon"
             else:
-                panel = render_perspective_panel(
-                    l, b, g, bv, bortle, value, panel_width, panel_height, lat_deg, lst_hours,
-                    look_az, look_alt, fov_deg, pct, gamma, normalization, target_sky, white_pct, sky_pct, star_contrast, mode,
-                )
-                label = f"Bortle {bortle}  {column_label(mode, value, bortle)}  Beijing wide"
+                label = f"Bortle {bortle}  {column_label(mode, value, bortle)}  Guangzhou wide"
             panels_flat.append(label_panel(panel, label))
     columns = columns_per_row or len(values)
     rows = []
@@ -299,7 +429,7 @@ def column_label(mode, value, bortle=None):
         return f"exp {value:g}x"
     if bortle is None:
         return f"cost +{value:g}mag"
-    nelm = limiting_mag_for_sky(bortle, gain_for_mag_delta(value))
+    nelm = effective_nelm_for_panel(bortle, value)
     return f"cost +{value:g}mag  NELM~{nelm:.1f}"
 
 
@@ -327,6 +457,22 @@ def build_parser():
                    help="Low percentile used as background sky estimate for adaptation.")
     p.add_argument("--star-contrast", type=float, default=4.0,
                    help="Contrast boost for signal above the adapted sky background.")
+    p.add_argument("--target-white", type=float, default=2.0,
+                   help="Linear RGB-sum target for the white percentile after sky adaptation.")
+    p.add_argument("--limiting-contrast", type=float, default=0.5,
+                   help="Linear star/sky contrast for a star at the empirical limiting magnitude.")
+    p.add_argument("--psf-px", type=float, default=6.0,
+                   help="Visual-mode Gaussian PSF in output pixels; keeps Milky Way visible after downscaling.")
+    p.add_argument("--point-psf-px", type=float, default=1.0,
+                   help="Visual-mode sharp star PSF in output pixels.")
+    p.add_argument("--diffuse-strength", type=float, default=0.33,
+                   help="Strength of the wide PSF layer used for Milky-Way glow.")
+    p.add_argument("--reference-mode", choices=["brightest", "first"], default="brightest",
+                   help="Panel used to calibrate shared visual stretch for the whole grid.")
+    p.add_argument("--reference-bortle", type=int,
+                   help="Explicit Bortle value for shared visual stretch reference.")
+    p.add_argument("--reference-value", type=float,
+                   help="Explicit eye delta/exposure value for shared visual stretch reference.")
     p.add_argument("--white-pct", type=float, default=99.5,
                    help="Highlight percentile mapped to white after sky adaptation.")
     p.add_argument("--mode", choices=["adapted", "snr"], default="adapted",
@@ -360,8 +506,16 @@ def main(argv=None):
         args.white_pct,
         args.sky_pct,
         args.star_contrast,
+        args.target_white,
+        args.limiting_contrast,
         args.az_width_deg,
         args.max_alt_deg,
+        args.psf_px,
+        args.point_psf_px,
+        args.diffuse_strength,
+        args.reference_mode,
+        args.reference_bortle,
+        args.reference_value,
         args.mode,
         args.columns_per_row,
     )

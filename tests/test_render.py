@@ -17,6 +17,7 @@ import render_vr_video as rvv
 import render_bortle_eye_grid as beg
 import video_common as vc
 import motion
+import fetch_gaia_allsky as fga
 
 DATA = os.path.join(os.path.dirname(__file__), "..", "data", "raw")
 
@@ -133,9 +134,82 @@ def test_bortle_grid_separates_eye_delta_and_exposure_defaults():
     assert args.az_width_deg == 90.0
     assert args.max_alt_deg == 75.0
     assert args.lat_deg == 23.13
+    assert args.limiting_contrast == 0.5
+    assert args.target_white == 2.0
+    assert args.psf_px == 6.0
+    assert args.point_psf_px == 1.0
+    assert args.diffuse_strength == 0.33
+    assert args.reference_mode == "brightest"
+    assert args.reference_bortle is None
+    assert args.reference_value is None
     assert beg.column_label("adapted", 2).startswith("cost +2mag")
     assert "NELM~" in beg.column_label("adapted", 2, 1)
     assert beg.column_label("snr", 10) == "exp 10x"
+
+
+def test_allsky_fetch_query_matches_renderer_cache_schema():
+    """全天 Gaia fetcher 应直接生成渲染器需要的 l/b/g/bp_rp schema。"""
+    q = fga.build_query(gmax=11.0, row_limit=123)
+    assert "TOP 123" in q
+    assert "l, b, phot_g_mean_mag, bp_rp" in q
+    assert "phot_g_mean_mag < 11.0" in q
+
+
+def test_allsky_fetch_table_to_arrays_fills_missing_color():
+    """缺失 BP-RP 时用太阳型颜色 fallback，避免渲染阶段出现 NaN。"""
+    table = {
+        "l": np.array([1.0, 2.0]),
+        "b": np.array([3.0, 4.0]),
+        "phot_g_mean_mag": np.array([5.0, 6.0]),
+        "bp_rp": np.array([np.nan, 1.2]),
+    }
+    l, b, g, bp_rp = fga.table_to_arrays(table)
+    assert np.allclose(l, [1.0, 2.0])
+    assert np.allclose(b, [3.0, 4.0])
+    assert np.allclose(g, [5.0, 6.0])
+    assert np.allclose(bp_rp, [0.7, 1.2])
+
+
+def test_empirical_bortle_nelm_table_matches_visual_labels():
+    """正式视觉图用经验 Bortle NELM 表作为可见性锚点。"""
+    assert beg.empirical_nelm_for_bortle(1) == 7.8
+    assert beg.empirical_nelm_for_bortle(6) == 5.3
+    assert beg.effective_nelm_for_panel(1, 2) == 9.8
+    assert beg.effective_nelm_for_panel(6, 4) == 9.3
+    assert "NELM~7.8" in beg.column_label("adapted", 0, 1)
+    assert "NELM~9.3" in beg.column_label("adapted", 4, 6)
+
+
+def test_visual_luminance_is_anchored_at_limiting_contrast():
+    """有效极限星等处的星光应是当前 skyglow 的固定微弱对比。"""
+    contrast = 0.08
+    for bortle, delta in [(1, 0), (6, 0), (6, 4)]:
+        m_lim = beg.effective_nelm_for_panel(bortle, delta)
+        sky = rh.skyglow_level(bortle)
+        lum = beg.visual_luminance_for_mag(m_lim, bortle, delta, limiting_contrast=contrast)
+        assert np.isclose(lum / sky, contrast)
+
+
+def test_visual_luminance_uses_delta_once():
+    """+2mag 只通过有效 NELM 进入模型，不再额外乘一次 gain。"""
+    bortle = 1
+    contrast = 0.08
+    sky = rh.skyglow_level(bortle)
+    lum = beg.visual_luminance_for_mag(beg.effective_nelm_for_panel(bortle, 2), bortle, 2, limiting_contrast=contrast)
+    assert np.isclose(lum / sky, contrast)
+
+
+def test_visual_accumulation_keeps_point_stars_and_diffuse_glow():
+    """正式视觉层应同时保留点源高光和宽 PSF 的银河低频结构。"""
+    px = np.array([10])
+    py = np.array([10])
+    inside = np.array([True])
+    lum = np.array([1.0])
+    cols = np.array([[1.0, 1.0, 1.0]])
+    point = beg.accumulate_visual_stars(25, 25, px, py, inside, lum, cols, psf_px=1.0, point_psf_px=1.0)
+    mixed = beg.accumulate_visual_stars(25, 25, px, py, inside, lum, cols, psf_px=4.0, point_psf_px=1.0)
+    assert mixed[10, 10, 0] > point[10, 10, 0]
+    assert mixed[10, 18, 0] > point[10, 18, 0]
 
 
 def test_limiting_mag_worsens_with_light_pollution():
@@ -181,13 +255,13 @@ def test_sky_adapted_normalization_equalizes_background():
 
 
 def test_sky_adapted_reduces_star_contrast_in_bright_sky():
-    """同样星光叠加在亮背景上，适应归一后相对对比更低。"""
+    """关闭白点拉伸时，同样星光叠加在亮背景上相对对比更低。"""
     dark = np.full((20, 20, 3), 0.01, np.float32)
     bright = np.full((20, 20, 3), 1.0, np.float32)
     dark[10, 10] += 0.1
     bright[10, 10] += 0.1
-    nd = beg.normalize_sky_adapted(dark, target_sky=0.03, gamma=2.2, white_pct=100.0, star_contrast=4.0).sum(-1)
-    nb = beg.normalize_sky_adapted(bright, target_sky=0.03, gamma=2.2, white_pct=100.0, star_contrast=4.0).sum(-1)
+    nd = beg.normalize_sky_adapted(dark, target_sky=0.03, gamma=2.2, white_pct=100.0, star_contrast=4.0, target_white=None).sum(-1)
+    nb = beg.normalize_sky_adapted(bright, target_sky=0.03, gamma=2.2, white_pct=100.0, star_contrast=4.0, target_white=None).sum(-1)
     dark_contrast = nd[10, 10] - np.median(nd)
     bright_contrast = nb[10, 10] - np.median(nb)
     assert bright_contrast < dark_contrast
@@ -202,12 +276,34 @@ def test_sky_adapted_highlight_compression_limits_clipping():
     assert saturated < 0.01
 
 
+def test_sky_adapted_white_percentile_uses_display_range():
+    """white_pct 应拉伸背景以上信号，而不是让高分位停在中灰。"""
+    c = np.full((100, 100, 3), 0.02, np.float32)
+    c[0:15, 0:15] += np.linspace(0.01, 0.2, 225).reshape(15, 15, 1)
+    out = beg.normalize_sky_adapted(c, target_sky=0.03, gamma=2.2, white_pct=99.0, target_white=3.0)
+    y = out.sum(-1)
+    assert np.percentile(y, 99.0) > 2.5
+    assert np.percentile(y, 25.0) < 0.4
+
+
+def test_brightest_reference_reduces_shared_stretch():
+    """最亮 panel 做 reference 时，共享 stretch 应小于首个普通 panel reference。"""
+    dark = np.full((20, 20, 3), 0.02, np.float32)
+    bright = dark.copy()
+    bright[5:15, 5:15] += 0.2
+    a_dark = beg.adapt_sky_floor(dark, target_sky=0.03, sky_pct=25, star_contrast=4)
+    a_bright = beg.adapt_sky_floor(bright, target_sky=0.03, sky_pct=25, star_contrast=4)
+    first = beg.signal_stretch_for_adapted(a_dark, target_sky=0.03, white_pct=99.5, target_white=2.0)
+    brightest = beg.signal_stretch_for_adapted(a_bright, target_sky=0.03, white_pct=99.5, target_white=2.0)
+    assert brightest < first
+
+
 def test_star_contrast_boosts_signal_above_sky():
     """暗背景保持固定时，star_contrast 应提升背景以上的信号。"""
     c = np.full((20, 20, 3), 0.02, np.float32)
     c[10, 10] += 0.02
-    low = beg.normalize_sky_adapted(c, target_sky=0.03, gamma=2.2, white_pct=100.0, star_contrast=1.0).sum(-1)
-    high = beg.normalize_sky_adapted(c, target_sky=0.03, gamma=2.2, white_pct=100.0, star_contrast=4.0).sum(-1)
+    low = beg.normalize_sky_adapted(c, target_sky=0.03, gamma=2.2, white_pct=100.0, star_contrast=1.0, target_white=None).sum(-1)
+    high = beg.normalize_sky_adapted(c, target_sky=0.03, gamma=2.2, white_pct=100.0, star_contrast=4.0, target_white=None).sum(-1)
     assert np.isclose(np.median(low), np.median(high))
     assert high[10, 10] - np.median(high) > low[10, 10] - np.median(low)
 

@@ -383,3 +383,122 @@ Measured high-resolution output after this change:
 Verification:
 
 - `python -m pytest tests/ -q` -> 39 passed.
+
+## 2026-06-08: Anchor Visual Brightness to Empirical NELM
+
+The previous adapted visual path still had too much display tuning in the physical layer. The biggest diagnostic was `limiting_mag_for_sky()`: with the old sky/SNR approximation, Bortle 1 through Bortle 9 only moved from about 4.50 to 4.24 mag. That is far from the empirical Bortle naked-eye limiting magnitude scale, where Bortle 1 is around 7.6-8.0 and Bortle 6 is around 5.1-5.5.
+
+The formal visual mode now uses an explicit empirical Bortle/NELM table as its visibility anchor:
+
+```text
+B1 7.8, B2 7.3, B3 6.8, B4 6.3, B5 5.8, B6 5.3, B7 4.8, B8 4.3, B9 4.0
+```
+
+For each panel:
+
+```text
+effective_nelm = empirical_bortle_nelm + sensitivity_delta_mag
+```
+
+A star at `effective_nelm` is assigned a fixed point-source contrast relative to the current skyglow (`--limiting-contrast`, default 0.5). Brighter stars follow Pogson scaling relative to that limit. This removes the previous double-counting path where `+2mag` both shifted the limiting magnitude and multiplied the rendered star signal by a separate gain.
+
+A quick sweep showed that 0.08 made the Bortle 1 panel nearly indistinguishable from the adapted sky floor. That was not caused by `--white-pct 99.5`: the high percentiles were too low before highlight compression became relevant. Raising the limiting contrast to 0.5 keeps the empirical NELM anchor while making the Bortle 1 Milky Way visible in SDR.
+
+Display tone mapping remains separate from detectability physics. `--target-sky`, `--sky-pct`, `--star-contrast`, and `--white-pct` are still display controls for mapping the physically anchored canvas into SDR. The scientific claim is therefore narrower and cleaner: the relative star/Milky-Way visibility is anchored to empirical NELM, while final contrast is an SDR rendering choice.
+
+One more display-layer issue showed up in portal preview: a physically anchored 1px star field can look empty after the full 3240px-wide grid is downscaled in the UI. That is especially bad for the Milky Way, which should read as extended low-frequency structure rather than isolated bright pixels. A single wide PSF fixed the low-frequency glow but made bright stars too soft and crushed the histogram into a narrow range. The adapted visual mode now uses two layers:
+
+- `--point-psf-px 1.0`: sharp point-source layer for bright stars.
+- `--psf-px 6.0 --diffuse-strength 1.0`: wide diffuse layer for Milky-Way glow and portal/downscaled previews.
+
+This keeps the NELM/star brightness anchor intact while preserving both point stars and the extended Milky Way band.
+
+NELM semantics also need to be explicit. NELM is not a fixed hardware spec for the eye. It is the naked-eye limiting magnitude under a given sky background. The often quoted “6th magnitude naked-eye limit” is a rough normal/dark-sky convention, not the Bortle 1 maximum. Empirical Bortle tables put Bortle 1 around 7.6-8.0, and Bortle 5 around 5.6-6.0. Therefore `Bortle 1  NELM~7.8` and `Bortle 5  NELM~5.8` are internally consistent.
+
+The next issue was histogram usage. A Bortle 1 single panel with the old highlight compression had RGB-sum p99.5 around 128/765, wasting most SDR dynamic range. The fix is reference-based display stretching:
+
+1. Adapt each panel's sky floor independently, so the background remains comparable.
+2. Use a shared reference panel to compute a single signal stretch from `--white-pct` to `--target-white`.
+3. Apply that same stretch to every panel, so the reference uses the display range while other panels are not independently pulled up to white.
+
+Measured `outputs/knob_bortle_scale_grid.png` after the reference stretch:
+
+The final defaults are deliberately conservative:
+
+- `--target-white 2.0`, not 3.0, so Bortle 1 is readable without looking like a long-exposure photo.
+- `--diffuse-strength 0.33`, one third of the initial wide-PSF bloom layer.
+- `--reference-mode brightest` for the sensitivity grid, so Bortle 1/+4mag is the display reference and the high-sensitivity column does not overexpose.
+- `--reference-bortle 1 --reference-value 2` for the Bortle scale grid, so Bortle 1/+0mag is rendered with a display stretch similar to the more legible Bortle 1/+2mag panel in `knob_bortle_eye_grid.png`.
+
+Measured `outputs/knob_bortle_scale_grid.png` after the final reference stretch:
+
+```text
+Bortle 1 RGB-sum p25/50/95/99.5:  93 / 102 / 162 / 286
+Bortle 6 RGB-sum p25/50/95/99.5:  93 /  98 / 141 / 262
+Bortle 9 RGB-sum p25/50/95/99.5:  93 /  93 /  96 / 110
+```
+
+Measured `outputs/knob_bortle_eye_grid.png` after the final reference stretch:
+
+```text
+Bortle 1 +0mag RGB-sum p25/50/95/99.5:  93 /  94 / 109 / 150
+Bortle 1 +2mag RGB-sum p25/50/95/99.5:  93 / 102 / 166 / 295
+Bortle 1 +4mag RGB-sum p25/50/95/99.5:  96 / 137 / 326 / 620
+Bortle 6 +0mag RGB-sum p25/50/95/99.5:  93 /  93 /  95 / 103
+Bortle 6 +4mag RGB-sum p25/50/95/99.5:  93 /  99 / 144 / 273
+```
+
+This is the intended split: the display reference uses SDR dynamic range, while light pollution and lower sensitivity still suppress high percentiles instead of being hidden by per-panel normalization.
+
+Verification:
+
+- `python -m pytest tests/ -q` -> 45 passed.
+- Regenerated `outputs/knob_bortle_eye_grid.png` and `outputs/knob_bortle_scale_grid.png` with the NELM-anchored defaults.
+
+## 2026-06-08: Final Bortle Grid Tuning and Hi-Res Videos
+
+Final visual-grid changes after manual inspection:
+
+- Reduced wide-PSF bloom strength from 1.0 to 0.33.
+- Added explicit reference overrides: `--reference-bortle` and `--reference-value`.
+- Kept `--reference-mode brightest` as the default for sensitivity grids, so the brightest/highest-sensitivity panel calibrates shared stretch.
+- Rendered `outputs/knob_bortle_scale_grid.png` with `--reference-bortle 1 --reference-value 2`, matching the useful Bortle 1/+2mag look from `outputs/knob_bortle_eye_grid.png` while still keeping Bortle 7-9 dark.
+
+Final commands:
+
+```bash
+python src/render_bortle_eye_grid.py \
+  --bortles 1,6 \
+  --eye-deltas 0,2,4 \
+  --output outputs/knob_bortle_eye_grid.png
+
+python src/render_bortle_eye_grid.py \
+  --bortles 1,2,3,4,5,6,7,8,9 \
+  --eye-deltas 0 \
+  --columns-per-row 3 \
+  --reference-bortle 1 \
+  --reference-value 2 \
+  --output outputs/knob_bortle_scale_grid.png
+```
+
+High-resolution video outputs were also generated:
+
+```bash
+python src/render_vr_video.py \
+  --width 4096 --height 2048 --duration 10 --fps 60 --workers 32 \
+  --leg1-pc 50 --target-gc-pc 400 --leg2-pc 2500 \
+  --frames-dir outputs/vr_equirect_hires_frames \
+  --output outputs/vr_equirect_hires.mp4
+
+python src/render_big_dipper_video.py \
+  --width 2160 --height 2160 --duration 10 --fps 60 --workers 32 \
+  --leg1-pc 50 --target-gc-pc 400 --leg2-pc 2500 \
+  --frames-dir outputs/big_dipper_forward_hires_frames \
+  --output outputs/big_dipper_forward_hires.mp4
+```
+
+Verification:
+
+- `python -m pytest tests/ -q` -> 48 passed.
+- `outputs/vr_equirect_hires.mp4`: H.264, `yuv420p`, 4096x2048, 60fps, 600 frames.
+- `outputs/big_dipper_forward_hires.mp4`: H.264, `yuv420p`, 2160x2160, 60fps, 600 frames.
