@@ -2,7 +2,17 @@
 import argparse
 import os
 
-from video_common import DATA_DEFAULT, OUTPUTS_DIR, assemble_mp4, render_frames_parallel, render_vr_frame, shared_l_positions
+from video_common import (
+    DATA_DEFAULT,
+    OUTPUTS_DIR,
+    assemble_mp4,
+    big_dipper_direction,
+    galactic_pole_direction,
+    render_frames_parallel,
+    render_vr_frame,
+    resolve_frame_count,
+    shared_l_positions,
+)
 
 
 def build_parser():
@@ -13,6 +23,7 @@ def build_parser():
     p.add_argument("--width", type=int, default=2048)
     p.add_argument("--height", type=int, default=1024)
     p.add_argument("--frames", type=int, default=300)
+    p.add_argument("--duration", type=float, help="Video duration in seconds. Overrides --frames when set.")
     p.add_argument("--fps", type=int, default=60)
     p.add_argument("--leg1-pc", type=float, default=400.0)
     p.add_argument("--leg2-pc", type=float, default=2500.0)
@@ -29,11 +40,19 @@ def build_parser():
 
 
 def config_from_args(args):
-    positions, _phase = shared_l_positions(args.frames, args.leg1_pc, args.leg2_pc, args.split)
+    frames = resolve_frame_count(args.frames, args.fps, args.duration)
+    positions, _phase = shared_l_positions(
+        frames,
+        args.leg1_pc,
+        args.leg2_pc,
+        args.split,
+        leg1_dir=big_dipper_direction(),
+        leg2_dir=galactic_pole_direction(),
+    )
     return {
         "width": args.width,
         "height": args.height,
-        "frames": args.frames,
+        "frames": frames,
         "positions": positions,
         "gamma": args.gamma,
         "pct": args.pct,
@@ -44,7 +63,8 @@ def config_from_args(args):
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
-    render_frames_parallel(args.data, args.frames_dir, config_from_args(args), render_vr_frame, args.workers, args.save_hdr)
+    cfg = config_from_args(args)
+    render_frames_parallel(args.data, args.frames_dir, cfg, render_vr_frame, args.workers, args.save_hdr)
     if not args.no_mp4:
         assemble_mp4(args.frames_dir, args.output, args.fps, args.crf)
         print(f"wrote {args.output}")

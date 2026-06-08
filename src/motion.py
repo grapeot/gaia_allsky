@@ -31,12 +31,13 @@ def slerp(a, b, t):
     )
 
 
-def l_motion(frames, leg1_pc=400.0, leg2_pc=2500.0, split=0.5):
-    """Shared L-shaped path: forward along the galactic plane, then upward to the galactic pole."""
+def l_motion(frames, leg1_pc=400.0, leg2_pc=2500.0, split=0.5,
+             leg1_dir=None, leg2_dir=None):
+    """Shared L-shaped path: first leg forward, second leg upward from the galactic disk."""
     if frames <= 0:
         raise ValueError("frames must be positive")
-    d1 = r3.flight_direction("galactic_plane")
-    d2 = r3.flight_direction("galactic_pole")
+    d1 = normalize(leg1_dir if leg1_dir is not None else r3.flight_direction("galactic_plane"))
+    d2 = normalize(leg2_dir if leg2_dir is not None else r3.flight_direction("galactic_pole"))
     split_index = max(1, min(frames - 1, int(round(frames * split)))) if frames > 1 else 1
     positions = np.zeros((frames, 3), dtype=float)
     phase = np.zeros(frames, dtype=float)

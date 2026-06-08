@@ -83,3 +83,37 @@ Verification after correction:
 - `outputs/vr_equirect_lowres.mp4`: H.264, `yuv420p`, 640x320, 30 fps, 60 frames, 2 seconds.
 - `outputs/big_dipper_forward_lowres.mp4`: H.264, `yuv420p`, 640x640, 30 fps, 60 frames, 2 seconds.
 - First-frame Big Dipper QA: all seven Big Dipper stars project inside the 640x640 perspective frame, roughly x=255-373 and y=288-345. If the asterism is hard to recognize visually, the issue is lack of constellation line/marker overlay, not camera pointing.
+
+## 2026-06-08: Duration Flag and Forward Camera Correction
+
+Two clarifications changed the CLI defaults.
+
+First, spatial resolution and temporal resolution are separate controls. The CLIs now accept `--duration` so callers can say `--duration 10 --fps 60`; the program computes 600 frames internally. `--frames` remains available when exact frame count is preferred.
+
+Second, the forward camera and first-leg motion should start toward the Big Dipper. The intended effect is that the familiar Big Dipper shape is initially obvious, then changes as the observer flies toward it and the nearby bright stars reproject. During the second leg, motion leaves the disk toward the galactic pole while the camera turns toward the galactic center. Updated defaults:
+
+- first leg motion: Big Dipper center direction
+- second leg motion: galactic pole direction
+- start look direction: Big Dipper center direction
+- end look direction: galactic center direction
+- interpolation: smooth slerp driven by second-leg phase
+
+Updated 10-second low-resolution preview commands:
+
+```bash
+python src/render_vr_video.py \
+  --width 640 --height 320 --duration 10 --fps 60 --workers 32 \
+  --leg1-pc 400 --leg2-pc 2500 \
+  --frames-dir outputs/vr_equirect_lowres_frames \
+  --output outputs/vr_equirect_lowres.mp4
+
+python src/render_big_dipper_video.py \
+  --width 640 --height 640 --duration 10 --fps 60 --workers 32 \
+  --leg1-pc 400 --leg2-pc 2500 --projection perspective \
+  --frames-dir outputs/big_dipper_forward_lowres_frames \
+  --output outputs/big_dipper_forward_lowres.mp4
+```
+
+Verification after this change:
+
+- `python -m pytest tests/ -q` -> 26 passed.

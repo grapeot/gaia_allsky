@@ -159,6 +159,12 @@ def test_parse_triplet_normalizes_direction():
     assert np.allclose(d, np.array([1.0, 0.0, 0.0]))
 
 
+def test_duration_overrides_frames():
+    """CLI 支持按 duration*fps 自动计算帧数。"""
+    assert vc.resolve_frame_count(10, 60, 2.5) == 150
+    assert vc.resolve_frame_count(10, 60, None) == 10
+
+
 def test_vr_cli_config_uses_equirect_dimensions():
     """VR CLI config 保留 2:1 equirectangular 分辨率参数。"""
     args = rvv.build_parser().parse_args(["--width", "640", "--height", "320", "--frames", "7"])
@@ -168,8 +174,16 @@ def test_vr_cli_config_uses_equirect_dimensions():
     assert cfg["frames"] == 7
 
 
-def test_big_dipper_cli_look_and_flight_default_match():
-    """前向版本默认从北斗视线平滑转向银北极。"""
+def test_vr_cli_duration_sets_frame_count():
+    """VR CLI 可用 duration 表达时间分辨率。"""
+    args = rvv.build_parser().parse_args(["--fps", "60", "--duration", "10"])
+    cfg = rvv.config_from_args(args)
+    assert cfg["frames"] == 600
+    assert cfg["positions"].shape == (600, 3)
+
+
+def test_big_dipper_cli_default_camera_starts_at_dipper_then_gc():
+    """前向版本默认先看北斗并朝北斗走，第二段看银心。"""
     args = bdv.build_parser().parse_args(["--frames", "7"])
     cfg = bdv.config_from_args(args)
     assert cfg["positions"].shape == (7, 3)
@@ -177,7 +191,9 @@ def test_big_dipper_cli_look_and_flight_default_match():
     assert np.isclose(np.linalg.norm(cfg["look_dirs"][0]), 1.0)
     assert np.isclose(np.linalg.norm(cfg["look_dirs"][-1]), 1.0)
     assert np.dot(cfg["look_dirs"][0], vc.big_dipper_direction()) > 0.99
-    assert np.dot(cfg["look_dirs"][-1], r3.flight_direction("galactic_pole")) > 0.99
+    assert np.dot(cfg["look_dirs"][-1], r3.flight_direction("galactic_plane")) > 0.99
+    first_leg_dir = cfg["positions"][3] / np.linalg.norm(cfg["positions"][3])
+    assert np.dot(first_leg_dir, vc.big_dipper_direction()) > 0.99
 
 
 def test_shared_l_motion_has_two_legs():

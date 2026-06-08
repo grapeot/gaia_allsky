@@ -7,9 +7,12 @@ from video_common import (
     OUTPUTS_DIR,
     assemble_mp4,
     big_dipper_direction,
+    galactic_center_direction,
+    galactic_pole_direction,
     parse_triplet,
     render_forward_frame,
     render_frames_parallel,
+    resolve_frame_count,
     shared_l_look_dirs,
     shared_l_positions,
 )
@@ -24,6 +27,7 @@ def build_parser():
     p.add_argument("--width", type=int, default=1024)
     p.add_argument("--height", type=int, default=1024)
     p.add_argument("--frames", type=int, default=300)
+    p.add_argument("--duration", type=float, help="Video duration in seconds. Overrides --frames when set.")
     p.add_argument("--fps", type=int, default=60)
     p.add_argument("--leg1-pc", type=float, default=400.0)
     p.add_argument("--leg2-pc", type=float, default=2500.0)
@@ -44,13 +48,23 @@ def build_parser():
 
 
 def config_from_args(args):
-    positions, phase = shared_l_positions(args.frames, args.leg1_pc, args.leg2_pc, args.split)
-    start_dir = parse_triplet(args.start_look_dir) if args.start_look_dir else big_dipper_direction()
-    end_dir = parse_triplet(args.end_look_dir) if args.end_look_dir else r3.flight_direction("galactic_pole")
+    frames = resolve_frame_count(args.frames, args.fps, args.duration)
+    first_leg_dir = big_dipper_direction()
+    second_leg_dir = galactic_pole_direction()
+    positions, phase = shared_l_positions(
+        frames,
+        args.leg1_pc,
+        args.leg2_pc,
+        args.split,
+        leg1_dir=first_leg_dir,
+        leg2_dir=second_leg_dir,
+    )
+    start_dir = parse_triplet(args.start_look_dir) if args.start_look_dir else first_leg_dir
+    end_dir = parse_triplet(args.end_look_dir) if args.end_look_dir else galactic_center_direction()
     return {
         "width": args.width,
         "height": args.height,
-        "frames": args.frames,
+        "frames": frames,
         "positions": positions,
         "look_dirs": shared_l_look_dirs(args.frames, start_dir, end_dir, phase),
         "projection": args.projection,
@@ -64,7 +78,8 @@ def config_from_args(args):
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
-    render_frames_parallel(args.data, args.frames_dir, config_from_args(args), render_forward_frame, args.workers, args.save_hdr)
+    cfg = config_from_args(args)
+    render_frames_parallel(args.data, args.frames_dir, cfg, render_forward_frame, args.workers, args.save_hdr)
     if not args.no_mp4:
         assemble_mp4(args.frames_dir, args.output, args.fps, args.crf)
         print(f"wrote {args.output}")

@@ -2,6 +2,7 @@
 import os
 import subprocess
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from pathlib import Path
 
 import numpy as np
 
@@ -38,6 +39,14 @@ def big_dipper_direction():
     return vec / np.linalg.norm(vec)
 
 
+def galactic_center_direction():
+    return r3.flight_direction("galactic_plane")
+
+
+def galactic_pole_direction():
+    return r3.flight_direction("galactic_pole")
+
+
 def parse_triplet(text):
     parts = [float(x.strip()) for x in text.split(",")]
     if len(parts) != 3:
@@ -47,6 +56,18 @@ def parse_triplet(text):
     if n == 0:
         raise ValueError("direction vector must be non-zero")
     return v / n
+
+
+def resolve_frame_count(frames, fps, duration):
+    if duration is None:
+        if frames <= 0:
+            raise ValueError("frames must be positive")
+        return frames
+    if duration <= 0:
+        raise ValueError("duration must be positive")
+    if fps <= 0:
+        raise ValueError("fps must be positive")
+    return max(1, int(round(duration * fps)))
 
 
 def expose(canvas, gamma, pct):
@@ -101,8 +122,15 @@ def render_forward_frame(i):
     return expose(canvas, cfg["gamma"], cfg["pct"])
 
 
-def shared_l_positions(frames, leg1_pc, leg2_pc, split):
-    return motion.l_motion(frames, leg1_pc=leg1_pc, leg2_pc=leg2_pc, split=split)
+def shared_l_positions(frames, leg1_pc, leg2_pc, split, leg1_dir=None, leg2_dir=None):
+    return motion.l_motion(
+        frames,
+        leg1_pc=leg1_pc,
+        leg2_pc=leg2_pc,
+        split=split,
+        leg1_dir=leg1_dir,
+        leg2_dir=leg2_dir,
+    )
 
 
 def shared_l_look_dirs(frames, start_dir, end_dir, phase):
@@ -133,6 +161,8 @@ def render_and_write_frame(index, frame_func, outdir, save_hdr):
 def render_frames_parallel(data_path, outdir, config, frame_func, workers=None, save_hdr=False):
     workers = workers or (os.cpu_count() or 1)
     os.makedirs(outdir, exist_ok=True)
+    for old in list(Path(outdir).glob("frame_*.png")) + list(Path(outdir).glob("frame_*.tif")):
+        old.unlink()
     print(f"rendering {config['frames']} frames to {outdir} with {workers} workers")
     with ProcessPoolExecutor(max_workers=workers, initializer=init_worker, initargs=(data_path, config)) as ex:
         futures = {
