@@ -128,8 +128,8 @@ def test_bortle_grid_separates_eye_delta_and_exposure_defaults():
     args = beg.build_parser().parse_args([])
     assert args.eye_deltas == "0,2,4"
     assert args.exposures == "1,10,100"
-    assert args.panel_width == 540
-    assert args.panel_height == 960
+    assert args.panel_width == 1080
+    assert args.panel_height == 1920
     assert args.az_width_deg == 90.0
     assert args.max_alt_deg == 75.0
     assert args.lat_deg == 23.13

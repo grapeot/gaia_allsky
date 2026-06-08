@@ -289,10 +289,9 @@ Verification:
 
 The Bortle comparison grid is intended for a vertical “standing under the sky” read, not a horizontal strip. Updated defaults:
 
-- panel size: `540 x 960`
-- full 3-column x 2-row grid: `1620 x 1920`
-- panel size: `540 x 960`
-- full 3-column x 2-row grid: `1620 x 1920`
+- panel size: `1080 x 1920`
+- full 3-column x 2-row grid: `3240 x 3840`
+- full 3-column x 3-row Bortle scale grid: `3240 x 5760`
 - horizontal FOV: `90°`
 - vertical FOV: `75°`
 
@@ -307,7 +306,7 @@ The focused Bortle scale view had the right normalization and framing, but the �
 - the bottom-center ray is the horizon
 - the camera is centered on the galactic-center azimuth
 
-The QA overlay `outputs/knob_bortle_scale_grid_qa_overlay.png` was regenerated with the same perspective projection, showing the galactic plane curve and galactic center position on the Bortle scale grid.
+The temporary QA overlay with the galactic plane curve was useful for projection validation, but is no longer a formal output. Formal outputs are unannotated.
 
 ## 2026-06-08: Sky-Limited SNR Mode
 
