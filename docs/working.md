@@ -2,6 +2,12 @@
 
 ## Changelog
 
+### 2026-06-09
+
+- **统一 PSF + 饱和溢出实验（针对亮星/暗星割裂感）。** 放大正式图后，亮星是 1px 锐点、暗星集体糊成宽 PSF 辉光，两个视觉族群之间没有过渡，亮星观感像噪点。诊断结论：割裂的根源是星点视尺寸不随亮度单调变化——双层 PSF 模型里尺寸是双峰的（锐点 vs 6px 糊层），seg_medium 里甚至反转（faint_psf 2.0 比亮星 0.75 更宽）。真实光学里 PSF 对所有星相同，亮星显大来自 tone curve 饱和与散射翼。实验：全部恒星共享 sigma≈1.1px PSF；G≥9 暗星乘 faint_gain 补偿星表 G=11 截断（用 Gaia 光度函数外推 G11-21 的缺失积分光约为 G9-11 的 5.8 倍，合理增益区间 4-7，与 seg_medium 调出的 4.2 一致）；卷积后在线性域做饱和溢出。对比输出：`outputs/exp_uniform_psf_compare.png`（旧模型 / seg_medium / uniform 三联）、`outputs/exp_uniform_psf_sat6.png`。sat_over_sky=20 只覆盖 29 像素，亮星增大效果不明显，定为 6。
+
+- **统一 PSF + 饱和溢出转正，替换双层 PSF / seg_medium / density mask。** 实验验证后将 `accumulate_uniform_psf_stars()` + `saturate_and_bloom()` 设为唯一正式星点模型：所有恒星共享 `--psf-core-px 1.1` 高斯核；G≥`--faint-mag-min 9` 暗星乘 `--faint-gain 4.2` 补偿 G=11 星表截断；线性亮度超过 `--sat-over-sky 6` 倍 skyglow 的能量按 `--wing-sigmas 3,9` / `--wing-weights 0.65,0.35` 双高斯溢出翼能量守恒地散布。移除：`accumulate_visual_stars`（双层 PSF）、`accumulate_segmented_visual_stars`（seg_medium 实验）、`faint_star_density_mask`（统一模型下暗带由暗星计数直接呈现，无需遮罩）、三个无调用方的旧 panel 函数（render_window_panel / render_perspective_panel / render_equirect_panel），以及对应 CLI 参数。实验脚本 exp_uniform_psf.py 已并入正式 renderer 后删除。测试同步更新（饱和溢出能量守恒、截断增益只作用于暗星、视尺寸单调性），`pytest` -> 55 passed。两张正式图已用新模型重渲染。
+
 ### 2026-06-08
 
 - 新增 `src/video_common.py`：共享的 SDR 视频渲染辅助（数据加载、缓动函数、北斗七星方向、并行帧渲染、PNG/TIFF 帧写入、H.264 mp4 合成）。M3 Ultra 主机为 32 核，`--workers` 默认 `os.cpu_count()`，工作进程直写磁盘避免 IPC 传大帧数组。
@@ -72,6 +78,10 @@
 
 - **Pages 视频辉光降半。** `src/render_big_dipper_video.py` 默认 `--bloom-strength` 从 0.35 改为 0.175；`src/render_vr_video.py` 默认从 0.5 改为 0.25。页面预览视频和 poster 使用降半后的 bloom 重新生成。
 
+- **银河暗带诊断与修正。** 对旧版 Bortle 1 图做了参数、framing 和密度诊断。坐标链没有发现南北/东西翻转问题：广州纬度、银心中天时，银心方位角约 180°、高度角约 38°。Gaia G<11 数据本身也不是问题：G=9-11 暗星的星数密度图里，银心附近暗带清楚存在。旧图暗带偏弱的主因是显示层：星等加权、亮星点源、宽 PSF 和 tone mapping 把缺星区域视觉上填平了。正式 renderer 增加 `faint_star_density_mask()`，默认使用 G=9-11 暗星星数密度作为低频遮罩，参数为 `--density-mag-min 9 --density-mag-max 11 --density-psf-px 10 --density-pct 99.2 --density-floor 0.18 --density-gamma 0.9`。这一步只使用 Gaia 恒星计数，不引入尘埃 map 或银河贴图；`--no-density-mask` 可复现旧的纯星等加权辉光。重新生成了 `docs/assets/hero_milky_way.jpg`、`bortle_1.jpg` 到 `bortle_9.jpg`、`bortle_eye_grid.jpg`、`bortle_scale_grid.jpg`。
+
+- **竖幅取景诊断。** 同一 LST=19.8、竖幅 VFOV=120° 下，默认居中银心（az≈211°）会把银心亮核放在画面中心，视觉上更像亮球；中心固定正南（az=180°）时银河更像斜向条带。诊断时发现 `horizon_window` 只传 `--look-az` 会因 `--look-alt` 缺省被覆盖为银心坐标，已改为只在缺少真正需要的轴时填默认值。输出包括 `outputs/debug_strip_vfov120_mag_density_grid.png`、`outputs/debug_strip_vfov120_param_grid.png`、`outputs/debug_strip_vertical_vfov120_lst19p8_center_south_true.png`。
+
 ## Lessons Learned
 
 - VR 视频与前向视频共享同一个位置路径（`src/motion.py`），仅在投影和相机倾向上分化。不要在两个 CLI 里各自重新计算位置，否则出现路径不一致。
@@ -92,7 +102,13 @@
 
 - 显示拉伸必须基于共享参考面板（user-specified reference），不能逐面板独立拉伸到 white，否则归一化会掩盖光污染差异。
 
-- 输出网格在 UI 中缩小后，1px 星点会导致银河/星场空洞。必须用双层 PSF：锐利点源层（`--point-psf-px 1.0`）加宽扩散层（`--psf-px 6.0 --diffuse-strength`）。
+- 恒星视尺寸必须随亮度单调增大，这是星野"看起来真"的关键。双层 PSF（亮星锐点 + 全员宽糊层）让尺寸分布双峰化，放大后亮星像噪点；seg_medium（暗星 PSF 比亮星宽）直接反转单调性。正确做法是真实成像模型：统一 PSF + 亮端饱和溢出，视尺寸由亮度通过饱和机制连续决定。
+
+- PSF 的实现是整幅 canvas 的一次 `gaussian_filter`，代价与星数无关。"几十万颗暗星要不要单独 PSF"是个伪问题，不存在每星成本。
+
+- 银河乳光和尘埃暗带是同一份信息的正负两面：都来自暗星计数。给 G9-11 暗星乘截断补偿增益（光度函数外推合理区间 4-7），乳光和暗带同时出现，不需要单独的 density mask 或宽 PSF 辉光层。增益的物理含义是让观测到的暗星代理 G>11 不可分辨族群。
+
+- 缩略图里银河断裂的问题应在输出层解决（线性光域先降采样再 gamma 编码），不要为此在渲染层把暗星预先糊化。
 
 - `--target-sky` 设为 0.03（不是 0.12），背景估计用低百分位（`--sky-pct 25`）。全图中位数会被大面积银河拉高，导致暗天面板发灰。
 
