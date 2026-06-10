@@ -24,6 +24,7 @@ python -m pytest tests/ -q
 - **tone mapping 和显示映射**：暗部压缩 log > gamma > linear；HDR 输出为 uint16 不越界；全黑画布不崩溃；sky floor 归一化让不同面板背景对齐；共享 reference stretch 避免各 panel 独立拉满；白点百分位拉伸信号而非停在中灰；star_contrast 参数正确提升背景以上信号。
 - **统一 PSF 星点模型**：饱和溢出守恒总能量、核心截到饱和线、溢出翼获得散布能量；低于饱和线的画布不被改动；截断补偿增益只作用于 G≥faint_mag_min 的暗星；同一 PSF 下亮星经饱和溢出后的可见足迹大于暗星（视尺寸单调性）；饱和线随灵敏度增益缩放，扣除 skyglow 后 +4mag canvas 严格等于 +0mag 的 40 倍。
 - **弥散光 Weber 阈值**：低于阈值的大面积弥散光被移除；点源高频分量不受削弱；同一条弥散带在暗空（高对比）下保留、在亮空（对比低于阈值）下消失。
+- **视频统一 PSF 模型**：视频 CLI 暴露 psf/faint/sat 参数组且默认值正确；饱和锚点 `sat_level_from_ref_mag` 只让亮于参考星等的星饱和、<=0 关闭；截断补偿按星表 G（g_mag）选星而非视星等；视频路径下饱和溢出能量守恒。
 - **共享运动轨迹**：VR 和前向版共享当前默认位置路径，先朝北斗方向短距离移动，再飞向银心方向上方目标。旧 `l_trajectory` / `motion.l_motion` 的单元测试仍检查 L 两段正交（沿银道 ⊥ 垂直银道）和轨迹连续性。
 - **视频 CLI**：VR 用 equirectangular 2:1 分辨率；duration × fps 自动计算帧数；前向版默认先朝北斗飞再转向银心上方，相机 look_dirs 均为单位向量；北斗 overlay 点在第一帧画面内。
 - **Gaia 缓存 schema**：全天 fetcher 查询生成 l/b/g/bp_rp 字段；缺失 BP-RP 用太阳型颜色 fallback，不产生 NaN。

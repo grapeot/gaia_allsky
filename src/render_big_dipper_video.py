@@ -7,11 +7,13 @@ import numpy as np
 from video_common import (
     DATA_DEFAULT,
     OUTPUTS_DIR,
+    add_psf_cli_args,
     assemble_mp4,
     big_dipper_direction,
     galactic_center_direction,
     galactic_pole_direction,
     parse_triplet,
+    psf_config_from_args,
     render_forward_frame,
     render_frames_parallel,
     resolve_frame_count,
@@ -45,8 +47,7 @@ def build_parser():
     p.add_argument("--end-look-dir", help="Override final look direction as x,y,z in equatorial Cartesian coordinates.")
     p.add_argument("--gamma", type=float, default=2.2)
     p.add_argument("--pct", type=float, default=99.7)
-    p.add_argument("--bloom-strength", type=float, default=0.175)
-    p.add_argument("--bloom-sigma", type=float, default=3.0)
+    add_psf_cli_args(p)
     p.add_argument("--no-dipper-overlay", action="store_true", help="Disable Big Dipper guide lines in perspective mode.")
     p.add_argument("--overlay-width", type=int, default=1)
     p.add_argument("--save-hdr", action="store_true", help="Also keep 16-bit TIFF frames.")
@@ -75,7 +76,7 @@ def config_from_args(args):
         if end_dir is not None
         else shared_l_look_at_dirs(positions, start_dir, galactic_center_direction() * args.target_gc_pc, look_phase)
     )
-    return {
+    cfg = {
         "width": args.width,
         "height": args.height,
         "frames": frames,
@@ -85,11 +86,11 @@ def config_from_args(args):
         "fov_deg": args.fov_deg,
         "gamma": args.gamma,
         "pct": args.pct,
-        "bloom_strength": args.bloom_strength,
-        "bloom_sigma": args.bloom_sigma,
         "dipper_overlay": not args.no_dipper_overlay,
         "overlay_width": args.overlay_width,
     }
+    cfg.update(psf_config_from_args(args))
+    return cfg
 
 
 def accelerated_look_phase(phase, frames, fps, split, transition_sec):

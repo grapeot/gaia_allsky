@@ -687,3 +687,77 @@ def test_milky_way_emerges_density():
     dens_plane = (np.abs(b) < 10).sum() / (math.sin(math.radians(10)) * 2)
     dens_high = (np.abs(b) > 70).sum() / (1 - math.sin(math.radians(70)))
     assert dens_plane > dens_high * 1.3                   # 银道面显著更密(银河涌现)
+
+
+# ---------- 视频路径统一 PSF 成像模型 (移植自静态图) ----------
+
+
+def test_video_cli_exposes_unified_psf_defaults():
+    """两个视频 CLI 显式暴露统一 PSF/饱和/截断补偿参数, 默认值即推荐值。"""
+    for build in (rvv.build_parser, bdv.build_parser):
+        args = build().parse_args([])
+        assert args.psf_core_px == 1.1
+        assert args.faint_gain == 4.2
+        assert args.faint_mag_min == 9.0
+        assert args.sat_over_ref == 6.0
+        assert args.sat_ref_mag == r3.SAT_REF_MAG_DEFAULT
+        assert args.wing_sigmas == "3,9"
+        assert args.wing_weights == "0.65,0.35"
+        # 旧加性 bloom 参数已从正式视频路径移除
+        assert not hasattr(args, "bloom_strength")
+        assert not hasattr(args, "bloom_sigma")
+
+
+def test_video_saturation_anchor_is_reference_magnitude():
+    """视频饱和锚点用固定参考星等(非 skyglow): 亮于参考星等才饱和, <=0 关闭。"""
+    sl = r3.sat_level_from_ref_mag(6.0, 6.0)
+    # 与公式一致: sat_over_ref × L(sat_ref_mag)
+    assert np.isclose(sl, 6.0 * rs.mag_to_luminance(6.0, 8.0))
+    # 阈值随倍数线性, 随参考星等变亮(数值变大)单调
+    assert r3.sat_level_from_ref_mag(12.0, 6.0) > sl
+    assert r3.sat_level_from_ref_mag(6.0, 5.0) > sl
+    # <=0 或 None 关闭饱和溢出
+    assert r3.sat_level_from_ref_mag(0.0, 6.0) is None
+    assert r3.sat_level_from_ref_mag(-1.0, 6.0) is None
+    assert r3.sat_level_from_ref_mag(None, 6.0) is None
+
+
+def test_video_faint_gain_keyed_on_catalog_g_not_vismag():
+    """截断补偿增益按星表固有 G(g_mag)选星, 不是重投影后的视星等。"""
+    H = W = 8
+    px = np.array([2, 5])
+    py = np.array([3, 4])
+    inside = np.array([True, True])
+    cols = np.ones((2, 3), float)
+    vis_mag = np.array([10.0, 10.0])      # 视星等相同
+    g_faint = np.array([10.0, 8.0])       # 一颗 G>=9(暗), 一颗 G<9(亮)
+    out = r3.unified_psf_image(
+        H, W, px, py, inside, vis_mag, g_faint, cols,
+        m_ref=8.0, gain=1.0, psf_core_px=0.0,
+        faint_gain=4.2, faint_mag_min=9.0, sat_level=None,
+    )
+    boosted = out[3, 2].sum()             # g=10 暗星, 应被乘 4.2
+    plain = out[4, 5].sum()               # g=8 亮星, 不补偿
+    assert np.isclose(boosted / plain, 4.2, rtol=1e-4)
+
+
+def test_video_unified_psf_saturation_conserves_energy():
+    """视频路径的饱和溢出能量守恒(把过亮核心摊进散射翼, 不增减总能量)。"""
+    H = W = 64
+    px = np.array([32])
+    py = np.array([32])
+    inside = np.array([True])
+    cols = np.ones((1, 3), float)
+    vis_mag = np.array([0.0])             # 很亮, 必然越过饱和线
+    g_mag = np.array([0.0])
+    sl = r3.sat_level_from_ref_mag(6.0, 6.0)
+    no_sat = r3.unified_psf_image(
+        H, W, px, py, inside, vis_mag, g_mag, cols,
+        m_ref=8.0, psf_core_px=1.1, faint_gain=4.2, faint_mag_min=9.0, sat_level=None,
+    )
+    with_sat = r3.unified_psf_image(
+        H, W, px, py, inside, vis_mag, g_mag, cols,
+        m_ref=8.0, psf_core_px=1.1, faint_gain=4.2, faint_mag_min=9.0, sat_level=sl,
+    )
+    assert with_sat.sum(-1).max() <= no_sat.sum(-1).max()   # 峰值被压
+    assert np.isclose(with_sat.sum(), no_sat.sum(), rtol=1e-4)  # 总能量守恒

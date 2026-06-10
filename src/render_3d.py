@@ -72,7 +72,11 @@ def project_equirect_eq(ra_deg, dec_deg, W, H):
 
 def add_bloom(canvas, threshold_pct=99.0, sigma=8.0, strength=0.6):
     """亮星 blooming: 阈值提取亮星(超 threshold_pct 百分位的像素) → 大核高斯光晕 → 叠加。
-    运镜中亮星更扎眼、锁得住。strength: 光晕叠加系数; sigma: 高斯核(像素)。"""
+    运镜中亮星更扎眼、锁得住。strength: 光晕叠加系数; sigma: 高斯核(像素)。
+
+    注: 这是旧式加性辉光, 与统一 PSF 成像模型不兼容(会破坏视尺寸单调性), 现仅作
+    回退/对照保留。正式视频路径用 unified_psf_image()。
+    """
     from scipy.ndimage import gaussian_filter
     Y = canvas.sum(-1)
     thr = np.percentile(Y[Y > 0], threshold_pct) if (Y > 0).any() else 1.0
@@ -83,9 +87,59 @@ def add_bloom(canvas, threshold_pct=99.0, sigma=8.0, strength=0.6):
     return canvas + halo * strength
 
 
+# ---- 统一 PSF 成像模型 (与静态图 render_bortle_eye_grid 同一物理模型) ----
+
+# 饱和锚点的参考星等: 视星等(锚定在 m_ref=8.0)亮于此值的恒星会触发饱和溢出。
+# 飞行视频没有 skyglow/Bortle/NELM, 不能像静态图那样把饱和线锚在 skyglow 上。
+# 改用一个固定的参考星等亮度作锚点: sat_level = sat_over_ref × L(SAT_REF_MAG)。
+# 这是个纯几何/物理量, 不依赖任何一帧的亮度直方图, 因此整段视频里饱和起点恒定,
+# 观测者移动、恒星视星等随距离变化时, 饱和阈值不会逐帧抖动。
+SAT_REF_MAG_DEFAULT = 6.0
+
+
+def sat_level_from_ref_mag(sat_over_ref, sat_ref_mag=SAT_REF_MAG_DEFAULT, m_ref=8.0):
+    """把"参考星等 + 倍数"换算成线性域饱和像素亮度阈值。
+
+    sat_over_ref <= 0 表示禁用饱和溢出。返回 None 或浮点阈值。
+    阈值 = sat_over_ref × L(sat_ref_mag), L 用与渲染一致的 m_ref 锚点。
+    """
+    if sat_over_ref is None or sat_over_ref <= 0:
+        return None
+    return float(sat_over_ref) * float(rs.mag_to_luminance(sat_ref_mag, m_ref))
+
+
+def unified_psf_image(H, W, px, py, inside, vis_mag, g_mag, cols,
+                      m_ref=8.0, gain=1.0, psf_core_px=1.1,
+                      faint_gain=4.2, faint_mag_min=9.0,
+                      sat_level=None, wing_sigmas=(3.0, 9.0),
+                      wing_weights=(0.65, 0.35)):
+    """统一 PSF + 暗星截断补偿 + 饱和溢出, 把恒星累加成线性画布。
+
+    与静态图 accumulate_uniform_psf_stars 同一物理模型, 区别在于截断补偿增益按
+    **星表 G 星等(g_mag, 恒星固有属性, 不随观测者移动)** 选星, 而亮度用 **重投影
+    后的视星等(vis_mag)**。这样飞近/飞远改变恒星视亮度, 但"哪些星代理 G>11 不可分辨
+    族群"这一身份保持不变——G 截断是星表属性, 不是视角属性。
+
+    - 所有恒星共享 psf_core_px 高斯核(一次整幅卷积, 代价与星数无关)。
+    - G >= faint_mag_min 的暗星亮度乘 faint_gain, 代理 G=11 星表截断丢失的积分光。
+    - 线性亮度超过 sat_level 的能量按双高斯溢出翼能量守恒地散布(亮星变大盘面)。
+    """
+    import render_bortle_eye_grid as beg
+
+    L = rs.mag_to_luminance(vis_mag, m_ref) * gain
+    boosted = L.copy()
+    faint = np.asarray(g_mag) >= faint_mag_min
+    boosted[faint] *= faint_gain
+    canvas = rs.accumulate_stars(H, W, px, py, inside, boosted, cols, psf_px=psf_core_px)
+    if sat_level is None:
+        return canvas
+    return beg.saturate_and_bloom(canvas, sat_level, wing_sigmas, wing_weights)
+
+
 def render_fisheye_lookdir(xyz_star, g_mag, bv, obs_pos, look_dir, S, fov_deg=170.0,
-                           m_ref=8.0, gain=1.0, bloom=True, bloom_strength=0.5,
-                           bloom_sigma=5.0):
+                           m_ref=8.0, gain=1.0, psf_core_px=1.1, faint_gain=4.2,
+                           faint_mag_min=9.0, sat_level=None, wing_sigmas=(3.0, 9.0),
+                           wing_weights=(0.65, 0.35)):
     """方位(鱼眼)投影: 从 obs_pos 朝 look_dir 看半边天 → (S,S,3) 圆盘画布。
 
     用于"飞出去回望": 往银北极飞、look_dir 朝银南极(脚下), 整个数据球收缩成脚下发光的球。
@@ -106,17 +160,17 @@ def render_fisheye_lookdir(xyz_star, g_mag, bv, obs_pos, look_dir, S, fov_deg=17
     px = ((rr * np.cos(th) * 0.5 + 0.5) * S).astype(int)
     py = ((rr * np.sin(th) * 0.5 + 0.5) * S).astype(int)
     ins = sel & (px >= 0) & (px < S) & (py >= 0) & (py < S)
-    L = rs.mag_to_luminance(vis_mag, m_ref) * gain
     cols = rs.bv_to_rgb(bv)
-    cv = rs.accumulate_stars(S, S, px, py, ins, L, cols)
-    if bloom:
-        cv = add_bloom(cv, sigma=bloom_sigma, strength=bloom_strength)
-    return cv
+    return unified_psf_image(
+        S, S, px, py, ins, vis_mag, g_mag, cols, m_ref, gain,
+        psf_core_px, faint_gain, faint_mag_min, sat_level, wing_sigmas, wing_weights,
+    )
 
 
 def render_perspective_lookdir(xyz_star, g_mag, bv, obs_pos, look_dir, W, H, fov_deg=90.0,
-                               up_hint=None, m_ref=8.0, gain=1.0, bloom=True,
-                               bloom_strength=0.5, bloom_sigma=5.0):
+                               up_hint=None, m_ref=8.0, gain=1.0, psf_core_px=1.1,
+                               faint_gain=4.2, faint_mag_min=9.0, sat_level=None,
+                               wing_sigmas=(3.0, 9.0), wing_weights=(0.65, 0.35)):
     """Rectilinear forward camera looking along look_dir, filling the full WxH frame."""
     rel = xyz_star - obs_pos[None, :]
     d_new = np.sqrt((rel ** 2).sum(-1))
@@ -142,25 +196,24 @@ def render_perspective_lookdir(xyz_star, g_mag, bv, obs_pos, look_dir, W, H, fov
     px = ((nx * 0.5 + 0.5) * W).astype(int)
     py = ((0.5 - ny * 0.5) * H).astype(int)
     inside = (z > 0) & (np.abs(nx) <= 1) & (np.abs(ny) <= 1) & (px >= 0) & (px < W) & (py >= 0) & (py < H)
-    L = rs.mag_to_luminance(vis_mag, m_ref) * gain
     cols = rs.bv_to_rgb(bv)
-    cv = rs.accumulate_stars(H, W, px, py, inside, L, cols)
-    if bloom:
-        cv = add_bloom(cv, sigma=bloom_sigma, strength=bloom_strength)
-    return cv
+    return unified_psf_image(
+        H, W, px, py, inside, vis_mag, g_mag, cols, m_ref, gain,
+        psf_core_px, faint_gain, faint_mag_min, sat_level, wing_sigmas, wing_weights,
+    )
 
 
-def render_3d_frame(xyz_star, g_mag, bv, obs_pos, W, H, m_ref=8.0,
-                    psf_px=1.0, gain=1.0, bloom=True, bloom_strength=0.6, bloom_sigma=8.0):
+def render_3d_frame(xyz_star, g_mag, bv, obs_pos, W, H, m_ref=8.0, gain=1.0,
+                    psf_core_px=1.1, faint_gain=4.2, faint_mag_min=9.0, sat_level=None,
+                    wing_sigmas=(3.0, 9.0), wing_weights=(0.65, 0.35)):
     """渲一帧 3D reproject 全天图(赤道 equirectangular) → (H,W,3) 线性画布。"""
     ra, dec, vis_mag, d_new = reproject_from(xyz_star, g_mag, obs_pos, m_ref)
-    L = rs.mag_to_luminance(vis_mag, m_ref) * gain
     cols = rs.bv_to_rgb(bv)
     px, py, inside = project_equirect_eq(ra, dec, W, H)
-    canvas = rs.accumulate_stars(H, W, px, py, inside, L, cols, psf_px)
-    if bloom:
-        canvas = add_bloom(canvas, sigma=bloom_sigma, strength=bloom_strength)
-    return canvas
+    return unified_psf_image(
+        H, W, px, py, inside, vis_mag, g_mag, cols, m_ref, gain,
+        psf_core_px, faint_gain, faint_mag_min, sat_level, wing_sigmas, wing_weights,
+    )
 
 
 def l_trajectory(n_frames, leg1_pc, leg2_pc, hold_frac=0.1):
