@@ -122,6 +122,19 @@ def bv_to_rgb(bv):
     """
     bv = np.asarray(bv, float)
     c = np.clip(bv, _BPRP_ANCHORS[0], _BPRP_ANCHORS[-1])
+    # LUT 快路径：星色是 BP-RP 的一维平滑函数，逐星算黑体谱会产生 N×n_wl 的
+    # 巨型中间数组（3300 万星即吃 ~90GB，6 亿星必 OOM）。改为只对 4096 个量化
+    # 档算一次谱，星查表展开。量化误差远低于 8-bit 显示精度，视觉无差。
+    if c.size > 100_000:
+        n_lut = 4096
+        grid = np.linspace(_BPRP_ANCHORS[0], _BPRP_ANCHORS[-1], n_lut)
+        teff_lut = np.interp(grid, _BPRP_ANCHORS, _TEFF_ANCHORS)
+        rgb_lut = np.clip(_teff_to_linear_rgb(teff_lut), 0.0, None)
+        rgb_lut = rgb_lut / np.maximum(rgb_lut.max(axis=-1, keepdims=True), 1e-6)
+        idx = np.clip(((c - _BPRP_ANCHORS[0]) /
+                       (_BPRP_ANCHORS[-1] - _BPRP_ANCHORS[0]) *
+                       (n_lut - 1)).round().astype(np.intp), 0, n_lut - 1)
+        return rgb_lut[idx]
     teff = np.interp(c, _BPRP_ANCHORS, _TEFF_ANCHORS)
     rgb = _teff_to_linear_rgb(teff)
     rgb = np.clip(rgb, 0.0, None)                     # 色域外裁负
@@ -161,8 +174,24 @@ def accumulate_stars(H, W, px, py, inside, luminance, rgb, psf_px=0.0):
 
     各 render 模块共用的散点累加(消除 np.add.at 多处重复)。psf_px>0 加高斯 PSF 光晕。
     """
-    canvas = np.zeros((H, W, 3), np.float32)
-    np.add.at(canvas, (py[inside], px[inside]), luminance[inside, None] * rgb[inside])
+    # bincount 替代 np.add.at：后者单线程逐点累加，对亿级星点慢一个量级且
+    # 内存峰值极高（G<20 的 6 亿星会触发 OOM）。bincount 是 C 实现的桶累加，
+    # 把 (py,px) 压成一维像素 index 后按通道累加，数学等价、快得多、省内存。
+    # 分块累加：weights = lum×rgb 的 N×3 中间量对亿级星会吃上百 GB，按 CHUNK
+    # 切批，峰值内存只跟批大小有关（与总星数无关），让 G<20 的 6 亿星也能跑。
+    pxi = px[inside]; pyi = py[inside]
+    lumi = luminance[inside]; rgbi = rgb[inside]
+    npix = H * W
+    acc = np.zeros((npix, 3), np.float64)
+    CHUNK = 20_000_000
+    n = pxi.size
+    for lo in range(0, n, CHUNK):
+        hi = min(lo + CHUNK, n)
+        flat = pyi[lo:hi].astype(np.int64) * W + pxi[lo:hi].astype(np.int64)
+        w = lumi[lo:hi, None] * rgbi[lo:hi]
+        for c in range(3):
+            acc[:, c] += np.bincount(flat, weights=w[:, c], minlength=npix)
+    canvas = acc.reshape(H, W, 3).astype(np.float32)
     if psf_px > 0:
         from scipy.ndimage import gaussian_filter
         for c in range(3):
