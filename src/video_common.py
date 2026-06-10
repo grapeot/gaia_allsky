@@ -88,6 +88,51 @@ def expose(canvas, gamma, pct):
     return rs.normalize_brightness(canvas, pct, "gamma", gamma)
 
 
+def add_psf_cli_args(p):
+    """给视频 CLI 注册统一 PSF + 饱和溢出 + 暗星截断补偿参数(与静态图同名同义)。
+
+    饱和锚点用参考星等而非 skyglow: 飞行视角没有 skyglow/Bortle/NELM, 改成"视星等
+    亮于 sat-ref-mag 的恒星触发饱和溢出"。这个阈值是纯物理量, 整段视频恒定, 不随
+    观测者移动逐帧抖动。
+    """
+    p.add_argument("--psf-core-px", type=float, default=1.1,
+                   help="Shared Gaussian PSF sigma in pixels applied to every star.")
+    p.add_argument("--faint-gain", type=float, default=4.2,
+                   help="Luminance gain for catalog G >= faint-mag-min stars, standing in for "
+                        "the integrated light lost to the G=11 3D-catalog truncation.")
+    p.add_argument("--faint-mag-min", type=float, default=9.0,
+                   help="Catalog-G threshold above which the truncation gain applies. The mask "
+                        "uses intrinsic catalog G (not reprojected vis_mag), so star identity is "
+                        "stable as the observer moves.")
+    p.add_argument("--sat-over-ref", type=float, default=6.0,
+                   help="Saturation level as a multiple of the luminance of a --sat-ref-mag star. "
+                        "Energy above it is redistributed into wide scattering wings. <=0 disables.")
+    p.add_argument("--sat-ref-mag", type=float, default=r3.SAT_REF_MAG_DEFAULT,
+                   help="Reference visual magnitude anchoring the saturation line; held fixed "
+                        "for the whole video so saturation onset does not jitter frame to frame.")
+    p.add_argument("--wing-sigmas", default="3,9",
+                   help="Gaussian sigmas (px, CSV) for the saturation scattering wings.")
+    p.add_argument("--wing-weights", default="0.65,0.35",
+                   help="Energy weights (CSV) for the saturation scattering wings.")
+    return p
+
+
+def _parse_csv_floats(text):
+    return tuple(float(x.strip()) for x in text.split(",") if x.strip())
+
+
+def psf_config_from_args(args):
+    """把统一 PSF CLI 参数折叠成 config 字典字段(含预算好的固定 sat_level)。"""
+    return {
+        "psf_core_px": args.psf_core_px,
+        "faint_gain": args.faint_gain,
+        "faint_mag_min": args.faint_mag_min,
+        "sat_level": r3.sat_level_from_ref_mag(args.sat_over_ref, args.sat_ref_mag),
+        "wing_sigmas": _parse_csv_floats(args.wing_sigmas),
+        "wing_weights": _parse_csv_floats(args.wing_weights),
+    }
+
+
 def init_worker(data_path, config):
     global _CTX
     d = np.load(data_path)
@@ -101,12 +146,25 @@ def init_worker(data_path, config):
     }
 
 
+def _psf_kwargs(cfg):
+    """统一 PSF 成像参数, 从 config 取出传给 render_3d 各渲染函数。"""
+    return dict(
+        gain=1.0,
+        psf_core_px=cfg["psf_core_px"],
+        faint_gain=cfg["faint_gain"],
+        faint_mag_min=cfg["faint_mag_min"],
+        sat_level=cfg["sat_level"],
+        wing_sigmas=cfg["wing_sigmas"],
+        wing_weights=cfg["wing_weights"],
+    )
+
+
 def render_vr_frame(i):
     cfg = _CTX["config"]
     obs = cfg["positions"][i]
     canvas = r3.render_3d_frame(
         _CTX["xyz"], _CTX["g"], _CTX["bv"], obs, cfg["width"], cfg["height"],
-        gain=1.0, bloom=True, bloom_strength=cfg["bloom_strength"], bloom_sigma=cfg["bloom_sigma"],
+        **_psf_kwargs(cfg),
     )
     return expose(canvas, cfg["gamma"], cfg["pct"])
 
@@ -119,8 +177,7 @@ def render_forward_frame(i):
         side = min(cfg["width"], cfg["height"])
         disk = r3.render_fisheye_lookdir(
             _CTX["xyz"], _CTX["g"], _CTX["bv"], obs, look_dir, side,
-            fov_deg=cfg["fov_deg"], gain=1.0, bloom=True,
-            bloom_strength=cfg["bloom_strength"], bloom_sigma=cfg["bloom_sigma"],
+            fov_deg=cfg["fov_deg"], **_psf_kwargs(cfg),
         )
         lin = expose(disk, cfg["gamma"], cfg["pct"])
         frame = np.zeros((cfg["height"], cfg["width"], 3), np.float32)
@@ -130,8 +187,7 @@ def render_forward_frame(i):
         return frame
     canvas = r3.render_perspective_lookdir(
         _CTX["xyz"], _CTX["g"], _CTX["bv"], obs, look_dir, cfg["width"], cfg["height"],
-        fov_deg=cfg["fov_deg"], gain=1.0, bloom=True,
-        bloom_strength=cfg["bloom_strength"], bloom_sigma=cfg["bloom_sigma"],
+        fov_deg=cfg["fov_deg"], **_psf_kwargs(cfg),
     )
     frame = expose(canvas, cfg["gamma"], cfg["pct"])
     if cfg.get("dipper_overlay", False):

@@ -56,8 +56,9 @@ def render_video(data_path, W=2048, H=1024, n1=300, n2=300,
     for i in range(n1):
         s = _ease(i / max(n1 - 1, 1)) * leg1_pc
         obs = d_plane * s
-        cv = r3.render_3d_frame(xyz, g, bv, obs, W, H, gain=1.0, bloom=True,
-                                bloom_strength=bloom_strength, bloom_sigma=6.0)
+        # 统一 PSF 成像模型: 饱和锚定固定参考星等, 整段视频稳定(替换旧加性 bloom)。
+        cv = r3.render_3d_frame(xyz, g, bv, obs, W, H, gain=1.0,
+                                sat_level=r3.sat_level_from_ref_mag(6.0))
         lin = _expose(cv, gamma, pct)
         Image.fromarray((lin * 255).astype("uint8")).save(f"{outdir}/frame_{idx:04d}.png")
         if save_hdr:
@@ -74,8 +75,7 @@ def render_video(data_path, W=2048, H=1024, n1=300, n2=300,
         s = _ease(i / max(n2 - 1, 1)) * leg2_pc
         obs = base + d_pole * s
         disk = r3.render_fisheye_lookdir(xyz, g, bv, obs, down, S, fov_deg=170.0,
-                                         gain=1.0, bloom=True, bloom_strength=bloom_strength,
-                                         bloom_sigma=5.0)
+                                         gain=1.0, sat_level=r3.sat_level_from_ref_mag(6.0))
         lin = _expose(disk, gamma, pct)
         frame = np.zeros((H, W, 3), np.float32)
         frame[:, x0:x0 + S] = lin

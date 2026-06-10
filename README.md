@@ -121,7 +121,7 @@ python src/render_big_dipper_video.py \
 ```
 
 两个视频都会先并行渲染 PNG 帧，再用 ffmpeg 合成 SDR H.264 mp4。帧目录默认保留，便于检查和重新编码。
-当前默认辉光强度偏克制：VR equirectangular 为 `--bloom-strength 0.25`，前向透视为 `--bloom-strength 0.175`。
+视频与静态图共用同一套统一 PSF 成像模型（`--psf-core-px 1.1 --faint-gain 4.2`）。太空视角没有 skyglow，亮星饱和溢出改锚到固定参考视星等：`--sat-ref-mag 6.0 --sat-over-ref 6.0`，整段视频饱和起点恒定，不随观测者移动逐帧抖动。旧的 `--bloom-strength`/`--bloom-sigma` 参数已移除。
 
 ## 代码结构
 

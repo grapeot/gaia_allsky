@@ -5,10 +5,12 @@ import os
 from video_common import (
     DATA_DEFAULT,
     OUTPUTS_DIR,
+    add_psf_cli_args,
     assemble_mp4,
     big_dipper_direction,
     galactic_center_direction,
     galactic_pole_direction,
+    psf_config_from_args,
     render_frames_parallel,
     render_vr_frame,
     resolve_frame_count,
@@ -33,8 +35,7 @@ def build_parser():
     p.add_argument("--workers", type=int, default=os.cpu_count() or 1)
     p.add_argument("--gamma", type=float, default=2.2)
     p.add_argument("--pct", type=float, default=99.7)
-    p.add_argument("--bloom-strength", type=float, default=0.25)
-    p.add_argument("--bloom-sigma", type=float, default=6.0)
+    add_psf_cli_args(p)
     p.add_argument("--save-hdr", action="store_true", help="Also keep 16-bit TIFF frames.")
     p.add_argument("--crf", type=int, default=16)
     p.add_argument("--no-mp4", action="store_true")
@@ -51,16 +52,16 @@ def config_from_args(args):
         leg1_dir=big_dipper_direction(),
         leg2_target=galactic_center_direction() * args.target_gc_pc + galactic_pole_direction() * args.leg2_pc,
     )
-    return {
+    cfg = {
         "width": args.width,
         "height": args.height,
         "frames": frames,
         "positions": positions,
         "gamma": args.gamma,
         "pct": args.pct,
-        "bloom_strength": args.bloom_strength,
-        "bloom_sigma": args.bloom_sigma,
     }
+    cfg.update(psf_config_from_args(args))
+    return cfg
 
 
 def main(argv=None):
