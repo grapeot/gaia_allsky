@@ -14,6 +14,7 @@ data/raw/*.npz
 data/raw/*.csv
 data/raw/*.fits
 data/raw/*.vot
+outputs/
 outputs/**/*.png
 outputs/**/*.tif
 outputs/**/*.exr
@@ -22,5 +23,6 @@ outputs/*.png
 outputs/*.tif
 outputs/*.exr
 outputs/*.mp4
+test-results/
 tmp/
 .DS_Store

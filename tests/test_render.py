@@ -133,12 +133,16 @@ def test_bortle_grid_separates_eye_delta_and_exposure_defaults():
     assert args.panel_height == 1920
     assert args.az_width_deg == 90.0
     assert args.max_alt_deg == 75.0
+    assert args.fov_axis == "horizontal"
     assert args.lat_deg == 23.13
     assert args.limiting_contrast == 0.5
     assert args.target_white == 2.0
-    assert args.psf_px == 6.0
-    assert args.point_psf_px == 1.0
-    assert args.diffuse_strength == 0.33
+    assert args.psf_core_px == 1.1
+    assert args.faint_gain == 4.2
+    assert args.faint_mag_min == 9.0
+    assert args.sat_over_sky == 6.0
+    assert beg.parse_csv_numbers(args.wing_sigmas) == [3.0, 9.0]
+    assert beg.parse_csv_numbers(args.wing_weights) == [0.65, 0.35]
     assert args.reference_mode == "brightest"
     assert args.reference_bortle is None
     assert args.reference_value is None
@@ -199,17 +203,56 @@ def test_visual_luminance_uses_delta_once():
     assert np.isclose(lum / sky, contrast)
 
 
-def test_visual_accumulation_keeps_point_stars_and_diffuse_glow():
-    """正式视觉层应同时保留点源高光和宽 PSF 的银河低频结构。"""
-    px = np.array([10])
-    py = np.array([10])
-    inside = np.array([True])
-    lum = np.array([1.0])
-    cols = np.array([[1.0, 1.0, 1.0]])
-    point = beg.accumulate_visual_stars(25, 25, px, py, inside, lum, cols, psf_px=1.0, point_psf_px=1.0)
-    mixed = beg.accumulate_visual_stars(25, 25, px, py, inside, lum, cols, psf_px=4.0, point_psf_px=1.0)
-    assert mixed[10, 10, 0] > point[10, 10, 0]
-    assert mixed[10, 18, 0] > point[10, 18, 0]
+def test_saturation_bloom_conserves_energy_and_caps_core():
+    """饱和溢出应守恒总能量：核心截到 sat_level，截下的能量散布到溢出翼。"""
+    c = np.zeros((40, 40, 3), np.float32)
+    c[20, 20] = 50.0
+    out = beg.saturate_and_bloom(c, sat_level=3.0)
+    assert np.isclose(float(out.sum()), float(c.sum()), rtol=1e-4)
+    assert out[20, 12, 0] > c[20, 12, 0]          # 翼区获得散布能量
+    assert out.sum(-1).max() < c.sum(-1).max()    # 峰值显著低于原始点
+
+
+def test_saturation_bloom_leaves_faint_canvas_unchanged():
+    """低于饱和阈值的画布不应被溢出处理改动。"""
+    c = np.full((20, 20, 3), 0.01, np.float32)
+    c[10, 10] = 0.5
+    out = beg.saturate_and_bloom(c, sat_level=10.0)
+    assert np.allclose(out, c)
+
+
+def test_uniform_psf_applies_truncation_gain_to_faint_stars_only():
+    """统一 PSF 模型: G>=faint_mag_min 的星乘截断补偿增益，亮星不变。"""
+    px = np.array([5, 15])
+    py = np.array([10, 10])
+    inside = np.array([True, True])
+    mag = np.array([5.0, 10.0])
+    lum = np.array([1.0, 1.0])
+    cols = np.ones((2, 3), dtype=float)
+    out = beg.accumulate_uniform_psf_stars(
+        21, 21, px, py, inside, mag, lum, cols,
+        psf_core_px=0.0, faint_gain=4.2, faint_mag_min=9.0, sat_level=None,
+    )
+    assert np.isclose(out[10, 5, 0], 1.0)
+    assert np.isclose(out[10, 15, 0], 4.2)
+
+
+def test_apparent_star_size_grows_with_brightness():
+    """同一 PSF 下，亮星经饱和溢出后的可见足迹应大于暗星(视尺寸单调性)。"""
+    px = np.array([15, 45])
+    py = np.array([30, 30])
+    inside = np.array([True, True])
+    mag = np.array([2.0, 7.0])
+    lum = np.array([100.0, 1.0])
+    cols = np.ones((2, 3), dtype=float)
+    out = beg.accumulate_uniform_psf_stars(
+        60, 60, px, py, inside, mag, lum, cols,
+        psf_core_px=1.1, faint_gain=4.2, faint_mag_min=9.0, sat_level=0.5,
+    ).sum(-1)
+    thresh = 0.05
+    bright_footprint = (out[:, :30] > thresh).sum()
+    faint_footprint = (out[:, 30:] > thresh).sum()
+    assert bright_footprint > faint_footprint > 0
 
 
 def test_limiting_mag_worsens_with_light_pollution():
@@ -236,13 +279,76 @@ def test_perspective_altaz_projection_centers_look_direction():
 
 def test_horizon_camera_places_horizon_on_bottom_edge():
     """地平线相机透视投影把中心地平线放在图像下缘。"""
+    _hfov, vfov = beg.aspect_preserving_horizon_fovs(540, 960, 90.0, 75.0)
     px, py, inside = beg.project_horizon_camera(
-        np.array([180.0, 180.0]), np.array([0.0, 37.5]), 180.0, 540, 960, 90.0, 75.0
+        np.array([180.0, 180.0]), np.array([0.0, vfov / 2.0]), 180.0, 540, 960, 90.0, 75.0
     )
     assert inside.all()
     assert py[0] >= 958
     assert abs(px[1] - 270) <= 1
     assert abs(py[1] - 480) <= 1
+
+
+def test_horizon_camera_fov_preserves_image_aspect():
+    """水平和垂直 FOV 必须匹配画面宽高比，否则天空会被 squeeze。"""
+    h_fov, v_fov = beg.aspect_preserving_horizon_fovs(1600, 900, 130.0, 75.0)
+    fov_aspect = np.tan(np.radians(h_fov) / 2.0) / np.tan(np.radians(v_fov) / 2.0)
+    assert np.isclose(fov_aspect, 1600 / 900)
+    h_fov_v, v_fov_v = beg.aspect_preserving_horizon_fovs(1600, 900, 130.0, 95.0, fov_axis="vertical")
+    fov_aspect_v = np.tan(np.radians(h_fov_v) / 2.0) / np.tan(np.radians(v_fov_v) / 2.0)
+    assert np.isclose(fov_aspect_v, 1600 / 900)
+
+
+def test_horizon_window_preserves_explicit_look_az_when_look_alt_missing(tmp_path, monkeypatch):
+    """horizon_window 只需要中心方位角，不能因 look_alt 缺省覆盖显式 look_az。"""
+    data_path = tmp_path / "mini_gaia.npz"
+    np.savez(
+        data_path,
+        l=np.array([0.0]),
+        b=np.array([0.0]),
+        g=np.array([8.0]),
+        bp_rp=np.array([0.7]),
+    )
+    captured = {}
+
+    def fake_project(az, alt, center_az, width, height, h_fov_deg, v_fov_deg, fov_axis="horizontal"):
+        captured["center_az"] = center_az
+        return np.array([0]), np.array([0]), np.array([False])
+
+    monkeypatch.setattr(beg, "project_horizon_camera", fake_project)
+    beg.render_grid(
+        str(data_path),
+        str(tmp_path / "out.png"),
+        [1],
+        [0.0],
+        8,
+        8,
+        23.13,
+        19.8,
+        99.7,
+        2.2,
+        "horizon_window",
+        180.0,
+        None,
+        110.0,
+        "sky_median",
+        0.03,
+        99.5,
+        25.0,
+        4.0,
+        2.0,
+        0.5,
+        90.0,
+        75.0,
+        1.1,
+        4.2,
+        9.0,
+        "first",
+        None,
+        None,
+        "adapted",
+    )
+    assert captured["center_az"] == 180.0
 
 
 def test_sky_adapted_normalization_equalizes_background():

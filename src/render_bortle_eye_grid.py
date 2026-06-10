@@ -94,14 +94,52 @@ def add_skyglow(canvas, bortle):
     return canvas + rh.skyglow_level(bortle)
 
 
-def accumulate_visual_stars(height, width, px, py, inside, luminance, cols, psf_px=6.0,
-                            point_psf_px=1.0, diffuse_strength=1.0):
-    """Visual rendering keeps bright stars sharp while adding Milky-Way glow."""
-    point = rs.accumulate_stars(height, width, px, py, inside, luminance, cols, psf_px=point_psf_px)
-    if psf_px <= point_psf_px or diffuse_strength <= 0:
-        return point
-    diffuse = rs.accumulate_stars(height, width, px, py, inside, luminance, cols, psf_px=psf_px)
-    return point + diffuse * diffuse_strength
+def saturate_and_bloom(canvas, sat_level, wing_sigmas=(3.0, 9.0), wing_weights=(0.65, 0.35)):
+    """Linear-domain saturation overflow: clip energy above sat_level, scatter it wide.
+
+    A real optical system has one PSF for every star; bright stars look bigger
+    because tone-curve saturation widens the visible part of the same profile and
+    scattering wings spread the rest. Redistributing the clipped excess through
+    wide Gaussians keeps total energy and makes apparent star size grow
+    continuously with brightness, with no segmentation seams.
+    """
+    from scipy.ndimage import gaussian_filter
+
+    y = canvas.sum(axis=-1)
+    over = y > sat_level
+    if not np.any(over):
+        return canvas
+    scale = np.ones_like(y)
+    scale[over] = sat_level / y[over]
+    core = canvas * scale[:, :, None]
+    excess = canvas - core
+    wings = np.zeros_like(canvas)
+    for sigma, weight in zip(wing_sigmas, wing_weights):
+        for c in range(3):
+            wings[..., c] += gaussian_filter(excess[..., c], sigma) * weight
+    return core + wings
+
+
+def accumulate_uniform_psf_stars(height, width, px, py, inside, mag, luminance, cols,
+                                 psf_core_px=1.1, faint_gain=4.2, faint_mag_min=9.0,
+                                 sat_level=None, wing_sigmas=(3.0, 9.0),
+                                 wing_weights=(0.65, 0.35)):
+    """Official star accumulation: one shared PSF for all stars.
+
+    Faint stars at the catalog edge (G >= faint_mag_min) are multiplied by
+    faint_gain to stand in for the integrated light lost to the G=11 catalog
+    truncation (Gaia luminosity-function extrapolation puts the missing G=11-21
+    flux at roughly 4-7x the G=9-11 bin). The PSF is one whole-canvas Gaussian,
+    so its cost is independent of star count. Saturation overflow then widens
+    only the brightest stars.
+    """
+    boosted = luminance.copy()
+    faint = mag >= faint_mag_min
+    boosted[faint] *= faint_gain
+    canvas = rs.accumulate_stars(height, width, px, py, inside, boosted, cols, psf_px=psf_core_px)
+    if sat_level is None:
+        return canvas
+    return saturate_and_bloom(canvas, sat_level, wing_sigmas, wing_weights)
 
 
 def adapt_sky_floor(canvas, target_sky=0.03, sky_pct=25.0, star_contrast=4.0):
@@ -202,8 +240,28 @@ def project_horizon_window(az, alt, center_az, width, height, az_width_deg, max_
     return px, py, inside
 
 
-def project_horizon_camera(az, alt, center_az, width, height, h_fov_deg, v_fov_deg):
+def aspect_preserving_horizon_fovs(width, height, h_fov_deg, v_fov_deg, fov_axis="horizontal"):
+    """Return rectilinear FOVs that match the image aspect ratio.
+
+    A real rectilinear camera cannot choose horizontal and vertical FOV
+    independently for a fixed sensor aspect. Doing so squeezes the sky.
+    """
+    aspect = width / height
+    if fov_axis == "vertical":
+        tan_v = np.tan(np.radians(v_fov_deg) / 2.0)
+        h_fov_deg = np.degrees(2.0 * np.arctan(tan_v * aspect))
+    else:
+        tan_h = np.tan(np.radians(h_fov_deg) / 2.0)
+        v_fov_deg = np.degrees(2.0 * np.arctan(tan_h / aspect))
+    return float(h_fov_deg), float(v_fov_deg)
+
+
+def project_horizon_camera(az, alt, center_az, width, height, h_fov_deg, v_fov_deg,
+                           fov_axis="horizontal"):
     """Rectilinear camera with the horizon crossing the bottom-center pixel."""
+    h_fov_deg, v_fov_deg = aspect_preserving_horizon_fovs(
+        width, height, h_fov_deg, v_fov_deg, fov_axis
+    )
     look_alt = v_fov_deg / 2.0
     svec = altaz_to_local_vec(az, alt)
     forward = altaz_to_local_vec(np.array([center_az]), np.array([look_alt]))[0]
@@ -231,81 +289,6 @@ def project_horizon_camera(az, alt, center_az, width, height, h_fov_deg, v_fov_d
     return px, py, inside
 
 
-def render_window_panel(l, b, g, bv, bortle, value, width, height, lat_deg, lst_hours,
-                        center_az, az_width_deg, max_alt_deg, pct, gamma, normalization,
-                        target_sky, white_pct, sky_pct, star_contrast, limiting_contrast,
-                        target_white, psf_px, point_psf_px, diffuse_strength, mode):
-    az, alt = rh.gal_to_altaz(l, b, lat_deg, lst_hours)
-    exposure = float(value) if mode == "snr" else 1.0
-    L = visual_luminance_for_mags(g, bortle, value, limiting_contrast) if mode != "snr" else rs.mag_to_luminance(g, 8.0)
-    cols = rs.bv_to_rgb(bv)
-    px, py, inside = project_horizon_camera(az, alt, center_az, width, height, az_width_deg, max_alt_deg)
-    if mode == "snr":
-        sky = rh.skyglow_level(bortle)
-        L = sky_limited_snr(L, sky, exposure)
-        canvas = rs.accumulate_stars(height, width, px, py, inside, L, cols, psf_px=1.0)
-    else:
-        canvas = accumulate_visual_stars(
-            height, width, px, py, inside, L, cols, psf_px, point_psf_px, diffuse_strength
-        )
-        canvas = add_skyglow(canvas, bortle)
-    return normalize_panel(canvas, normalization, pct, gamma, target_sky, white_pct, sky_pct, star_contrast, target_white)
-
-
-def render_perspective_panel(l, b, g, bv, bortle, value, width, height, lat_deg, lst_hours,
-                             look_az, look_alt, fov_deg, pct, gamma, normalization,
-                             target_sky, white_pct, sky_pct, star_contrast, limiting_contrast,
-                             target_white, psf_px, point_psf_px, diffuse_strength, mode):
-    az, alt = rh.gal_to_altaz(l, b, lat_deg, lst_hours)
-    exposure = float(value) if mode == "snr" else 1.0
-    L = visual_luminance_for_mags(g, bortle, value, limiting_contrast) if mode != "snr" else rs.mag_to_luminance(g, 8.0)
-    cols = rs.bv_to_rgb(bv)
-    px, py, inside = project_perspective_altaz(az, alt, look_az, look_alt, width, height, fov_deg)
-    if mode == "snr":
-        sky = rh.skyglow_level(bortle)
-        L = sky_limited_snr(L, sky, exposure)
-        canvas = rs.accumulate_stars(height, width, px, py, inside, L, cols, psf_px=1.0)
-    else:
-        canvas = accumulate_visual_stars(
-            height, width, px, py, inside, L, cols, psf_px, point_psf_px, diffuse_strength
-        )
-        canvas = add_skyglow(canvas, bortle)
-    return normalize_panel(canvas, normalization, pct, gamma, target_sky, white_pct, sky_pct, star_contrast, target_white)
-
-
-def render_equirect_panel(l, b, g, bv, bortle, value, width, height, lat_deg, lst_hours,
-                          pct, gamma, normalization, target_sky, white_pct, sky_pct, star_contrast,
-                          limiting_contrast, target_white, psf_px, point_psf_px, diffuse_strength, mode):
-    canvas, _az, _alt = rh.render_horizon_map(
-        l,
-        b,
-        g,
-        bv,
-        lat_deg,
-        lst_hours,
-        width,
-        height,
-        m_ref=8.0,
-        psf_px=1.0,
-        gain=1.0,
-    )
-    if mode == "snr":
-        sky = rh.skyglow_level(bortle)
-        # Approximate equirect SNR by applying sky-limited compression to rendered star signal.
-        canvas = sky_limited_snr(canvas, sky, float(value))
-    else:
-        # Re-render equirect visual mode with NELM-calibrated luminance.
-        az, alt = rh.gal_to_altaz(l, b, lat_deg, lst_hours)
-        L = visual_luminance_for_mags(g, bortle, value, limiting_contrast)
-        cols = rs.bv_to_rgb(bv)
-        px, py, inside = rh.project_horizon_equirect(az, alt, width, height)
-        canvas = accumulate_visual_stars(
-            height, width, px, py, inside, L, cols, psf_px, point_psf_px, diffuse_strength
-        )
-        canvas = add_skyglow(canvas, bortle)
-    return normalize_panel(canvas, normalization, pct, gamma, target_sky, white_pct, sky_pct, star_contrast, target_white)
-
-
 def galactic_center_altaz(lat_deg, lst_hours):
     az, alt = rh.gal_to_altaz(np.array([0.0]), np.array([0.0]), lat_deg, lst_hours)
     return float(az[0]), float(alt[0])
@@ -329,13 +312,17 @@ def label_panel(img, text):
 
 def render_panel_canvas(l, b, g, bv, bortle, value, width, height, lat_deg, lst_hours,
                         projection, look_az, look_alt, fov_deg, az_width_deg, max_alt_deg,
-                        limiting_contrast, psf_px, point_psf_px, diffuse_strength, mode):
+                        limiting_contrast, psf_core_px, faint_gain, faint_mag_min,
+                        sat_over_sky, wing_sigmas, wing_weights, mode,
+                        fov_axis="horizontal"):
     az, alt = rh.gal_to_altaz(l, b, lat_deg, lst_hours)
     cols = rs.bv_to_rgb(bv)
     if projection == "equirect":
         px, py, inside = rh.project_horizon_equirect(az, alt, width, height)
     elif projection == "horizon_window":
-        px, py, inside = project_horizon_camera(az, alt, look_az, width, height, az_width_deg, max_alt_deg)
+        px, py, inside = project_horizon_camera(
+            az, alt, look_az, width, height, az_width_deg, max_alt_deg, fov_axis
+        )
     else:
         px, py, inside = project_perspective_altaz(az, alt, look_az, look_alt, width, height, fov_deg)
 
@@ -345,8 +332,11 @@ def render_panel_canvas(l, b, g, bv, bortle, value, width, height, lat_deg, lst_
         return rs.accumulate_stars(height, width, px, py, inside, L, cols, psf_px=1.0)
 
     L = visual_luminance_for_mags(g, bortle, value, limiting_contrast)
-    canvas = accumulate_visual_stars(
-        height, width, px, py, inside, L, cols, psf_px, point_psf_px, diffuse_strength
+    sky = rh.skyglow_level(bortle)
+    sat_level = sat_over_sky * sky if sat_over_sky and sat_over_sky > 0 else None
+    canvas = accumulate_uniform_psf_stars(
+        height, width, px, py, inside, g, L, cols,
+        psf_core_px, faint_gain, faint_mag_min, sat_level, wing_sigmas, wing_weights,
     )
     return add_skyglow(canvas, bortle)
 
@@ -354,16 +344,23 @@ def render_panel_canvas(l, b, g, bv, bortle, value, width, height, lat_deg, lst_
 def render_grid(data_path, output, bortles, values, panel_width, panel_height, lat_deg, lst_hours,
                 pct, gamma, projection, look_az, look_alt, fov_deg, normalization, target_sky,
                 white_pct, sky_pct, star_contrast, target_white, limiting_contrast, az_width_deg,
-                max_alt_deg, psf_px, point_psf_px, diffuse_strength, reference_mode,
-                reference_bortle, reference_value, mode, columns_per_row=None):
+                max_alt_deg, psf_core_px, faint_gain, faint_mag_min, reference_mode,
+                reference_bortle, reference_value, mode, columns_per_row=None,
+                sat_over_sky=6.0, wing_sigmas=(3.0, 9.0), wing_weights=(0.65, 0.35),
+                fov_axis="horizontal"):
     from PIL import Image
 
     d = np.load(data_path)
     l, b, g = d["l"], d["b"], d["g"]
     bv = np.nan_to_num(d["bp_rp"], nan=0.7)
     panels_flat = []
-    if look_az is None or look_alt is None:
-        look_az, look_alt = galactic_center_altaz(lat_deg, lst_hours)
+    default_az, default_alt = None, None
+    if look_az is None or (projection == "perspective" and look_alt is None):
+        default_az, default_alt = galactic_center_altaz(lat_deg, lst_hours)
+    if look_az is None:
+        look_az = default_az
+    if look_alt is None:
+        look_alt = default_alt
     signal_stretch = None
     if mode != "snr" and normalization == "sky_median" and target_white is not None:
         ref_bortle, ref_value = bortles[0], values[0]
@@ -378,7 +375,8 @@ def render_grid(data_path, output, bortles, values, panel_width, panel_height, l
                     candidate = render_panel_canvas(
                         l, b, g, bv, b_ref, v_ref, panel_width, panel_height, lat_deg, lst_hours,
                         projection, look_az, look_alt, fov_deg, az_width_deg, max_alt_deg,
-                        limiting_contrast, psf_px, point_psf_px, diffuse_strength, mode,
+                        limiting_contrast, psf_core_px, faint_gain, faint_mag_min,
+                        sat_over_sky, wing_sigmas, wing_weights, mode, fov_axis,
                     )
                     adapted = adapt_sky_floor(candidate, target_sky, sky_pct, star_contrast)
                     white = float(np.percentile(adapted.sum(axis=-1), white_pct))
@@ -388,7 +386,8 @@ def render_grid(data_path, output, bortles, values, panel_width, panel_height, l
         ref_canvas = render_panel_canvas(
             l, b, g, bv, ref_bortle, ref_value, panel_width, panel_height, lat_deg, lst_hours,
             projection, look_az, look_alt, fov_deg, az_width_deg, max_alt_deg,
-            limiting_contrast, psf_px, point_psf_px, diffuse_strength, mode,
+            limiting_contrast, psf_core_px, faint_gain, faint_mag_min,
+            sat_over_sky, wing_sigmas, wing_weights, mode, fov_axis,
         )
         ref_adapted = adapt_sky_floor(ref_canvas, target_sky, sky_pct, star_contrast)
         signal_stretch = signal_stretch_for_adapted(ref_adapted, target_sky, white_pct, target_white)
@@ -397,7 +396,8 @@ def render_grid(data_path, output, bortles, values, panel_width, panel_height, l
             canvas = render_panel_canvas(
                 l, b, g, bv, bortle, value, panel_width, panel_height, lat_deg, lst_hours,
                 projection, look_az, look_alt, fov_deg, az_width_deg, max_alt_deg,
-                limiting_contrast, psf_px, point_psf_px, diffuse_strength, mode,
+                limiting_contrast, psf_core_px, faint_gain, faint_mag_min,
+                sat_over_sky, wing_sigmas, wing_weights, mode, fov_axis,
             )
             panel = normalize_panel(
                 canvas, normalization, pct, gamma, target_sky, white_pct, sky_pct,
@@ -449,7 +449,10 @@ def build_parser():
     p.add_argument("--look-alt", type=float)
     p.add_argument("--fov-deg", type=float, default=110.0)
     p.add_argument("--az-width-deg", type=float, default=90.0, help="Horizontal FOV for horizon_window camera.")
-    p.add_argument("--max-alt-deg", type=float, default=75.0, help="Vertical FOV; bottom-center is horizon.")
+    p.add_argument("--max-alt-deg", type=float, default=75.0,
+                   help="Vertical FOV reference for horizon_window camera when --fov-axis vertical.")
+    p.add_argument("--fov-axis", choices=["horizontal", "vertical"], default="horizontal",
+                   help="Primary FOV axis for horizon_window; the other axis is derived from image aspect ratio.")
     p.add_argument("--normalization", choices=["sky_median", "percentile"], default="sky_median")
     p.add_argument("--target-sky", type=float, default=0.03,
                    help="Linear sky RGB-channel level after adaptation normalization.")
@@ -461,12 +464,20 @@ def build_parser():
                    help="Linear RGB-sum target for the white percentile after sky adaptation.")
     p.add_argument("--limiting-contrast", type=float, default=0.5,
                    help="Linear star/sky contrast for a star at the empirical limiting magnitude.")
-    p.add_argument("--psf-px", type=float, default=6.0,
-                   help="Visual-mode Gaussian PSF in output pixels; keeps Milky Way visible after downscaling.")
-    p.add_argument("--point-psf-px", type=float, default=1.0,
-                   help="Visual-mode sharp star PSF in output pixels.")
-    p.add_argument("--diffuse-strength", type=float, default=0.33,
-                   help="Strength of the wide PSF layer used for Milky-Way glow.")
+    p.add_argument("--psf-core-px", type=float, default=1.1,
+                   help="Shared Gaussian PSF sigma in pixels applied to every star.")
+    p.add_argument("--faint-gain", type=float, default=4.2,
+                   help="Luminance gain for stars at G >= faint-mag-min, standing in for the "
+                        "integrated light lost to the G=11 catalog truncation.")
+    p.add_argument("--faint-mag-min", type=float, default=9.0,
+                   help="Magnitude threshold above which the catalog-truncation gain applies.")
+    p.add_argument("--sat-over-sky", type=float, default=6.0,
+                   help="Linear saturation level as a multiple of skyglow; energy above it is "
+                        "redistributed into wide scattering wings. <=0 disables saturation bloom.")
+    p.add_argument("--wing-sigmas", default="3,9",
+                   help="Gaussian sigmas (px, CSV) for the saturation scattering wings.")
+    p.add_argument("--wing-weights", default="0.65,0.35",
+                   help="Energy weights (CSV) for the saturation scattering wings.")
     p.add_argument("--reference-mode", choices=["brightest", "first"], default="brightest",
                    help="Panel used to calibrate shared visual stretch for the whole grid.")
     p.add_argument("--reference-bortle", type=int,
@@ -476,7 +487,7 @@ def build_parser():
     p.add_argument("--white-pct", type=float, default=99.5,
                    help="Highlight percentile mapped to white after sky adaptation.")
     p.add_argument("--mode", choices=["adapted", "snr"], default="adapted",
-                   help="adapted: official visual sensitivity-cost grid; snr: debug sky-limited exposure model.")
+                    help="adapted: official visual sensitivity-cost grid; snr: debug sky-limited exposure model.")
     p.add_argument("--columns-per-row", type=int, help="Wrap panels into a fixed number of columns.")
     p.add_argument("--pct", type=float, default=99.7)
     p.add_argument("--gamma", type=float, default=2.2)
@@ -510,14 +521,18 @@ def main(argv=None):
         args.limiting_contrast,
         args.az_width_deg,
         args.max_alt_deg,
-        args.psf_px,
-        args.point_psf_px,
-        args.diffuse_strength,
+        args.psf_core_px,
+        args.faint_gain,
+        args.faint_mag_min,
         args.reference_mode,
         args.reference_bortle,
         args.reference_value,
         args.mode,
         args.columns_per_row,
+        args.sat_over_sky,
+        tuple(parse_csv_numbers(args.wing_sigmas, float)),
+        tuple(parse_csv_numbers(args.wing_weights, float)),
+        args.fov_axis,
     )
     print(f"wrote {out}")
 
