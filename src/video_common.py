@@ -191,7 +191,7 @@ def render_forward_frame(i):
     )
     frame = expose(canvas, cfg["gamma"], cfg["pct"])
     if cfg.get("dipper_overlay", False):
-        frame = draw_dipper_overlay(frame, obs, look_dir, cfg["fov_deg"], cfg.get("overlay_width", 1))
+        frame = draw_dipper_overlay(frame, obs, look_dir, cfg["fov_deg"], cfg.get("overlay_width", 0))
     return frame
 
 
@@ -219,10 +219,23 @@ def project_perspective_points(xyz_points, obs_pos, look_dir, W, H, fov_deg):
     return np.stack([px, py], axis=-1), inside
 
 
-def draw_dipper_overlay(frame, obs_pos, look_dir, fov_deg, width=1):
+def overlay_width_for_frame(width_px, height_px, requested=0):
+    """北斗连线线宽。requested>0 时用显式值；否则按画幅自适应。
+
+    线宽是绝对像素，必须随分辨率缩放：1px 线在 2160 画幅渲染、再缩到 720
+    预览后只剩 1/3 像素，经 H.264 压缩后完全不可见（2026-06-09 实际踩坑）。
+    基准是 720px 画幅约 1px。
+    """
+    if requested and requested > 0:
+        return int(requested)
+    return max(1, round(min(width_px, height_px) / 720))
+
+
+def draw_dipper_overlay(frame, obs_pos, look_dir, fov_deg, width=0):
     from PIL import Image, ImageDraw
 
     H, W = frame.shape[:2]
+    width = overlay_width_for_frame(W, H, width)
     pts, inside = project_perspective_points(big_dipper_xyz(), obs_pos, look_dir, W, H, fov_deg)
     img = Image.fromarray((np.clip(frame, 0, 1) * 255).astype("uint8"))
     draw = ImageDraw.Draw(img, "RGBA")
