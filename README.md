@@ -50,7 +50,7 @@ python -m pytest tests/ -q
 
 ## 数据获取
 
-仓库不会提交 Gaia 原始缓存和渲染输出。`data/raw/` 和 `outputs/` 都被 `.gitignore` 排除。
+仓库不会提交 Gaia 原始缓存和渲染输出。`data/raw/` 和 `outputs/` 都被 `.gitignore` 排除。星表文件、Flatiron bulk mirror、广州银心 FOV 原始 gzip 和本地过滤约定见 `docs/gaia_catalog_usage.md`。
 
 3D 飞行所需的近邻恒星子集可用：
 
