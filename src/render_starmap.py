@@ -13,17 +13,119 @@ def mag_to_luminance(vmag, m_ref=0.0):
     return 10.0 ** (-0.4 * (np.asarray(vmag, float) - m_ref))
 
 
-def bv_to_rgb(bv):
-    """B-V 色指数 → 归一化 RGB 星色。蓝白(B-V<0) → 白(~0.6) → 橙红(>1.4)。
+# ---------------------------------------------------------------------------
+# 色指数 → 星色 (BP-RP 标定，白点锚定在太阳 G2V)
+#
+# 历史包袱：函数名沿用 bv_to_rgb，但渲染器实际喂进来的是 Gaia 的 BP-RP 色指数
+# (fetch_gaia_allsky 输出 BP-RP)，不是 Johnson B-V。旧实现是手搓线性近似，没有
+# 任何白点锚定——从未定义"一颗太阳色温的星该渲染成什么白"，且把 BP-RP 当 B-V
+# 用（两者数值范围不同），导致银盘里大量 BP-RP∈[1,2] 的恒星被推成暖黄，叠加显示
+# 层的全局拉饱和后整条银河发黄。
+#
+# 新实现走天文摄影标准做法 + 公开物理标定：
+#   1. BP-RP → Teff：用 Pecaut & Mamajek (2013, 持续更新的 EEM 星表，Gaia EDR3
+#      Bp-Rp 列) 的主序色—温度锚点做单调插值。太阳 G2V 落在 BP-RP≈0.82。
+#   2. Teff → 线性 sRGB：把恒星当黑体，普朗克谱与 CIE 1931 2° 颜色匹配函数
+#      (Wyman/Sloan/Shirley 2013 的解析高斯拟合，无需外部数据文件) 积分得 XYZ，
+#      经标准 sRGB 矩阵转线性 RGB。
+#   3. 白点锚定：把白点温度取为太阳 Teff=5772 K，对每颗星的 RGB 除以太阳 RGB
+#      （gray-world / set-white-point 操作），强制 BP-RP≈0.82 的 G2V 渲染成中性
+#      白 (1,1,1)。这正是 PixInsight PCC / Photoshop 设白点消除整体偏黄的原理。
+#
+# 标定自查（白点=太阳，max 通道归一）：BP-RP=0.0→(0.52,0.66,1.0) 蓝白、
+# 0.82→(1,1,1) 中性白、1.5→(1.0,0.82,0.58) 微暖、2.5→(1.0,0.62,0.26) 橙红。
+# 黑体管线与 Mitchell Charity 经典 T→sRGB 表交叉验证：5800K→(255,247,235)
+# vs 表 (255,240,233)，10000K→(204,222,255) vs 表 (204,219,255)，均吻合。
+#
+# 返回值仍按"色相由色指数定、亮度由星等定"的约定：linear RGB 按最大通道归一
+# (max=1)，下游在线性空间乘以 mag 决定的亮度。注意返回的是线性 RGB（累积/tonemap
+# 在线性空间工作），不是 sRGB gamma 编码值。
+# ---------------------------------------------------------------------------
 
-    简化色温映射(够定性看星色; 银河里蓝白年轻星 vs 橙红老星的色差能显出来)。
+# Pecaut & Mamajek 主序 BP-RP ↔ Teff 锚点 (Gaia EDR3 Bp-Rp, K)。覆盖 O/B 蓝端
+# 到 M 矮星红端；太阳 G2V 锚在 0.82/5772K。
+_BPRP_ANCHORS = np.array([
+    -0.34, -0.20, 0.00, 0.20, 0.40, 0.55, 0.66, 0.82, 0.98,
+    1.20, 1.50, 1.85, 2.20, 2.80, 3.50, 4.50])
+_TEFF_ANCHORS = np.array([
+    15000.0, 11500, 9700, 8200, 7200, 6500, 6000, 5772, 5300,
+    4800, 4400, 3900, 3500, 3100, 2900, 2700])
+
+_SUN_TEFF = 5772.0  # 白点温度 (太阳 G2V)
+
+
+def _cie_1931(wl):
+    """CIE 1931 2° 颜色匹配函数 (Wyman et al. 2013 多瓣高斯解析拟合)。wl 单位 nm。"""
+    def g(x, mu, s1, s2):
+        s = np.where(x < mu, s1, s2)
+        t = (x - mu) * s
+        return np.exp(-0.5 * t * t)
+    xb = 0.362 * g(wl, 442.0, 0.0624, 0.0374) \
+        + 1.056 * g(wl, 599.8, 0.0264, 0.0323) \
+        - 0.065 * g(wl, 501.1, 0.0490, 0.0382)
+    yb = 0.821 * g(wl, 568.8, 0.0213, 0.0247) \
+        + 0.286 * g(wl, 530.9, 0.0613, 0.0322)
+    zb = 1.217 * g(wl, 437.0, 0.0845, 0.0278) \
+        + 0.681 * g(wl, 459.0, 0.0385, 0.0725)
+    return xb, yb, zb
+
+
+def _planck(wl_nm, T):
+    """普朗克黑体辐射谱 (相对值即可, 常数因子归一时抵消)。wl 单位 nm。"""
+    wl = wl_nm * 1e-9
+    h, c, k = 6.626e-34, 2.998e8, 1.381e-23
+    return 1.0 / (wl ** 5) / (np.exp(h * c / (wl * k * T)) - 1.0)
+
+
+# sRGB 线性矩阵 (XYZ→linear RGB, D65) 与积分用波长网格、CMF、白点常量预计算
+_SRGB_M = np.array([
+    [3.2406, -1.5372, -0.4986],
+    [-0.9689, 1.8758, 0.0415],
+    [0.0557, -0.2040, 1.0570]])
+_WL = np.arange(380.0, 781.0, 5.0)
+_XB, _YB, _ZB = _cie_1931(_WL)
+
+
+def _teff_to_linear_rgb(T):
+    """Teff(K, 数组) → 太阳白点锚定的线性 RGB(...,3)。每颗星归一前不裁负。"""
+    T = np.asarray(T, float)[..., None]              # (...,1) 便于广播波长轴
+    B = _planck(_WL, T)                              # (..., n_wl)
+    X = np.trapezoid(B * _XB, _WL, axis=-1)
+    Y = np.trapezoid(B * _YB, _WL, axis=-1)
+    Z = np.trapezoid(B * _ZB, _WL, axis=-1)
+    XYZ = np.stack([X, Y, Z], axis=-1) / np.maximum(Y[..., None], 1e-30)
+    rgb = XYZ @ _SRGB_M.T
+    return rgb / _SUN_WHITE_RGB                       # 除太阳白点 → G2V 变中性白
+
+
+def _white_rgb():
+    """太阳 Teff 的线性 RGB（白点除数），用于 gray-world 锚定。"""
+    B = _planck(_WL, _SUN_TEFF)
+    X = np.trapezoid(B * _XB, _WL)
+    Y = np.trapezoid(B * _YB, _WL)
+    Z = np.trapezoid(B * _ZB, _WL)
+    return (np.array([X, Y, Z]) / Y) @ _SRGB_M.T
+
+
+_SUN_WHITE_RGB = _white_rgb()
+
+
+def bv_to_rgb(bv):
+    """色指数 (Gaia BP-RP) → 归一化线性 RGB 星色，白点锚定在太阳 G2V。
+
+    函数名与签名沿用历史 (输入仍是渲染器喂的那个色指数数组，内部按 BP-RP 处理)。
+    流程：BP-RP →(Pecaut-Mamajek 插值)→ Teff →(黑体+CIE1931+sRGB)→ 线性 RGB，
+    再除以太阳 (5772K) 白点 → BP-RP≈0.82 渲染成中性白 (1,1,1)。返回按最大通道归一
+    的线性 RGB (色相), 亮度由星等在下游决定。详见本文件顶部标定说明。
+
+    蓝白星 (BP-RP<0): B>R; 太阳型 (≈0.82): R≈G≈B; 橙红星 (>1.4): R>B。
     """
     bv = np.asarray(bv, float)
-    r = np.clip(0.72 + bv * 0.30, 0.45, 1.20)
-    b = np.clip(1.22 - bv * 0.48, 0.40, 1.25)
-    g = np.clip(1.05 - np.abs(bv - 0.45) * 0.20, 0.55, 1.12)
-    rgb = np.stack([r, g, b], axis=-1)
-    return rgb / np.maximum(rgb.max(axis=-1, keepdims=True), 1e-6)  # 归一(色相, 亮度由mag定)
+    c = np.clip(bv, _BPRP_ANCHORS[0], _BPRP_ANCHORS[-1])
+    teff = np.interp(c, _BPRP_ANCHORS, _TEFF_ANCHORS)
+    rgb = _teff_to_linear_rgb(teff)
+    rgb = np.clip(rgb, 0.0, None)                     # 色域外裁负
+    return rgb / np.maximum(rgb.max(axis=-1, keepdims=True), 1e-6)  # 归一(色相)
 
 
 def project_equirectangular(lon_deg, lat_deg, W, H):

@@ -814,3 +814,22 @@ def test_proxy_attenuation_only_dims_inferred_light():
     )
     assert np.isclose(out[10, 5, 0], 3.8)    # 干净视线: 1 + 2.8*1
     assert np.isclose(out[10, 15, 0], 1.0)   # 全遮挡: 只剩直接光
+
+
+def test_bv_to_rgb_g2v_white_point_is_neutral():
+    """白点锚定: 太阳型 G2V (BP-RP≈0.82) 必须渲染成中性白 R≈G≈B≈1。
+
+    这是修掉"银盘整体偏黄"的核心——历史 bv_to_rgb 没有白点锚定，把 BP-RP 当
+    B-V 用，导致 G2V 色温的星偏暖。新映射用太阳 Teff(5772K) 做 gray-world 白点，
+    强制 BP-RP=0.82 落在中性白。容差给到 0.02（插值+黑体积分的数值噪声）。
+    """
+    sun = rs.bv_to_rgb(np.array([0.82]))[0]
+    assert np.allclose(sun, 1.0, atol=0.02), f"G2V 应中性白, 实得 {sun}"
+    # 单调色相梯度: 比太阳蓝(更低 BP-RP)蓝分量更强, 比太阳红的红分量主导
+    bluer = rs.bv_to_rgb(np.array([0.2]))[0]
+    redder = rs.bv_to_rgb(np.array([1.5]))[0]
+    assert bluer[2] > bluer[0]           # 蓝端: B > R
+    assert redder[0] > redder[2]         # 红端: R > B
+    # 太阳两侧相对色温方向正确: 蓝端 B 通道高于太阳, 红端 B 通道低于太阳
+    assert bluer[2] >= sun[2] - 1e-6
+    assert redder[2] < sun[2]
