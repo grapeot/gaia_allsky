@@ -213,3 +213,11 @@
 **正确架构（用户 + Fable 共识，待实现）**：① 渲最高分辨率线性 float 画布（小 PSF 保锐星、**不加 skyglow、不加 Weber、不 tone**）；② **sum 池化**逐层建金字塔；③ skyglow + Weber + tone **在每一层降采样之后独立做**，floor 用已知常数对齐不从图像估计。绝不能让 hipsgen/Aladin 对 8-bit tone 过的瓦片做 mean 平均（gamma 域 + clip 后能量不可逆，zoom out 乳光出不来；DSS 能 zoom 是因为底片本身是 sky-limited 面亮度数据，每层原生就有乳光）。
 
 **单星峰值与分辨率无关 ≠ 物理正确**：这是 flux-deposit 渲染约定的签名（每颗星把全部 L 塞进固定像素、PSF 以像素为单位）。真实固定角 PSF 下峰值应随像素变小而降。这解释了为什么"小 PSF 大图"必须配 sum 金字塔 + 逐层 tone，单张大图 + 全局 tone + mean 金字塔数学上不可能同时给出锐星和正确乳光。
+
+## TAN 投影 + WCS + hipsgen 全链路 + 立体角归一化（2026-06-10 深夜）
+
+**hipsgen 链路打通**：地平投影没法写标准 WCS（地平坐标随时间变）。改用银道 TAN(gnomonic) 投影，以银心 (l,b)=(0,0) 为切点（`src/render_tan_wcs.py`），输出 PNG + 同名 `.hhh`（FITS WCS：CTYPE=GLON-TAN/GLAT-TAN, CRVAL=切点, CRPIX=图中心, CDELT=度/像素）。`java -jar AladinBeta.jar -hipsgen in=dir color=png` 自动读 WCS、重投影、切 HiPS 金字塔（Norder0-3 + Allsky + MOC + properties）。验证：WCS 正确解析（target→银心 ra=266.4/dec=-28.9），3.4s 生成标准 HiPS。Java 26 不兼容旧 jar（JApplet 已移除），需 `openjdk@11`。注意 properties 里 `hips_hierarchy=median`——Aladin 金字塔降采样用 median，对高分辨率多图会重蹈乳光丢失（见上一节 sum-vs-mean），高清成品需自己 sum 池化建层、别让 hipsgen 做平均。
+
+**TAN 图"偏暗"的真因 = 每像素立体角不同（用户 push back 逼出）**：错误论证——我曾用"TAN 构图不同、银心一条带、拉低中位是正确的"搪塞。用户反驳：tone 是全局的、数据是全局的，为什么会不一样？正面查线性画布证实：TAN(40°/1024, 0.039°/px) vs 广州地平(90°/1080, 0.083°/px)，p99=0.057 vs 0.150（差 2.6×）。根因是**星光是 flux 语义**——每像素值随像素角面积 ∝Ω 变化，像素立体角越小每像素收的光越少，所以 TAN 暗。这不是 tone 能救的（sweep star_contrast/target_white 中位铁卡 24-25，证明病在画布不在 tone）。**修法：立体角归一化**——accumulate 后每像素 ÷ 像素立体角（×REF_OMEGA/cdelt²，REF_OMEGA 取广州像素 0.083² 当量），把 flux 转成面亮度 radiance，与投影/分辨率/fov 无关，一套 tone 通用，且金字塔 sum 池化后自洽。验证：归一后 TAN 图逐分位命中 ref（中位 48 vs 47、p99 185 vs 181）。这张归一化 TAN 银心图是目前最好的银河成品。
+
+**方法论锁定**：渲完图必 plot histogram 和 ref 对分位，对不上别往下；不用 local 视觉印象解释 global 统计差异。
