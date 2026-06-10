@@ -23,9 +23,19 @@ sys.path.insert(0, os.path.join(ROOT, "src"))
 import render_bortle_eye_grid as beg
 
 
+def signal_mask(canvas, eps=0.004):
+    """有信号像素掩码：亮度高于纯天光底 eps 的像素。高分辨率下空像素占比极高
+    （12K 达 99.9%），不掩会把 tone 分位带偏。全图一套，保证块间一致。"""
+    y = canvas.sum(axis=-1)
+    return y > (float(y.min()) + eps)
+
+
 def tone(canvas, target_sky, star_contrast, target_white, chroma, white_pct=99.5):
-    ad = beg.adapt_sky_floor(canvas, target_sky, 25.0, star_contrast)
-    stretch = beg.signal_stretch_for_adapted(ad, target_sky, white_pct, target_white)
+    mask = signal_mask(canvas)
+    ad = beg.adapt_sky_floor(canvas, target_sky, 25.0, star_contrast, signal_mask=mask)
+    # adapt 后亮度整体缩放，但掩码（基于相对底的判定）在缩放下不变，沿用即可
+    stretch = beg.signal_stretch_for_adapted(ad, target_sky, white_pct, target_white,
+                                             signal_mask=mask)
     rgb = beg.finish_sky_adapted(ad, target_sky, 2.2, target_white, stretch, chroma)
     return (np.clip(rgb, 0, 1) * 255).astype(np.uint8)
 
