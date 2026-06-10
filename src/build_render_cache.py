@@ -82,8 +82,14 @@ def build(out=OUT, faint_mag_min=11.0, pct=90.0):
     ag_eff = impute_ag(l, b, g, ag, faint_mag_min)
     acol = column_extinction_map(l, b, g, ag_eff, faint_mag_min, pct)
     li, bi = cell_indices(l, b)
-    behind = np.clip(acol[li, bi] - ag_eff, 0.0, None)
-    atten = (10.0 ** (-0.4 * behind)).astype(np.float32)
+    A_col = acol[li, bi]
+    behind = np.clip(A_col - ag_eff, 0.0, None)
+    # 两段式（2026-06-10 修正）：薄幕折扣只适用于"明显还没穿过该方向尘埃"
+    # 的星（A_G 远小于全柱）。已在尘埃中/穿过来的星（A_G 接近全柱），其代理
+    # 的同深度族群的消光已体现在它自身的观测通量里，再按"身后剩余"打折是
+    # 对分布式尘埃的重复计费——会误伤 Scutum 这类亮星云窗口。
+    curtain = (ag_eff < 0.3 * A_col) & (A_col > 1.0)
+    atten = np.where(curtain, 10.0 ** (-0.4 * behind), 1.0).astype(np.float32)
     np.savez(out, l=l, b=b, g=g,
              bp_rp=np.nan_to_num(arrs["bp_rp"], nan=0.7),
              proxy_atten=atten)
