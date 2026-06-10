@@ -171,18 +171,26 @@ def apply_extended_visibility_threshold(canvas, sky, threshold=0.035, sigma_px=8
     return canvas * scale[:, :, None]
 
 
-def adapt_sky_floor(canvas, target_sky=0.03, sky_pct=25.0, star_contrast=4.0):
+def adapt_sky_floor(canvas, target_sky=0.03, sky_pct=25.0, star_contrast=4.0,
+                    signal_mask=None):
     y = canvas.sum(axis=-1)
-    sky_level = float(np.percentile(y, sky_pct))
+    # 高分辨率渲染下绝大多数像素是星点间的纯天光底（12K 可达 99.9%），全图
+    # 百分位会被这些空像素带偏，把 sky floor 锁死在纯底上。signal_mask 限定
+    # 只在有信号像素上取分位（全图一套，块间一致）。正式 1080 图不传 mask，
+    # 信号占比高、行为不变。
+    ys = y[signal_mask] if signal_mask is not None else y
+    sky_level = float(np.percentile(ys, sky_pct))
     scale = target_sky / max(sky_level, 1e-9)
     adapted = canvas * scale
     sky_rgb = target_sky / 3.0
     return sky_rgb + np.maximum(adapted - sky_rgb, 0.0) * star_contrast
 
 
-def signal_stretch_for_adapted(adapted, target_sky=0.03, white_pct=99.5, target_white=3.0):
+def signal_stretch_for_adapted(adapted, target_sky=0.03, white_pct=99.5, target_white=3.0,
+                               signal_mask=None):
     y = adapted.sum(axis=-1)
-    white = max(float(np.percentile(y, white_pct)), target_sky + 1e-9)
+    ys = y[signal_mask] if signal_mask is not None else y
+    white = max(float(np.percentile(ys, white_pct)), target_sky + 1e-9)
     return max((target_white - target_sky) / max(white - target_sky, 1e-9), 1.0)
 
 
