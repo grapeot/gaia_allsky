@@ -186,7 +186,8 @@ def signal_stretch_for_adapted(adapted, target_sky=0.03, white_pct=99.5, target_
     return max((target_white - target_sky) / max(white - target_sky, 1e-9), 1.0)
 
 
-def finish_sky_adapted(adapted, target_sky=0.03, gamma=2.2, target_white=3.0, signal_stretch=1.0):
+def finish_sky_adapted(adapted, target_sky=0.03, gamma=2.2, target_white=3.0, signal_stretch=1.0,
+                       chroma=1.0):
     """共享 stretch 后做 gamma 输出，高光用软肩滚降而不是硬截断。
 
     旧版把 y > target_white 的像素整体压到 target_white，银心这类成片高光
@@ -196,6 +197,11 @@ def finish_sky_adapted(adapted, target_sky=0.03, gamma=2.2, target_white=3.0, si
     """
     sky_rgb = target_sky / 3.0
     adapted = sky_rgb + np.maximum(adapted - sky_rgb, 0.0) * signal_stretch
+    if chroma and chroma != 1.0:
+        # 亮度保持的饱和度增强（显示层），把 BP-RP 自带的"中间暖两边冷"
+        # 结构从压扁状态里释放出来；天文摄影后期拉饱和的等价操作。
+        lum = adapted.mean(axis=-1, keepdims=True)
+        adapted = np.clip(lum + chroma * (adapted - lum), 0.0, None)
     y = adapted.sum(axis=-1)
     y_max = 3.0
     headroom = max(y_max - target_white, 1e-9)
@@ -209,20 +215,20 @@ def finish_sky_adapted(adapted, target_sky=0.03, gamma=2.2, target_white=3.0, si
 
 
 def normalize_sky_adapted(canvas, target_sky=0.03, gamma=2.2, white_pct=99.5, sky_pct=25.0,
-                          star_contrast=4.0, target_white=3.0, signal_stretch=None):
+                          star_contrast=4.0, target_white=3.0, signal_stretch=None, chroma=1.0):
     """Normalize like eye/camera adaptation: stable sky floor, stretched signal."""
     adapted = adapt_sky_floor(canvas, target_sky, sky_pct, star_contrast)
     if target_white is None:
         return np.clip(adapted, 0, 1) ** (1 / gamma)
     if signal_stretch is None:
         signal_stretch = signal_stretch_for_adapted(adapted, target_sky, white_pct, target_white)
-    return finish_sky_adapted(adapted, target_sky, gamma, target_white, signal_stretch)
+    return finish_sky_adapted(adapted, target_sky, gamma, target_white, signal_stretch, chroma)
 
 
 def normalize_panel(canvas, mode, pct, gamma, target_sky, white_pct, sky_pct, star_contrast, target_white,
-                    signal_stretch=None):
+                    signal_stretch=None, chroma=1.0):
     if mode == "sky_median":
-        return (normalize_sky_adapted(canvas, target_sky, gamma, white_pct, sky_pct, star_contrast, target_white, signal_stretch) * 255).astype(np.uint8)
+        return (normalize_sky_adapted(canvas, target_sky, gamma, white_pct, sky_pct, star_contrast, target_white, signal_stretch, chroma) * 255).astype(np.uint8)
     return (rs.normalize_brightness(canvas, pct, "gamma", gamma) * 255).astype(np.uint8)
 
 
@@ -396,7 +402,7 @@ def render_grid(data_path, output, bortles, values, panel_width, panel_height, l
                 max_alt_deg, psf_core_px, faint_gain, faint_mag_min, reference_mode,
                 reference_bortle, reference_value, mode, columns_per_row=None,
                 sat_over_sky=6.0, wing_sigmas=(3.0, 9.0), wing_weights=(0.65, 0.35),
-                fov_axis="horizontal", ext_threshold=0.035, ext_sigma=8.0):
+                fov_axis="horizontal", ext_threshold=0.035, ext_sigma=8.0, chroma=1.0):
     from PIL import Image
 
     d = np.load(data_path)
@@ -454,7 +460,7 @@ def render_grid(data_path, output, bortles, values, panel_width, panel_height, l
             )
             panel = normalize_panel(
                 canvas, normalization, pct, gamma, target_sky, white_pct, sky_pct,
-                star_contrast, target_white, signal_stretch,
+                star_contrast, target_white, signal_stretch, chroma,
             )
             if projection == "equirect":
                 label = f"Bortle {bortle}  {column_label(mode, value, bortle)}  equirect"
@@ -507,11 +513,11 @@ def build_parser():
     p.add_argument("--fov-axis", choices=["horizontal", "vertical"], default="horizontal",
                    help="Primary FOV axis for horizon_window; the other axis is derived from image aspect ratio.")
     p.add_argument("--normalization", choices=["sky_median", "percentile"], default="sky_median")
-    p.add_argument("--target-sky", type=float, default=0.03,
+    p.add_argument("--target-sky", type=float, default=0.012,
                    help="Linear sky RGB-channel level after adaptation normalization.")
     p.add_argument("--sky-pct", type=float, default=25.0,
                    help="Low percentile used as background sky estimate for adaptation.")
-    p.add_argument("--star-contrast", type=float, default=4.0,
+    p.add_argument("--star-contrast", type=float, default=6.0,
                    help="Contrast boost for signal above the adapted sky background.")
     p.add_argument("--target-white", type=float, default=2.0,
                    help="Linear RGB-sum target for the white percentile after sky adaptation.")
@@ -536,6 +542,9 @@ def build_parser():
     p.add_argument("--ext-threshold", type=float, default=0.035,
                    help="Weber contrast threshold for extended light as a fraction of skyglow; "
                         "diffuse structure below it is invisible to the eye. <=0 disables.")
+    p.add_argument("--chroma", type=float, default=1.8,
+                   help="Display-layer luminance-preserving saturation boost; releases the warm-core/"
+                        "cool-edge color structure carried by BP-RP. 1.0 = off.")
     p.add_argument("--ext-sigma", type=float, default=8.0,
                    help="Gaussian sigma in pixels separating extended glow from point stars "
                         "for the visibility threshold.")
@@ -596,6 +605,7 @@ def main(argv=None):
         args.fov_axis,
         args.ext_threshold,
         args.ext_sigma,
+        args.chroma,
     )
     print(f"wrote {out}")
 
