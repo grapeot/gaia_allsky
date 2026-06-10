@@ -49,7 +49,8 @@ def build_parser():
     p.add_argument("--pct", type=float, default=99.7)
     add_psf_cli_args(p)
     p.add_argument("--no-dipper-overlay", action="store_true", help="Disable Big Dipper guide lines in perspective mode.")
-    p.add_argument("--overlay-width", type=int, default=1)
+    p.add_argument("--overlay-width", type=int, default=0,
+                   help="Big Dipper guide-line width in pixels; 0 scales with resolution (~1px per 720px of frame).")
     p.add_argument("--save-hdr", action="store_true", help="Also keep 16-bit TIFF frames.")
     p.add_argument("--crf", type=int, default=16)
     p.add_argument("--no-mp4", action="store_true")

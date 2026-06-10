@@ -631,6 +631,17 @@ def test_perspective_render_fills_rectangular_frame():
     assert frame.sum() > 0
 
 
+def test_overlay_width_scales_with_resolution():
+    """北斗连线线宽随画幅自适应：720→1px、2160→3px；显式值优先。
+    绝对 1px 线在 2160 渲染再缩到 720 预览后不可见(2026-06-09 踩坑)。"""
+    assert vc.overlay_width_for_frame(720, 720) == 1
+    assert vc.overlay_width_for_frame(2160, 2160) == 3
+    assert vc.overlay_width_for_frame(4096, 2048) == 3
+    assert vc.overlay_width_for_frame(2160, 2160, requested=1) == 1
+    args = bdv.build_parser().parse_args([])
+    assert args.overlay_width == 0
+
+
 def test_big_dipper_overlay_projection_inside_first_frame():
     """默认第一帧看北斗时，北斗连线点应落在 perspective 画面内。"""
     pts, inside = vc.project_perspective_points(
