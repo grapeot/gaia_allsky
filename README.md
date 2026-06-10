@@ -96,7 +96,7 @@ python src/render_bortle_eye_grid.py \
 ```
 
 这两张图使用同一套 normalization 思路：每个 panel 单独适应 sky floor，但整张 grid 共享一个显示 reference。这样暗空图不会浪费 SDR 动态范围，高光污染 panel 也不会被各自拉亮。
-星点累积使用统一 PSF 成像模型：`--psf-core-px 1.1` 对所有恒星相同，`--faint-gain 4.2` 补偿 G=11 星表截断，`--sat-over-sky 6` 控制亮星饱和溢出的起点。尘埃暗带由暗星计数的缺失直接呈现，不需要额外遮罩。
+星点累积使用统一 PSF 成像模型：`--psf-core-px 1.1` 对所有恒星相同，`--faint-gain 4.2` 补偿 G=11 星表截断，`--sat-over-sky 6` 控制亮星饱和溢出的起点。尘埃暗带由暗星计数的缺失直接呈现，不需要额外遮罩。`--ext-threshold 0.035` 是弥散光的 Weber 对比阈值：低于该比例 skyglow 的低频结构对人眼不可见，这让银河按真实观测经验在 Bortle 7 左右消失，而不是在画面里一直保留微弱残影。
 
 ## 复现正式视频
 

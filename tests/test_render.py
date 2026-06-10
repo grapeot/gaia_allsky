@@ -143,6 +143,8 @@ def test_bortle_grid_separates_eye_delta_and_exposure_defaults():
     assert args.sat_over_sky == 6.0
     assert beg.parse_csv_numbers(args.wing_sigmas) == [3.0, 9.0]
     assert beg.parse_csv_numbers(args.wing_weights) == [0.65, 0.35]
+    assert args.ext_threshold == 0.035
+    assert args.ext_sigma == 8.0
     assert args.reference_mode == "brightest"
     assert args.reference_bortle is None
     assert args.reference_value is None
@@ -247,17 +249,55 @@ def test_saturation_threshold_rides_magnitude_ladder():
     b = rng.uniform(-15, 15, n)
     g = rng.uniform(2.0, 11.0, n)
     bv = np.full(n, 0.7)
+    # ext_threshold=0: Weber 阈值锚定在天空背景上，刻意不随灵敏度增益缩放，
+    # 此测试只验证饱和几何的阶梯不变性，需要把它关掉。
     common = dict(width=64, height=64, lat_deg=23.13, lst_hours=17.76,
                   projection="horizon_window", look_az=180.0, look_alt=None,
                   fov_deg=110.0, az_width_deg=90.0, max_alt_deg=75.0,
                   limiting_contrast=0.5, psf_core_px=1.1, faint_gain=4.2,
                   faint_mag_min=9.0, sat_over_sky=6.0,
-                  wing_sigmas=(3.0, 9.0), wing_weights=(0.65, 0.35), mode="adapted")
+                  wing_sigmas=(3.0, 9.0), wing_weights=(0.65, 0.35), mode="adapted",
+                  ext_threshold=0.0)
     sky = rh.skyglow_level(1)
     c0 = beg.render_panel_canvas(l, b, g, bv, 1, 0.0, **common) - sky
     c4 = beg.render_panel_canvas(l, b, g, bv, 1, 4.0, **common) - sky
     gain = beg.gain_for_mag_delta(4.0)
     assert np.allclose(c4, c0 * gain, rtol=1e-4, atol=1e-7)
+
+
+def test_extended_threshold_removes_subthreshold_diffuse_glow():
+    """低于 Weber 阈值的大面积弥散光对人眼不可见，应被显示层移除。
+    这是银河在 Bortle 7 左右消失、而相机长曝光仍拍得到的原因。"""
+    sky = 1.0
+    canvas = np.full((60, 60, 3), 0.02 * sky / 3.0, np.float32)   # 2% 均匀弥散光
+    out = beg.apply_extended_visibility_threshold(canvas, sky, threshold=0.035, sigma_px=4.0)
+    assert float(out.sum()) < float(canvas.sum()) * 0.05
+
+
+def test_extended_threshold_preserves_point_stars():
+    """点源是高频分量，Weber 阈值不应削弱 NELM 锚定的恒星可见度。"""
+    sky = 1.0
+    canvas = np.zeros((60, 60, 3), np.float32)
+    canvas[30, 30] = 0.5 * sky / 3.0                              # 极限星等附近的点源
+    out = beg.apply_extended_visibility_threshold(canvas, sky, threshold=0.035, sigma_px=4.0)
+    assert out[30, 30].sum() > canvas[30, 30].sum() * 0.85
+
+
+def test_extended_threshold_kills_band_in_bright_sky_keeps_dark_sky():
+    """同一片弥散银河带：暗空(对比 90%)应几乎原样保留，亮空(对比 3%)应消失。"""
+    from scipy.ndimage import gaussian_filter
+    band = np.zeros((120, 120, 3), np.float32)
+    band[40:80, :, :] = 1.0 / 3.0
+    for c in range(3):                                            # 平滑成真实银河带那样的低频结构
+        band[..., c] = gaussian_filter(band[..., c], 8.0)
+    peak = band[60, 60].sum()
+    dark_sky, bright_sky = peak / 0.9, peak / 0.03
+    out_dark = beg.apply_extended_visibility_threshold(band, dark_sky, 0.035, 4.0)
+    out_bright = beg.apply_extended_visibility_threshold(band, bright_sky, 0.035, 4.0)
+    keep_dark = out_dark[40:80].sum() / band[40:80].sum()
+    keep_bright = out_bright[40:80].sum() / band[40:80].sum()
+    assert keep_dark > 0.9
+    assert keep_bright < 0.05
 
 
 def test_apparent_star_size_grows_with_brightness():

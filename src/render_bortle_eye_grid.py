@@ -142,6 +142,29 @@ def accumulate_uniform_psf_stars(height, width, px, py, inside, mag, luminance, 
     return saturate_and_bloom(canvas, sat_level, wing_sigmas, wing_weights)
 
 
+def apply_extended_visibility_threshold(canvas, sky, threshold=0.035, sigma_px=8.0):
+    """Weber-type contrast threshold for extended light.
+
+    The eye detects point sources and extended surface brightness with very
+    different thresholds: diffuse structure below a few percent of the sky
+    background is invisible to the eye even though a camera records it. This is
+    why the Milky Way disappears around Bortle 7 while a tracked exposure still
+    picks it up. Split the star canvas by spatial frequency and subtract
+    threshold*sky from the low-frequency (extended) component only; point stars
+    live in the high-frequency component and keep their NELM-anchored contrast.
+    """
+    if not threshold or threshold <= 0:
+        return canvas
+    from scipy.ndimage import gaussian_filter
+
+    y = canvas.sum(axis=-1)
+    low = gaussian_filter(y, sigma_px)
+    visible_low = np.maximum(low - threshold * sky, 0.0)
+    new_y = (y - low) + visible_low
+    scale = np.clip(new_y / np.maximum(y, 1e-12), 0.0, None)
+    return canvas * scale[:, :, None]
+
+
 def adapt_sky_floor(canvas, target_sky=0.03, sky_pct=25.0, star_contrast=4.0):
     y = canvas.sum(axis=-1)
     sky_level = float(np.percentile(y, sky_pct))
@@ -314,7 +337,7 @@ def render_panel_canvas(l, b, g, bv, bortle, value, width, height, lat_deg, lst_
                         projection, look_az, look_alt, fov_deg, az_width_deg, max_alt_deg,
                         limiting_contrast, psf_core_px, faint_gain, faint_mag_min,
                         sat_over_sky, wing_sigmas, wing_weights, mode,
-                        fov_axis="horizontal"):
+                        fov_axis="horizontal", ext_threshold=0.035, ext_sigma=8.0):
     az, alt = rh.gal_to_altaz(l, b, lat_deg, lst_hours)
     cols = rs.bv_to_rgb(bv)
     if projection == "equirect":
@@ -344,6 +367,7 @@ def render_panel_canvas(l, b, g, bv, bortle, value, width, height, lat_deg, lst_
         height, width, px, py, inside, g, L, cols,
         psf_core_px, faint_gain, faint_mag_min, sat_level, wing_sigmas, wing_weights,
     )
+    canvas = apply_extended_visibility_threshold(canvas, sky, ext_threshold, ext_sigma)
     return add_skyglow(canvas, bortle)
 
 
@@ -353,7 +377,7 @@ def render_grid(data_path, output, bortles, values, panel_width, panel_height, l
                 max_alt_deg, psf_core_px, faint_gain, faint_mag_min, reference_mode,
                 reference_bortle, reference_value, mode, columns_per_row=None,
                 sat_over_sky=6.0, wing_sigmas=(3.0, 9.0), wing_weights=(0.65, 0.35),
-                fov_axis="horizontal"):
+                fov_axis="horizontal", ext_threshold=0.035, ext_sigma=8.0):
     from PIL import Image
 
     d = np.load(data_path)
@@ -383,6 +407,7 @@ def render_grid(data_path, output, bortles, values, panel_width, panel_height, l
                         projection, look_az, look_alt, fov_deg, az_width_deg, max_alt_deg,
                         limiting_contrast, psf_core_px, faint_gain, faint_mag_min,
                         sat_over_sky, wing_sigmas, wing_weights, mode, fov_axis,
+                        ext_threshold, ext_sigma,
                     )
                     adapted = adapt_sky_floor(candidate, target_sky, sky_pct, star_contrast)
                     white = float(np.percentile(adapted.sum(axis=-1), white_pct))
@@ -394,6 +419,7 @@ def render_grid(data_path, output, bortles, values, panel_width, panel_height, l
             projection, look_az, look_alt, fov_deg, az_width_deg, max_alt_deg,
             limiting_contrast, psf_core_px, faint_gain, faint_mag_min,
             sat_over_sky, wing_sigmas, wing_weights, mode, fov_axis,
+            ext_threshold, ext_sigma,
         )
         ref_adapted = adapt_sky_floor(ref_canvas, target_sky, sky_pct, star_contrast)
         signal_stretch = signal_stretch_for_adapted(ref_adapted, target_sky, white_pct, target_white)
@@ -404,6 +430,7 @@ def render_grid(data_path, output, bortles, values, panel_width, panel_height, l
                 projection, look_az, look_alt, fov_deg, az_width_deg, max_alt_deg,
                 limiting_contrast, psf_core_px, faint_gain, faint_mag_min,
                 sat_over_sky, wing_sigmas, wing_weights, mode, fov_axis,
+                ext_threshold, ext_sigma,
             )
             panel = normalize_panel(
                 canvas, normalization, pct, gamma, target_sky, white_pct, sky_pct,
@@ -486,6 +513,12 @@ def build_parser():
                    help="Gaussian sigmas (px, CSV) for the saturation scattering wings.")
     p.add_argument("--wing-weights", default="0.65,0.35",
                    help="Energy weights (CSV) for the saturation scattering wings.")
+    p.add_argument("--ext-threshold", type=float, default=0.035,
+                   help="Weber contrast threshold for extended light as a fraction of skyglow; "
+                        "diffuse structure below it is invisible to the eye. <=0 disables.")
+    p.add_argument("--ext-sigma", type=float, default=8.0,
+                   help="Gaussian sigma in pixels separating extended glow from point stars "
+                        "for the visibility threshold.")
     p.add_argument("--reference-mode", choices=["brightest", "first"], default="brightest",
                    help="Panel used to calibrate shared visual stretch for the whole grid.")
     p.add_argument("--reference-bortle", type=int,
@@ -541,6 +574,8 @@ def main(argv=None):
         tuple(parse_csv_numbers(args.wing_sigmas, float)),
         tuple(parse_csv_numbers(args.wing_weights, float)),
         args.fov_axis,
+        args.ext_threshold,
+        args.ext_sigma,
     )
     print(f"wrote {out}")
 
