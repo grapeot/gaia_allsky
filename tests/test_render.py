@@ -137,6 +137,9 @@ def test_bortle_grid_separates_eye_delta_and_exposure_defaults():
     assert args.lat_deg == 23.13
     assert args.limiting_contrast == 0.5
     assert args.target_white == 2.0
+    assert args.target_sky == 0.012
+    assert args.star_contrast == 6.0
+    assert args.chroma == 1.8
     assert args.psf_core_px == 1.1
     assert args.faint_gain == 3.8
     assert args.faint_mag_min == 11.0
