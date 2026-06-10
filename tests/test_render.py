@@ -772,3 +772,11 @@ def test_video_unified_psf_saturation_conserves_energy():
     )
     assert with_sat.sum(-1).max() <= no_sat.sum(-1).max()   # 峰值被压
     assert np.isclose(with_sat.sum(), no_sat.sum(), rtol=1e-4)  # 总能量守恒
+
+
+def test_video_cli_defaults_to_h265():
+    """视频合成默认 H.265（libx265 + hvc1），crf 18 对标旧 x264 crf 16。"""
+    vr = rvv.build_parser().parse_args([])
+    fw = bdv.build_parser().parse_args([])
+    assert vr.codec == "libx265" and fw.codec == "libx265"
+    assert vr.crf == 18 and fw.crf == 18

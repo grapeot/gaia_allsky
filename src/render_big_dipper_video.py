@@ -52,7 +52,8 @@ def build_parser():
     p.add_argument("--overlay-width", type=int, default=0,
                    help="Big Dipper guide-line width in pixels; 0 scales with resolution (~1px per 720px of frame).")
     p.add_argument("--save-hdr", action="store_true", help="Also keep 16-bit TIFF frames.")
-    p.add_argument("--crf", type=int, default=16)
+    p.add_argument("--crf", type=int, default=18, help="x265 CRF; 18 visually matches the old x264 crf 16.")
+    p.add_argument("--codec", choices=["libx265", "libx264"], default="libx265")
     p.add_argument("--no-mp4", action="store_true")
     return p
 
@@ -116,7 +117,7 @@ def main(argv=None):
     cfg = config_from_args(args)
     render_frames_parallel(args.data, args.frames_dir, cfg, render_forward_frame, args.workers, args.save_hdr)
     if not args.no_mp4:
-        assemble_mp4(args.frames_dir, args.output, args.fps, args.crf)
+        assemble_mp4(args.frames_dir, args.output, args.fps, args.crf, args.codec)
         print(f"wrote {args.output}")
 
 
