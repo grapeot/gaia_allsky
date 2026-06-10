@@ -4,6 +4,8 @@
 
 ### 2026-06-09
 
+- **饱和线跟随星等阶梯，修复 +4mag 面板过糊。** 新模型合入后，Bortle 1 / +4mag 面板整体发灰、亮斑糊成一片。诊断：`+delta_mag` 通过有效 NELM 把全部星光乘 10^(0.4·delta)（+4 即 40 倍），而饱和线锚死在 6×skyglow 不动，导致 +4 面板 25.5% 的像素被截到饱和线、36.9% 的星光摊进 3px/9px 溢出翼（+0 面板分别是 ~0% 和 1.3%）。修复：`sat_level = sat_over_sky × skyglow × 10^(0.4·delta_mag)`，饱和起点固定在距有效极限星等固定的星等深度上。扣除 skyglow 后 +4mag canvas 严格等于 +0mag 的 40 倍，饱和几何对 delta 不变，新增不变性测试锁定该行为。`pytest` -> 56 passed。两张正式图与 Pages 素材重渲染。
+
 - **统一 PSF + 饱和溢出实验（针对亮星/暗星割裂感）。** 放大正式图后，亮星是 1px 锐点、暗星集体糊成宽 PSF 辉光，两个视觉族群之间没有过渡，亮星观感像噪点。诊断结论：割裂的根源是星点视尺寸不随亮度单调变化——双层 PSF 模型里尺寸是双峰的（锐点 vs 6px 糊层），seg_medium 里甚至反转（faint_psf 2.0 比亮星 0.75 更宽）。真实光学里 PSF 对所有星相同，亮星显大来自 tone curve 饱和与散射翼。实验：全部恒星共享 sigma≈1.1px PSF；G≥9 暗星乘 faint_gain 补偿星表 G=11 截断（用 Gaia 光度函数外推 G11-21 的缺失积分光约为 G9-11 的 5.8 倍，合理增益区间 4-7，与 seg_medium 调出的 4.2 一致）；卷积后在线性域做饱和溢出。对比输出：`outputs/exp_uniform_psf_compare.png`（旧模型 / seg_medium / uniform 三联）、`outputs/exp_uniform_psf_sat6.png`。sat_over_sky=20 只覆盖 29 像素，亮星增大效果不明显，定为 6。
 
 - **统一 PSF + 饱和溢出转正，替换双层 PSF / seg_medium / density mask。** 实验验证后将 `accumulate_uniform_psf_stars()` + `saturate_and_bloom()` 设为唯一正式星点模型：所有恒星共享 `--psf-core-px 1.1` 高斯核；G≥`--faint-mag-min 9` 暗星乘 `--faint-gain 4.2` 补偿 G=11 星表截断；线性亮度超过 `--sat-over-sky 6` 倍 skyglow 的能量按 `--wing-sigmas 3,9` / `--wing-weights 0.65,0.35` 双高斯溢出翼能量守恒地散布。移除：`accumulate_visual_stars`（双层 PSF）、`accumulate_segmented_visual_stars`（seg_medium 实验）、`faint_star_density_mask`（统一模型下暗带由暗星计数直接呈现，无需遮罩）、三个无调用方的旧 panel 函数（render_window_panel / render_perspective_panel / render_equirect_panel），以及对应 CLI 参数。实验脚本 exp_uniform_psf.py 已并入正式 renderer 后删除。测试同步更新（饱和溢出能量守恒、截断增益只作用于暗星、视尺寸单调性），`pytest` -> 55 passed。两张正式图已用新模型重渲染。
@@ -105,6 +107,8 @@
 - 恒星视尺寸必须随亮度单调增大，这是星野"看起来真"的关键。双层 PSF（亮星锐点 + 全员宽糊层）让尺寸分布双峰化，放大后亮星像噪点；seg_medium（暗星 PSF 比亮星宽）直接反转单调性。正确做法是真实成像模型：统一 PSF + 亮端饱和溢出，视尺寸由亮度通过饱和机制连续决定。
 
 - PSF 的实现是整幅 canvas 的一次 `gaussian_filter`，代价与星数无关。"几十万颗暗星要不要单独 PSF"是个伪问题，不存在每星成本。
+
+- 显示层里每个阈值都要明确它锚在哪个量纲上。星光随 delta_mag 整体缩放时，锚在 skyglow 上的饱和线不会跟着走，高 delta 面板就大面积截断。凡是和星光比较的阈值，都应该表达成"距有效极限星等的星等深度"，让它随亮度阶梯平移。
 
 - 银河乳光和尘埃暗带是同一份信息的正负两面：都来自暗星计数。给 G9-11 暗星乘截断补偿增益（光度函数外推合理区间 4-7），乳光和暗带同时出现，不需要单独的 density mask 或宽 PSF 辉光层。增益的物理含义是让观测到的暗星代理 G>11 不可分辨族群。
 

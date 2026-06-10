@@ -237,6 +237,29 @@ def test_uniform_psf_applies_truncation_gain_to_faint_stars_only():
     assert np.isclose(out[10, 15, 0], 4.2)
 
 
+def test_saturation_threshold_rides_magnitude_ladder():
+    """+delta_mag 把全部星光乘 10^(0.4·delta)，饱和线必须同步缩放：
+    扣除 skyglow 后 +4mag canvas 应严格是 +0mag 的 40 倍，饱和几何不变。
+    否则高 delta 面板会有大片银河被截断、摊成糊翼(2026-06-09 +4mag 过糊问题)。"""
+    rng = np.random.RandomState(7)
+    n = 400
+    l = rng.uniform(0, 40, n)
+    b = rng.uniform(-15, 15, n)
+    g = rng.uniform(2.0, 11.0, n)
+    bv = np.full(n, 0.7)
+    common = dict(width=64, height=64, lat_deg=23.13, lst_hours=17.76,
+                  projection="horizon_window", look_az=180.0, look_alt=None,
+                  fov_deg=110.0, az_width_deg=90.0, max_alt_deg=75.0,
+                  limiting_contrast=0.5, psf_core_px=1.1, faint_gain=4.2,
+                  faint_mag_min=9.0, sat_over_sky=6.0,
+                  wing_sigmas=(3.0, 9.0), wing_weights=(0.65, 0.35), mode="adapted")
+    sky = rh.skyglow_level(1)
+    c0 = beg.render_panel_canvas(l, b, g, bv, 1, 0.0, **common) - sky
+    c4 = beg.render_panel_canvas(l, b, g, bv, 1, 4.0, **common) - sky
+    gain = beg.gain_for_mag_delta(4.0)
+    assert np.allclose(c4, c0 * gain, rtol=1e-4, atol=1e-7)
+
+
 def test_apparent_star_size_grows_with_brightness():
     """同一 PSF 下，亮星经饱和溢出后的可见足迹应大于暗星(视尺寸单调性)。"""
     px = np.array([15, 45])
