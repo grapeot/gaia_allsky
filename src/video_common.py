@@ -314,12 +314,20 @@ def render_frames_parallel(data_path, outdir, config, frame_func, workers=None, 
     return outdir
 
 
-def assemble_mp4(frames_dir, out_path, fps=60, crf=16):
+def assemble_mp4(frames_dir, out_path, fps=60, crf=18, codec="libx265"):
+    """帧序列合成 mp4。默认 H.265（libx265 + hvc1 tag，Safari/Chrome 均可播）。
+
+    H.265 同质量下码率约为 H.264 的一半。hvc1 tag 是 Safari 识别 HEVC 的
+    必要条件；不加 tag Safari 黑屏。codec="libx264" 可回退旧编码。
+    """
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     cmd = [
         "ffmpeg", "-y", "-framerate", str(fps),
         "-i", os.path.join(frames_dir, "frame_%04d.png"),
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", str(crf), out_path,
+        "-c:v", codec, "-pix_fmt", "yuv420p", "-crf", str(crf),
     ]
+    if codec == "libx265":
+        cmd += ["-tag:v", "hvc1"]
+    cmd += ["-movflags", "+faststart", out_path]
     subprocess.run(cmd, check=True)
     return out_path

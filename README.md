@@ -120,7 +120,7 @@ python src/render_big_dipper_video.py \
   --output outputs/big_dipper_forward_hires.mp4
 ```
 
-两个视频都会先并行渲染 PNG 帧，再用 ffmpeg 合成 SDR H.264 mp4。帧目录默认保留，便于检查和重新编码。
+两个视频都会先并行渲染 PNG 帧，再用 ffmpeg 合成 SDR H.265 mp4（libx265 + hvc1 tag，Safari/Chrome 均可直接播放；`--codec libx264` 可回退）。帧目录默认保留，便于检查和重新编码。
 视频与静态图共用同一套统一 PSF 成像模型（`--psf-core-px 1.1 --faint-gain 4.2`）。太空视角没有 skyglow，亮星饱和溢出改锚到固定参考视星等：`--sat-ref-mag 6.0 --sat-over-ref 6.0`，整段视频饱和起点恒定，不随观测者移动逐帧抖动。旧的 `--bloom-strength`/`--bloom-sigma` 参数已移除。
 
 ## 代码结构
