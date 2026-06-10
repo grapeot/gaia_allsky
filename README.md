@@ -31,7 +31,7 @@
 - 3D 视差重投影和平方反比亮度变化
 - 经验 Bortle/NELM 表：Bortle 1 约 7.8，Bortle 6 约 5.3
 
-显示层仍然需要 tone mapping（亮度映射）。屏幕是 SDR（标准动态范围），人眼暗视觉也不是线性相机。正式视觉图使用固定 sky floor、共享 reference stretch，以及一个模仿真实光学系统的星点成像模型：所有恒星共享同一个小 PSF（点扩散函数），G=9-11 暗星乘一个截断补偿增益代理 G>11 不可分辨恒星的积分光（增益区间由 Gaia 光度函数外推给出），超过饱和线的亮星能量按散射翼重新散布。银河乳光和尘埃暗带都直接来自恒星计数的正负信息，不引入额外的银河贴图或尘埃模型。这些显示参数在代码里显式暴露，不会混进物理模型。换句话说：星星的物理亮度由公式决定，屏幕观感由显示参数控制，两套体系各自独立。
+显示层仍然需要 tone mapping（亮度映射）。屏幕是 SDR（标准动态范围），人眼暗视觉也不是线性相机。正式视觉图使用固定 sky floor、共享 reference stretch，以及一个模仿真实光学系统的星点成像模型：所有恒星共享同一个小 PSF（点扩散函数），G=11-13 暗星乘一个截断补偿增益代理 G>13 不可分辨恒星的积分光（增益由 Gaia 光度函数外推给出），超过饱和线的亮星能量按散射翼重新散布。银河乳光和尘埃暗带都直接来自恒星计数的正负信息，不引入额外的银河贴图或尘埃模型。这些显示参数在代码里显式暴露，不会混进物理模型。换句话说：星星的物理亮度由公式决定，屏幕观感由显示参数控制，两套体系各自独立。
 
 还有一个重要边界：Gaia 可见光视差只覆盖太阳附近一个有限数据球，不是整个银河盘面。因此本项目能诚实地演示星座散架、局部星场重投影和数据球边界，但不能生成一张真正的银河俯视图。人类本来也没有那种照片；网上常见的银河俯视图是多波段观测加模型反演得到的想象图，不是任何相机拍出来的。
 
@@ -58,11 +58,24 @@ python -m pytest tests/ -q
 python src/fetch_gaia_3d.py
 ```
 
-全天 G<11 星表可用下面的命令生成：
+正式渲染使用全天 G<13 星表（约 740 万颗）。Gaia 档案库对匿名查询有 300 万行硬上限，超限会被无声截断，所以暗星段必须分星等区间获取再合并：
 
 ```bash
 python src/fetch_gaia_allsky.py --gmax 11 --output data/raw/gaia_g11.npz
+python src/fetch_gaia_allsky.py --gmin 11 --gmax 12 --output data/raw/gaia_g11_12.npz
+python src/fetch_gaia_allsky.py --gmin 12 --gmax 12.5 --output data/raw/gaia_g12_125.npz
+python src/fetch_gaia_allsky.py --gmin 12.5 --gmax 12.8 --output data/raw/gaia_g125_128.npz
+python src/fetch_gaia_allsky.py --gmin 12.8 --gmax 13.0 --output data/raw/gaia_g128_13.npz
+python - <<'PY'
+import numpy as np
+parts = ["data/raw/gaia_g11.npz", "data/raw/gaia_g11_12.npz", "data/raw/gaia_g12_125.npz",
+         "data/raw/gaia_g125_128.npz", "data/raw/gaia_g128_13.npz"]
+arrs = {k: np.concatenate([np.load(p)[k] for p in parts]) for k in ["l", "b", "g", "bp_rp"]}
+np.savez("data/raw/gaia_g13.npz", **arrs)
+PY
 ```
+
+合并前检查每段行数：任何一段恰好 3,000,000 行就说明被截断了，需要进一步细分区间重取。
 
 输出文件字段包括：
 
@@ -70,7 +83,7 @@ python src/fetch_gaia_allsky.py --gmax 11 --output data/raw/gaia_g11.npz
 l, b, g, bp_rp
 ```
 
-其中 `l/b` 是银道坐标，`g` 是 Gaia G 星等，`bp_rp` 用于近似恒星颜色。这个缓存约百万颗星，属于本地数据文件，不进入 Git 历史。
+其中 `l/b` 是银道坐标，`g` 是 Gaia G 星等，`bp_rp` 用于近似恒星颜色。合并后的 G<13 缓存约 740 万颗星（225MB），属于本地数据文件，不进入 Git 历史。只想轻量体验的话，单独用 G<11 缓存（约 125 万颗）配 `--faint-mag-min 9 --faint-gain 4.2` 也能跑。
 
 ## 复现正式图片
 
@@ -96,7 +109,7 @@ python src/render_bortle_eye_grid.py \
 ```
 
 这两张图使用同一套 normalization 思路：每个 panel 单独适应 sky floor，但整张 grid 共享一个显示 reference。这样暗空图不会浪费 SDR 动态范围，高光污染 panel 也不会被各自拉亮。
-星点累积使用统一 PSF 成像模型：`--psf-core-px 1.1` 对所有恒星相同，`--faint-gain 4.2` 补偿 G=11 星表截断，`--sat-over-sky 6` 控制亮星饱和溢出的起点。尘埃暗带由暗星计数的缺失直接呈现，不需要额外遮罩。`--ext-threshold 0.035` 是弥散光的 Weber 对比阈值：低于该比例 skyglow 的低频结构对人眼不可见，这让银河按真实观测经验在 Bortle 7 左右消失，而不是在画面里一直保留微弱残影。
+星点累积使用统一 PSF 成像模型：`--psf-core-px 1.1` 对所有恒星相同，`--faint-gain 3.8` 补偿 G=13 星表截断（增益保总量、保不了质感：G11→G13 的对比验证了能用真实星就不要用增益代理，见 docs/working.md），`--sat-over-sky 6` 控制亮星饱和溢出的起点。尘埃暗带由暗星计数的缺失直接呈现，不需要额外遮罩。`--ext-threshold 0.035` 是弥散光的 Weber 对比阈值：低于该比例 skyglow 的低频结构对人眼不可见，这让银河按真实观测经验在 Bortle 7 左右消失，而不是在画面里一直保留微弱残影。
 
 ## 复现正式视频
 
@@ -121,7 +134,7 @@ python src/render_big_dipper_video.py \
 ```
 
 两个视频都会先并行渲染 PNG 帧，再用 ffmpeg 合成 SDR H.265 mp4（libx265 + hvc1 tag，Safari/Chrome 均可直接播放；`--codec libx264` 可回退）。帧目录默认保留，便于检查和重新编码。
-视频与静态图共用同一套统一 PSF 成像模型（`--psf-core-px 1.1 --faint-gain 4.2`）。太空视角没有 skyglow，亮星饱和溢出改锚到固定参考视星等：`--sat-ref-mag 6.0 --sat-over-ref 6.0`，整段视频饱和起点恒定，不随观测者移动逐帧抖动。旧的 `--bloom-strength`/`--bloom-sigma` 参数已移除。
+视频与静态图共用同一套统一 PSF 成像模型（`--psf-core-px 1.1 --faint-gain 4.3`，3D 星表 G<13）。太空视角没有 skyglow，亮星饱和溢出改锚到固定参考视星等：`--sat-ref-mag 6.0 --sat-over-ref 6.0`，整段视频饱和起点恒定，不随观测者移动逐帧抖动。旧的 `--bloom-strength`/`--bloom-sigma` 参数已移除。
 
 ## 代码结构
 
