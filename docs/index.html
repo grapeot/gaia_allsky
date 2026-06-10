@@ -306,10 +306,18 @@
       background: var(--panel);
     }
 
+    .bortle-explorer {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(280px, 370px);
+      gap: 26px;
+      align-items: start;
+      margin-top: 24px;
+    }
+
     .bortle-slices {
       display: grid;
       gap: 8px;
-      margin-top: 30px;
+      margin-top: 18px;
     }
 
     .bortle-slice {
@@ -319,8 +327,7 @@
       align-items: stretch;
       justify-content: flex-start;
       width: 100%;
-      min-height: 58px;
-      height: 58px;
+      height: 52px;
       overflow: hidden;
       border: 1px solid var(--line);
       border-radius: 12px;
@@ -329,7 +336,7 @@
       background-position: center 48%;
       background-size: cover;
       cursor: pointer;
-      transition: height 180ms ease, border-color 180ms ease, filter 180ms ease;
+      transition: border-color 160ms ease, filter 160ms ease;
       filter: saturate(0.9) brightness(0.78);
       text-align: left;
     }
@@ -341,21 +348,24 @@
       background: linear-gradient(90deg, rgba(5, 6, 7, 0.88), rgba(5, 6, 7, 0.36) 45%, rgba(5, 6, 7, 0.72));
     }
 
+    .bortle-slice:hover {
+      filter: saturate(1) brightness(0.92);
+    }
+
     .bortle-slice.active {
-      height: min(68vh, 560px);
-      border-color: rgba(196, 173, 115, 0.72);
-      filter: saturate(1) brightness(0.96);
+      border-color: rgba(196, 173, 115, 0.78);
+      filter: saturate(1) brightness(1);
     }
 
     .slice-meta {
       position: relative;
       z-index: 1;
       display: grid;
-      grid-template-columns: 104px 1fr;
-      gap: 18px;
+      grid-template-columns: 64px 1fr;
+      gap: 14px;
       align-items: center;
-      min-height: 58px;
-      padding: 14px 18px;
+      min-height: 52px;
+      padding: 10px 16px;
       color: var(--text);
     }
 
@@ -368,36 +378,27 @@
 
     .slice-title {
       font-weight: 740;
-      font-size: 18px;
+      font-size: 16px;
     }
 
-    .slice-copy {
-      position: absolute;
-      left: 18px;
-      right: 18px;
-      bottom: 18px;
-      z-index: 1;
-      max-width: 620px;
+    .bortle-viewer {
       margin: 0;
-      padding: 14px 16px;
-      border: 1px solid rgba(178, 191, 208, 0.20);
-      border-radius: 10px;
-      background: rgba(5, 6, 7, 0.86);
-      color: #cbd5df;
-      opacity: 0;
-      transform: translateY(8px);
-      transition: opacity 160ms ease, transform 160ms ease;
     }
 
-    .bortle-slice.active .slice-copy {
-      opacity: 1;
-      transform: translateY(0);
+    .bortle-viewer img {
+      width: 100%;
+      aspect-ratio: 9 / 16;
+      object-fit: cover;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #02040a;
     }
 
     .bortle-current {
-      margin-top: 18px;
-      color: var(--muted);
+      margin-top: 14px;
+      color: #c4cedd;
       font-size: 15px;
+      min-height: 3.4em;
     }
 
     .comparison-img {
@@ -509,8 +510,15 @@
 
       .media-grid,
       .intro-grid,
-      .stats {
+      .stats,
+      .bortle-explorer {
         grid-template-columns: 1fr;
+      }
+
+      .bortle-viewer {
+        max-width: 420px;
+        margin: 0 auto;
+        width: 100%;
       }
 
       .repo-panel .button {
@@ -612,10 +620,17 @@
       <h2 id="bortle-title">从 Bortle 1 扫到 9，看银河一级级熄灭。</h2>
       <div class="showcase">
         <div class="controls">
-          <h3 id="bortleName">Bortle 1：顶级暗空</h3>
-          <p class="note-copy">Bortle 等级是天文爱好者给夜空质量打分的常用标准：1 是远离人烟的顶级暗空，9 是市中心。下面九行是同一片天空在九个等级下的样子，悬停或点按任意一行展开。</p>
-          <div class="bortle-slices" id="bortleSlices" role="group" aria-label="Bortle 1 到 9 图像切片"></div>
-          <p class="bortle-current" id="bortleCopy" aria-live="polite">Bortle 1 顶级暗空下，银河和暗尘埃结构同时可见。</p>
+          <p class="note-copy">Bortle 等级是天文爱好者给夜空质量打分的常用标准：1 是远离人烟的顶级暗空，9 是市中心。点按任意等级，查看同一片天空在该等级下的完整样子。</p>
+          <div class="bortle-explorer">
+            <div>
+              <h3 id="bortleName">Bortle 1：顶级暗空</h3>
+              <p class="bortle-current" id="bortleCopy" aria-live="polite">Bortle 1 顶级暗空下，银河和暗尘埃结构同时可见。</p>
+              <div class="bortle-slices" id="bortleSlices" role="group" aria-label="Bortle 1 到 9 等级选择"></div>
+            </div>
+            <figure class="bortle-viewer">
+              <img id="bortleImage" src="assets/bortle_1.jpg" alt="Bortle 1 顶级暗空下的完整天空渲染">
+            </figure>
+          </div>
           <h3 style="margin-top: 26px;">换个问题：天空不变，眼睛更灵敏会怎样</h3>
           <div class="comparison-img">
             <a href="assets/bortle_eye_grid.jpg" target="_blank" rel="noopener" aria-label="在新窗口打开灵敏度对比大图">
@@ -708,11 +723,14 @@
     const name = document.getElementById("bortleName");
     const copy = document.getElementById("bortleCopy");
     const slices = document.getElementById("bortleSlices");
+    const viewerImg = document.getElementById("bortleImage");
 
     function setBortle(level) {
       const n = Number(level);
       name.textContent = bortleTexts[n - 1][0];
       copy.textContent = bortleTexts[n - 1][1];
+      viewerImg.src = `assets/bortle_${n}.jpg`;
+      viewerImg.alt = `${bortleTexts[n - 1][0]}下的完整天空渲染`;
       document.querySelectorAll(".bortle-slice").forEach((button) => {
         const active = Number(button.dataset.level) === n;
         button.classList.toggle("active", active);
@@ -728,9 +746,7 @@
       button.style.backgroundImage = `url("assets/bortle_${n}.jpg")`;
       button.setAttribute("aria-label", `查看 ${bortleTexts[n - 1][0]}`);
       button.setAttribute("aria-pressed", "false");
-      button.innerHTML = `<span class="slice-meta"><span class="slice-index">B${n}</span><span class="slice-title">${bortleTexts[n - 1][0].replace("：", " · ")}</span></span><span class="slice-copy">${bortleTexts[n - 1][1]}</span>`;
-      button.addEventListener("pointerenter", () => setBortle(n));
-      button.addEventListener("focus", () => setBortle(n));
+      button.innerHTML = `<span class="slice-meta"><span class="slice-index">B${n}</span><span class="slice-title">${bortleTexts[n - 1][0].replace("：", " · ")}</span></span>`;
       button.addEventListener("click", () => setBortle(n));
       slices.appendChild(button);
     }
