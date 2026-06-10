@@ -13,6 +13,16 @@ import numpy as np
 import render_starmap as rs
 
 
+# J2000 银道(l,b)→ICRS(ra,dec) 旋转矩阵。由三个银道基向量 (0,0)/(90,0)/(0,90)
+# 过 astropy SkyCoord(Galactic).icrs 反解得到，与 astropy 数值一致(差 ~1e-12°)。
+# 写死避免对亿级星点调 SkyCoord 的几十秒框架开销。
+_G2ICRS = np.array([
+    [-0.0548756577125922,  0.4941094371927267, -0.8676661375596585],
+    [-0.8734370519556160, -0.4448297212232957, -0.1980763372730006],
+    [-0.4838350736167157,  0.7469821839866677,  0.4559838136873021],
+])
+
+
 # Bortle 1-9 天空面亮度中值 (mag/arcsec², 来自 Sky&Telescope/Wikipedia 标准表)
 # 数值越小=天空越亮=光污染越重。调研来源见 docs/。
 BORTLE_MU = {1: 22.0, 2: 21.9, 3: 21.8, 4: 21.1, 5: 20.0,
@@ -42,18 +52,18 @@ def gal_to_altaz(l_deg, b_deg, lat_deg, lst_hours):
     只依赖 LST(地方恒星时), 不绑定具体 obstime/UTC——故用 hour angle 直算 alt/az,
     而非 astropy.AltAz 框架。这样 LST 可外部自由生成(支持随恒星时扫天的动画)。
     lst_hours: 地方恒星时(小时), 超范围自动 wrap。返回 (az 0-360, alt -90..+90)。
+
+    银道→赤道用预导出的 J2000 旋转矩阵纯 numpy 直算, 不走 astropy.SkyCoord——
+    后者对亿级星点构造对象 + 高精度框架转换要几十秒、吃几十 GB; 矩阵乘与 astropy
+    数值一致(差 ~1e-12°), 快两个量级。矩阵由三个银道基向量过 SkyCoord 反解得到。
     """
-    from astropy.coordinates import SkyCoord, Galactic
-    import astropy.units as u
-
-    gal = SkyCoord(l=l_deg * u.deg, b=b_deg * u.deg, frame=Galactic)
-    eq = gal.icrs  # 赤道 RA/Dec
-
-    # 用一个已知 obstime+经度组合, 使其 LST == 目标 lst_hours。
-    # LST = GMST + 经度。取 obstime=J2000 历元附近, 经度反解出目标 LST。
-    # 简化: 直接用 hour angle 公式手算 alt/az(不依赖具体 UTC, 只需 LST)。
-    ra = eq.ra.deg
-    dec = eq.dec.deg
+    l_r = np.radians(np.asarray(l_deg, float))
+    b_r = np.radians(np.asarray(b_deg, float))
+    cb = np.cos(b_r)
+    v = np.stack([cb * np.cos(l_r), cb * np.sin(l_r), np.sin(b_r)])
+    w = _G2ICRS @ v
+    ra = np.degrees(np.arctan2(w[1], w[0])) % 360.0
+    dec = np.degrees(np.arcsin(np.clip(w[2], -1.0, 1.0)))
     lst_deg = (lst_hours / 24.0) * 360.0
     H = np.radians((lst_deg - ra) % 360.0)         # 时角
     dec_r = np.radians(dec)
