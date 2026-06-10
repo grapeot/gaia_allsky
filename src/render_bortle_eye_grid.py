@@ -523,7 +523,7 @@ def build_parser():
                    help="Linear RGB-sum target for the white percentile after sky adaptation.")
     p.add_argument("--limiting-contrast", type=float, default=0.5,
                    help="Linear star/sky contrast for a star at the empirical limiting magnitude.")
-    p.add_argument("--psf-core-px", type=float, default=1.1,
+    p.add_argument("--psf-core-px", type=float, default=0.6,
                    help="Shared Gaussian PSF sigma in pixels applied to every star.")
     p.add_argument("--faint-gain", type=float, default=3.8,
                    help="Luminance gain for stars at G >= faint-mag-min, standing in for the "
