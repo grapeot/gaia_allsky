@@ -138,8 +138,8 @@ def test_bortle_grid_separates_eye_delta_and_exposure_defaults():
     assert args.limiting_contrast == 0.5
     assert args.target_white == 2.0
     assert args.psf_core_px == 1.1
-    assert args.faint_gain == 4.2
-    assert args.faint_mag_min == 9.0
+    assert args.faint_gain == 3.8
+    assert args.faint_mag_min == 11.0
     assert args.sat_over_sky == 6.0
     assert beg.parse_csv_numbers(args.wing_sigmas) == [3.0, 9.0]
     assert beg.parse_csv_numbers(args.wing_weights) == [0.65, 0.35]
@@ -445,6 +445,18 @@ def test_sky_adapted_highlight_compression_limits_clipping():
     assert saturated < 0.01
 
 
+def test_highlight_soft_shoulder_keeps_texture_above_knee():
+    """膝点以上的高光必须保持单调纹理，不能压成同一个平台值(clip 感)。"""
+    adapted = np.zeros((1, 4, 3), np.float32)
+    for i, y in enumerate([2.0, 2.4, 3.2, 6.0]):       # 全部高于 target_white=2.0 附近
+        adapted[0, i] = y / 3.0
+    out = beg.finish_sky_adapted(adapted, target_sky=0.03, gamma=2.2,
+                                 target_white=2.0, signal_stretch=1.0)
+    ys = out.sum(axis=-1)[0]
+    assert ys[0] < ys[1] < ys[2] < ys[3]               # 严格单调，无平台
+    assert ys[3] <= 3.0 ** (1 / 2.2) * 3 + 1e-6        # 不越显示上限
+
+
 def test_sky_adapted_white_percentile_uses_display_range():
     """white_pct 应拉伸背景以上信号，而不是让高分位停在中灰。"""
     c = np.full((100, 100, 3), 0.02, np.float32)
@@ -708,8 +720,8 @@ def test_video_cli_exposes_unified_psf_defaults():
     for build in (rvv.build_parser, bdv.build_parser):
         args = build().parse_args([])
         assert args.psf_core_px == 1.1
-        assert args.faint_gain == 4.2
-        assert args.faint_mag_min == 9.0
+        assert args.faint_gain == 4.3
+        assert args.faint_mag_min == 11.0
         assert args.sat_over_ref == 6.0
         assert args.sat_ref_mag == r3.SAT_REF_MAG_DEFAULT
         assert args.wing_sigmas == "3,9"
@@ -780,3 +792,22 @@ def test_video_cli_defaults_to_h265():
     fw = bdv.build_parser().parse_args([])
     assert vr.codec == "libx265" and fw.codec == "libx265"
     assert vr.crf == 18 and fw.crf == 18
+
+
+def test_proxy_attenuation_only_dims_inferred_light():
+    """列消光衰减只作用于增益推断的不可分辨光，直接观测的星光不动。
+    atten=1(干净视线)等价于完整增益；atten=0(全被尘埃挡住)退化为纯直接光。"""
+    px = np.array([5, 15])
+    py = np.array([10, 10])
+    inside = np.array([True, True])
+    mag = np.array([12.0, 12.0])
+    lum = np.array([1.0, 1.0])
+    cols = np.ones((2, 3), dtype=float)
+    atten = np.array([1.0, 0.0])
+    out = beg.accumulate_uniform_psf_stars(
+        21, 21, px, py, inside, mag, lum, cols,
+        psf_core_px=0.0, faint_gain=3.8, faint_mag_min=11.0, sat_level=None,
+        proxy_atten=atten,
+    )
+    assert np.isclose(out[10, 5, 0], 3.8)    # 干净视线: 1 + 2.8*1
+    assert np.isclose(out[10, 15, 0], 1.0)   # 全遮挡: 只剩直接光

@@ -11,7 +11,7 @@ import render_starmap as rs
 import motion
 
 
-DATA_DEFAULT = os.path.join(os.path.dirname(__file__), "..", "data", "raw", "gaia_3d_deep.npz")
+DATA_DEFAULT = os.path.join(os.path.dirname(__file__), "..", "data", "raw", "gaia_3d_deep_g13.npz")
 OUTPUTS_DIR = os.path.join(os.path.dirname(__file__), "..", "outputs")
 
 
@@ -97,10 +97,10 @@ def add_psf_cli_args(p):
     """
     p.add_argument("--psf-core-px", type=float, default=1.1,
                    help="Shared Gaussian PSF sigma in pixels applied to every star.")
-    p.add_argument("--faint-gain", type=float, default=4.2,
+    p.add_argument("--faint-gain", type=float, default=4.3,
                    help="Luminance gain for catalog G >= faint-mag-min stars, standing in for "
                         "the integrated light lost to the G=11 3D-catalog truncation.")
-    p.add_argument("--faint-mag-min", type=float, default=9.0,
+    p.add_argument("--faint-mag-min", type=float, default=11.0,
                    help="Catalog-G threshold above which the truncation gain applies. The mask "
                         "uses intrinsic catalog G (not reprojected vis_mag), so star identity is "
                         "stable as the observer moves.")

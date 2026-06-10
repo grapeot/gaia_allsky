@@ -8,7 +8,7 @@ import render_horizon as rh
 import render_starmap as rs
 
 
-DATA_DEFAULT = os.path.join(os.path.dirname(__file__), "..", "data", "raw", "gaia_g11.npz")
+DATA_DEFAULT = os.path.join(os.path.dirname(__file__), "..", "data", "raw", "gaia_g13_render.npz")
 OUTPUT_DEFAULT = os.path.join(os.path.dirname(__file__), "..", "outputs", "knob_bortle_eye_grid.png")
 
 
@@ -121,21 +121,27 @@ def saturate_and_bloom(canvas, sat_level, wing_sigmas=(3.0, 9.0), wing_weights=(
 
 
 def accumulate_uniform_psf_stars(height, width, px, py, inside, mag, luminance, cols,
-                                 psf_core_px=1.1, faint_gain=4.2, faint_mag_min=9.0,
+                                 psf_core_px=1.1, faint_gain=3.8, faint_mag_min=11.0,
                                  sat_level=None, wing_sigmas=(3.0, 9.0),
-                                 wing_weights=(0.65, 0.35)):
+                                 wing_weights=(0.65, 0.35), proxy_atten=None):
     """Official star accumulation: one shared PSF for all stars.
 
     Faint stars at the catalog edge (G >= faint_mag_min) are multiplied by
-    faint_gain to stand in for the integrated light lost to the G=11 catalog
-    truncation (Gaia luminosity-function extrapolation puts the missing G=11-21
-    flux at roughly 4-7x the G=9-11 bin). The PSF is one whole-canvas Gaussian,
+    faint_gain to stand in for the integrated light lost to the catalog
+    truncation (for the official G<13 cache, extrapolating the measured
+    luminosity function puts the missing G=13-21 flux at ~2.8x the G=11-13
+    bin, hence the default gain 3.8). The PSF is one whole-canvas Gaussian,
     so its cost is independent of star count. Saturation overflow then widens
     only the brightest stars.
     """
     boosted = luminance.copy()
     faint = mag >= faint_mag_min
-    boosted[faint] *= faint_gain
+    if proxy_atten is None:
+        boosted[faint] *= faint_gain
+    else:
+        # 增益拆成「直接光 1 + 推断光 (gain-1)」，推断光按该星身后的
+        # 全柱消光衰减(见 build_render_cache.py)。观测到的光永不衰减。
+        boosted[faint] *= 1.0 + (faint_gain - 1.0) * proxy_atten[faint]
     canvas = rs.accumulate_stars(height, width, px, py, inside, boosted, cols, psf_px=psf_core_px)
     if sat_level is None:
         return canvas
@@ -181,13 +187,24 @@ def signal_stretch_for_adapted(adapted, target_sky=0.03, white_pct=99.5, target_
 
 
 def finish_sky_adapted(adapted, target_sky=0.03, gamma=2.2, target_white=3.0, signal_stretch=1.0):
+    """共享 stretch 后做 gamma 输出，高光用软肩滚降而不是硬截断。
+
+    旧版把 y > target_white 的像素整体压到 target_white，银心这类成片高光
+    会变成无纹理的平台（clip 感）。G<11 时代只影响零散像素；G<13 的细腻
+    乳光让平台连成片，必须改成软肩：y 在 target_white 以上平滑滚向显示
+    上限 3.0（RGB 和的最大值），膝点处导数为 1，高光内部保持单调有纹理。
+    """
     sky_rgb = target_sky / 3.0
     adapted = sky_rgb + np.maximum(adapted - sky_rgb, 0.0) * signal_stretch
     y = adapted.sum(axis=-1)
+    y_max = 3.0
+    headroom = max(y_max - target_white, 1e-9)
     over = y > target_white
     if np.any(over):
         adapted = adapted.copy()
-        adapted[over] *= (target_white / np.maximum(y[over], 1e-9))[:, None]
+        y_over = y[over]
+        y_new = target_white + headroom * (1.0 - np.exp(-(y_over - target_white) / headroom))
+        adapted[over] *= (y_new / np.maximum(y_over, 1e-9))[:, None]
     return np.clip(adapted, 0, 1) ** (1 / gamma)
 
 
@@ -337,7 +354,8 @@ def render_panel_canvas(l, b, g, bv, bortle, value, width, height, lat_deg, lst_
                         projection, look_az, look_alt, fov_deg, az_width_deg, max_alt_deg,
                         limiting_contrast, psf_core_px, faint_gain, faint_mag_min,
                         sat_over_sky, wing_sigmas, wing_weights, mode,
-                        fov_axis="horizontal", ext_threshold=0.035, ext_sigma=8.0):
+                        fov_axis="horizontal", ext_threshold=0.035, ext_sigma=8.0,
+                        proxy_atten=None):
     az, alt = rh.gal_to_altaz(l, b, lat_deg, lst_hours)
     cols = rs.bv_to_rgb(bv)
     if projection == "equirect":
@@ -366,6 +384,7 @@ def render_panel_canvas(l, b, g, bv, bortle, value, width, height, lat_deg, lst_
     canvas = accumulate_uniform_psf_stars(
         height, width, px, py, inside, g, L, cols,
         psf_core_px, faint_gain, faint_mag_min, sat_level, wing_sigmas, wing_weights,
+        proxy_atten,
     )
     canvas = apply_extended_visibility_threshold(canvas, sky, ext_threshold, ext_sigma)
     return add_skyglow(canvas, bortle)
@@ -383,6 +402,7 @@ def render_grid(data_path, output, bortles, values, panel_width, panel_height, l
     d = np.load(data_path)
     l, b, g = d["l"], d["b"], d["g"]
     bv = np.nan_to_num(d["bp_rp"], nan=0.7)
+    proxy_atten = d["proxy_atten"] if "proxy_atten" in d.files else None
     panels_flat = []
     default_az, default_alt = None, None
     if look_az is None or (projection == "perspective" and look_alt is None):
@@ -407,7 +427,7 @@ def render_grid(data_path, output, bortles, values, panel_width, panel_height, l
                         projection, look_az, look_alt, fov_deg, az_width_deg, max_alt_deg,
                         limiting_contrast, psf_core_px, faint_gain, faint_mag_min,
                         sat_over_sky, wing_sigmas, wing_weights, mode, fov_axis,
-                        ext_threshold, ext_sigma,
+                        ext_threshold, ext_sigma, proxy_atten,
                     )
                     adapted = adapt_sky_floor(candidate, target_sky, sky_pct, star_contrast)
                     white = float(np.percentile(adapted.sum(axis=-1), white_pct))
@@ -419,7 +439,7 @@ def render_grid(data_path, output, bortles, values, panel_width, panel_height, l
             projection, look_az, look_alt, fov_deg, az_width_deg, max_alt_deg,
             limiting_contrast, psf_core_px, faint_gain, faint_mag_min,
             sat_over_sky, wing_sigmas, wing_weights, mode, fov_axis,
-            ext_threshold, ext_sigma,
+            ext_threshold, ext_sigma, proxy_atten,
         )
         ref_adapted = adapt_sky_floor(ref_canvas, target_sky, sky_pct, star_contrast)
         signal_stretch = signal_stretch_for_adapted(ref_adapted, target_sky, white_pct, target_white)
@@ -430,7 +450,7 @@ def render_grid(data_path, output, bortles, values, panel_width, panel_height, l
                 projection, look_az, look_alt, fov_deg, az_width_deg, max_alt_deg,
                 limiting_contrast, psf_core_px, faint_gain, faint_mag_min,
                 sat_over_sky, wing_sigmas, wing_weights, mode, fov_axis,
-                ext_threshold, ext_sigma,
+                ext_threshold, ext_sigma, proxy_atten,
             )
             panel = normalize_panel(
                 canvas, normalization, pct, gamma, target_sky, white_pct, sky_pct,
@@ -499,10 +519,10 @@ def build_parser():
                    help="Linear star/sky contrast for a star at the empirical limiting magnitude.")
     p.add_argument("--psf-core-px", type=float, default=1.1,
                    help="Shared Gaussian PSF sigma in pixels applied to every star.")
-    p.add_argument("--faint-gain", type=float, default=4.2,
+    p.add_argument("--faint-gain", type=float, default=3.8,
                    help="Luminance gain for stars at G >= faint-mag-min, standing in for the "
-                        "integrated light lost to the G=11 catalog truncation.")
-    p.add_argument("--faint-mag-min", type=float, default=9.0,
+                        "integrated light lost to the G=13 catalog truncation.")
+    p.add_argument("--faint-mag-min", type=float, default=11.0,
                    help="Magnitude threshold above which the catalog-truncation gain applies.")
     p.add_argument("--sat-over-sky", type=float, default=6.0,
                    help="Linear saturation level as a multiple of skyglow at +0mag; it scales "
