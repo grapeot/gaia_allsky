@@ -18,6 +18,32 @@
 
 项目的 GitHub Pages 会放压缩后的结果图、视频预览和下载入口；代码仓库负责解释模型、复现方法和二次开发接口。
 
+## 两种输出方式
+
+同一条物理渲染管线可以落到两种成品形态，选哪一种取决于目标分辨率，而不是内容。
+
+第一种是**单图模式**，直接渲一张平面图，用广州地平 perspective 视角看银河（`src/render_bortle_eye_grid.py`、`src/render_fov.py`）。它方便浏览、分享、发公众号，现有的正式对比图和飞行视频都走这条路径。8K 以下的规模建议都用单图：一张图就能完整看到，不需要额外的查看器。
+
+第二种是 **HiPS 模式**，面向 8K 以上直到十亿像素级别的超大渲染。这个尺度的单张大图既打不开也没法分享，所以改用天图查看器 Aladin Lite 来浏览：渲染若干张带 WCS 的 TAN（gnomonic，球面切平面）投影图，用 `java -jar AladinBeta.jar -hipsgen in=dir color=png` 把它们拼成 HiPS 金字塔，Aladin Lite 加载金字塔后可以 zoom in 看锐利的单颗恒星、zoom out 看乳光涌现的银河，像在 DSS 巡天图上漫游一样。
+
+判断标准很简单：**8K 以下用单图（建议），更大规模才上 Aladin HiPS。** HiPS 模式有一个单图模式不需要面对的关键技术点——立体角归一化。星光是 flux 语义，每像素亮度随像素角面积变化，不同投影和分辨率下同一颗星给出的每像素亮度并不相同（这正是 TAN 图看起来比广州地平图暗的真因）。`src/render_tan_wcs.py` 在累积后把每像素除以像素立体角，转成与分辨率无关的面亮度，让一套 tone 参数在所有层级通用。详见 `docs/rfc.md` 第四层和 `docs/working.md` 末尾几节。
+
+TAN 投影银心图的最小验证：
+
+```bash
+python src/render_tan_wcs.py \
+  --data data/raw/fov_g20.npz --out outputs/tan_gc \
+  --lc 0 --bc 0 --fov-deg 40 --size 1024
+```
+
+生成 `outputs/tan_gc.png` 和同名 `outputs/tan_gc.hhh`（FITS WCS header）。把多张这样的 PNG+.hhh 放进一个目录，再用 hipsgen 拼金字塔（需 `openjdk@11`，新版 JDK 不兼容旧 jar）：
+
+```bash
+java -jar AladinBeta.jar -hipsgen in=outputs/tan_tiles color=png out=outputs/hips
+```
+
+亿级星表的单图渲染走并行入口 `src/render_fov.py`（详见下文"复现正式图片"）。
+
 ## 科学边界
 
 这个项目追求的是定性正确和可解释，不追求测光级精确。物理模型部分已经按公开数据完成，视觉层仍然是工程显示，不是对人眼的光谱计量模拟。
@@ -111,6 +137,24 @@ python src/render_bortle_eye_grid.py \
 这两张图使用同一套 normalization 思路：每个 panel 单独适应 sky floor，但整张 grid 共享一个显示 reference。这样暗空图不会浪费 SDR 动态范围，高光污染 panel 也不会被各自拉亮。
 星点累积使用统一 PSF 成像模型：`--psf-core-px 0.6` 对所有恒星相同（核取窄是因为亮星显大交给饱和溢出，核心 PSF 只负责给点源一点真实成像形态，过宽会把暗星颗粒糊平），`--faint-gain 3.8` 补偿 G=13 星表截断（增益保总量、保不了质感：G11→G13 的对比验证了能用真实星就不要用增益代理，见 docs/working.md），`--sat-over-sky 6` 控制亮星饱和溢出的起点。尘埃暗带由暗星计数的缺失直接呈现，不需要额外遮罩。`--ext-threshold 0.035` 是弥散光的 Weber 对比阈值：低于该比例 skyglow 的低频结构对人眼不可见，这让银河按真实观测经验在 Bortle 7 左右消失，而不是在画面里一直保留微弱残影。
 
+### 亿级深星表的并行单图渲染
+
+增益代理截断后的不可分辨族群，是数据稀疏时的聪明做法；但数据量上来后，真实暗星会自然涌现出比近似更细腻的乳光和更有结构的暗带。把广州 FOV 的深星表（约 6.16 亿颗 G<20 真实恒星）一颗颗画出来，比 G<13 加增益的版本明显更耐看。这条路径的两个脚本：
+
+```bash
+# 1) 并行解压 Flatiron 分片，build 覆盖整个 FOV 的深星表缓存
+python src/build_fov_deep_cache.py --gmax 20 --out data/raw/fov_g20.npz --workers 16
+
+# 2) 并行渲染（深星表已含真实暗星，--faint-gain 1.0 关闭增益代理）
+python src/render_fov.py \
+  --data data/raw/fov_g20.npz --out outputs/fov_g20.png \
+  --faint-gain 1.0 --workers 28 --save-linear outputs/fov_g20_linear.npy
+```
+
+6 亿星的逐星坐标变换是内存和时间瓶颈，所以 `render_fov.py` 把"逐星处理→累加到线性画布"这一段分块并行（28 worker），PSF 卷积和整条非线性显示链留在主进程对合并后的画布做一次，数值与单进程逐像素一致。`--save-linear` 把显示链之前的线性画布存成 `.npy`，之后专调 tone mapping 用 `src/tone_iterate.py` 读它秒级迭代，不必重渲 6 亿星。
+
+这条路径要求本地有 Flatiron 深星表分片，获取约定见 `docs/data_manifest.md` 和 `docs/gaia_catalog_usage.md`。
+
 ## 复现正式视频
 
 VR equirectangular 版本：
@@ -140,9 +184,9 @@ python src/render_big_dipper_video.py \
 
 ```text
 src/
-  render_starmap.py            星等、星色、全天投影、SDR/HDR tone map
+  render_starmap.py            星等、星色、全天投影、星点累积、SDR/HDR tone map
   render_horizon.py            地平坐标和 Bortle skyglow 模型
-  render_bortle_eye_grid.py    Bortle × NELM 视觉对比图
+  render_bortle_eye_grid.py    Bortle × NELM 视觉对比图（核心显示链所在）
   render_3d.py                 Gaia 视差 3D 重投影
   motion.py                    共享 L 型飞行轨迹
   video_common.py              并行逐帧渲染、PNG/TIFF 帧、ffmpeg 合成
@@ -150,13 +194,26 @@ src/
   render_big_dipper_video.py   前向透视视频入口
   fetch_gaia_allsky.py         Gaia 全天 G 星等缓存获取
   fetch_gaia_3d.py             Gaia 近邻 3D 子集获取
+
+  # 单图模式（亿级深星表）
+  build_fov_deep_cache.py      并行解压 Flatiron 分片 → FOV 深星表缓存
+  render_fov.py                亿级星表的并行单图渲染入口
+  tone_iterate.py              在已存的线性画布上秒级迭代 tone mapping
+
+  # HiPS 模式
+  render_tan_wcs.py            TAN(gnomonic) 投影 + 立体角归一化 + WCS 输出，喂 hipsgen
+
+  # 研究/诊断脚本（非正式产物路径）
+  probe_rift_depth.py          大裂隙对比 vs 星表深度的真数据 probing
+  probe_rift_windows.py        裂隙/亮云窗口的 HEALPix 分片定位
 tests/
   test_render.py               物理、投影、运动、tone map 和 CLI 语义测试
 docs/
   prd.md                       科学目标和成功标准
-  rfc.md                       实现设计和边界
+  rfc.md                       实现设计和边界（含两种输出方式的分层归属）
   test.md                      测试策略
   bortle_skyglow.md            Bortle/SQM/NELM 参考表
+  working.md                   历史决策和调参记录（含超大图金字塔双 bug、立体角归一化）
 ```
 
 ## 开发者和 AI 工具使用说明

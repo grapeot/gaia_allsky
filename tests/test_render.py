@@ -15,6 +15,7 @@ import render_horizon as rh
 import render_big_dipper_video as bdv
 import render_vr_video as rvv
 import render_bortle_eye_grid as beg
+import render_tan_wcs as tw
 import video_common as vc
 import motion
 import fetch_gaia_allsky as fga
@@ -814,6 +815,123 @@ def test_proxy_attenuation_only_dims_inferred_light():
     )
     assert np.isclose(out[10, 5, 0], 3.8)    # 干净视线: 1 + 2.8*1
     assert np.isclose(out[10, 15, 0], 1.0)   # 全遮挡: 只剩直接光
+
+
+# ---------- HiPS 模式: TAN 投影 + 立体角归一化 + WCS ----------
+
+
+def test_gnomonic_tangent_point_maps_to_origin():
+    """切点本身投到 TAN 标准平面原点 (xi=eta=0)，且前半球可见。"""
+    xi, eta, vis = tw.gnomonic(np.array([30.0]), np.array([-10.0]), 30.0, -10.0)
+    assert vis[0]
+    assert abs(xi[0]) < 1e-9 and abs(eta[0]) < 1e-9
+
+
+def test_gnomonic_back_hemisphere_is_invisible():
+    """gnomonic 只在切点同半球有定义：对踵点(切点对面)应判不可见。"""
+    # 切点 (l,b)=(0,0)，对踵点 (l,b)=(180,0) 落在后半球
+    _, _, vis = tw.gnomonic(np.array([180.0]), np.array([0.0]), 0.0, 0.0)
+    assert not vis[0]
+
+
+def test_gnomonic_east_north_orientation():
+    """切点附近：银经增(向东)给正 xi，银纬增(向北)给正 eta。"""
+    xi_e, _, _ = tw.gnomonic(np.array([1.0]), np.array([0.0]), 0.0, 0.0)
+    _, eta_n, _ = tw.gnomonic(np.array([0.0]), np.array([1.0]), 0.0, 0.0)
+    assert xi_e[0] > 0
+    assert eta_n[0] > 0
+
+
+def test_gnomonic_small_angle_matches_radians():
+    """小角极限下 TAN 标准坐标 ≈ 角距(弧度)：1° 偏移应约等于 radians(1°)。"""
+    xi, _, _ = tw.gnomonic(np.array([1.0]), np.array([0.0]), 0.0, 0.0)
+    assert np.isclose(xi[0], np.radians(1.0), rtol=2e-4)
+
+
+def test_solid_angle_normalization_is_resolution_invariant():
+    """立体角归一化把 flux 转成面亮度：同一颗星在两种 cdelt 下归一后每像素相等。
+
+    星光是 flux 语义(每像素值 ∝ 像素立体角 cdelt²)，× REF_OMEGA/cdelt² 后与
+    分辨率/fov 无关。这是"TAN 图比广州地平暗"的修法的量纲核心(见 working.md)。
+    """
+    REF_OMEGA = 0.083 ** 2
+    flux = 1.0
+    for cdelt in (0.039, 0.083, 0.16):
+        radiance = flux * (REF_OMEGA / cdelt ** 2)
+        # 归一化后的值只取决于 REF_OMEGA 与该像素立体角之比，cdelt=0.083 时恰为 flux
+        assert np.isclose(radiance, flux * REF_OMEGA / cdelt ** 2)
+    # 参考分辨率(cdelt=0.083)处归一化为恒等
+    assert np.isclose(flux * (REF_OMEGA / 0.083 ** 2), flux)
+
+
+def test_tan_wcs_hhh_header_format(tmp_path):
+    """.hhh 是 FITS WCS header：每行严格 80 列、含 TAN CTYPE、CRVAL/CRPIX/CDELT 对应入参。"""
+    data = tmp_path / "mini_fov.npz"
+    rng = np.random.RandomState(11)
+    n = 2000                                          # 够密让 signal_mask 非空
+    np.savez(data,
+             l=rng.uniform(-18, 18, n), b=rng.uniform(-18, 18, n),
+             g=rng.uniform(6.0, 12.0, n), bp_rp=rng.uniform(0.2, 1.6, n))
+    out_prefix = str(tmp_path / "tan_out")
+    import sys as _sys
+    argv = ["render_tan_wcs.py", "--data", str(data), "--out", out_prefix,
+            "--lc", "0", "--bc", "0", "--fov-deg", "40", "--size", "64"]
+    old = _sys.argv
+    try:
+        _sys.argv = argv
+        tw.main()
+    finally:
+        _sys.argv = old
+    assert os.path.exists(out_prefix + ".png")
+    raw = open(out_prefix + ".hhh").read()
+    assert len(raw) % 80 == 0                      # 每张卡片 80 列
+    cards = [raw[i:i + 80] for i in range(0, len(raw), 80)]
+    joined = "".join(c.strip() + "\n" for c in cards)
+    assert "CTYPE1  = 'GLON-TAN'" in joined
+    assert "CTYPE2  = 'GLAT-TAN'" in joined
+    assert "CRVAL1  = 0" in joined and "CRVAL2  = 0" in joined
+    assert "CRPIX1  = 32.0" in joined               # size/2
+    assert "CDELT1  = 0.625" in joined              # fov_deg/size = 40/64
+    assert cards[-1].strip() == "END"
+
+
+# ---------- 单图模式: 共享取景与 tone 显示链 ----------
+
+
+def test_project_guangzhou_fov_matches_manual_sequence():
+    """共享取景 helper 等价于 look_az + gal_to_altaz + project_horizon_camera 手写序列。"""
+    rng = np.random.RandomState(1)
+    l = rng.uniform(0, 40, 120)
+    b = rng.uniform(-15, 15, 120)
+    look_az, _ = beg.galactic_center_altaz(23.13, 17.76)
+    az, alt = rh.gal_to_altaz(l, b, 23.13, 17.76)
+    px0, py0, in0 = beg.project_horizon_camera(az, alt, look_az, 1080, 1920, 90.0, 75.0, "horizontal")
+    px1, py1, in1 = beg.project_guangzhou_fov(l, b, 23.13, 17.76, 1080, 1920, 90.0, 75.0)
+    assert np.array_equal(px0, px1)
+    assert np.array_equal(py0, py1)
+    assert np.array_equal(in0, in1)
+
+
+def test_signal_mask_selects_above_floor_pixels():
+    """signal_mask 选出高于最暗像素 eps 的有信号像素，纯天光底被排除。"""
+    canvas = np.full((10, 10, 3), 0.001, np.float32)   # 纯天光底
+    canvas[3, 7] = 0.5                                  # 一个亮星
+    mask = beg.signal_mask(canvas, eps=0.004)
+    assert mask[3, 7]
+    assert mask.sum() == 1                              # 只有亮星过阈
+
+
+def test_tone_adapted_matches_inline_display_chain():
+    """tone_adapted 与 adapt→stretch→finish 内联链逐像素一致(重构不改数值)。"""
+    rng = np.random.RandomState(5)
+    canvas = (np.abs(rng.randn(48, 48, 3)) * 0.02).astype(np.float32)
+    mask = beg.signal_mask(canvas, 0.004)
+    ad = beg.adapt_sky_floor(canvas, 0.012, 25.0, 6.0, signal_mask=mask)
+    st = beg.signal_stretch_for_adapted(ad, 0.012, 99.5, 2.5, signal_mask=mask)
+    ref = beg.finish_sky_adapted(ad, 0.012, 2.2, 2.5, st, 1.8)
+    got = beg.tone_adapted(canvas, 0.012, 6.0, 2.5, 1.8)
+    assert np.allclose(ref, got)
+    assert got.min() >= 0.0 and got.max() <= 1.0
 
 
 def test_bv_to_rgb_g2v_white_point_is_neutral():

@@ -233,6 +233,34 @@ def normalize_sky_adapted(canvas, target_sky=0.03, gamma=2.2, white_pct=99.5, sk
     return finish_sky_adapted(adapted, target_sky, gamma, target_white, signal_stretch, chroma)
 
 
+def signal_mask(canvas, eps=0.004):
+    """有信号像素掩码：亮度高于纯天光底 eps 的像素。
+
+    高分辨率渲染下绝大多数像素是星点间的纯天光底（12K 可达 99.9%），全图分位
+    会被这些空像素带偏。掩码限定只在有信号像素上取 sky floor / white 分位，全图
+    一套，块间一致。判定基于"相对最暗像素的增量"，对 adapt 的整体缩放不变（缩放
+    后掩码沿用即可）。正式 1080 图信号占比高，不需要掩码。
+    """
+    y = canvas.sum(axis=-1)
+    return y > (float(y.min()) + eps)
+
+
+def tone_adapted(canvas, target_sky, star_contrast, target_white, chroma,
+                 gamma=2.2, white_pct=99.5, mask=None, mask_eps=0.004):
+    """单张图自适应显示链：adapt_sky_floor → signal_stretch → finish_sky_adapted。
+
+    返回 [0,1] 浮点 RGB（未量化到 uint8）。`render_tan_wcs` 和 `tone_iterate`
+    共用这条链：前者渲完归一化的 TAN 画布、后者读保存的线性画布，都要在带
+    signal_mask 的高分辨率画布上做同一套 tone。mask=None 时自动按 mask_eps 生成。
+    """
+    if mask is None:
+        mask = signal_mask(canvas, mask_eps)
+    adapted = adapt_sky_floor(canvas, target_sky, 25.0, star_contrast, signal_mask=mask)
+    stretch = signal_stretch_for_adapted(adapted, target_sky, white_pct, target_white,
+                                         signal_mask=mask)
+    return finish_sky_adapted(adapted, target_sky, gamma, target_white, stretch, chroma)
+
+
 def normalize_panel(canvas, mode, pct, gamma, target_sky, white_pct, sky_pct, star_contrast, target_white,
                     signal_stretch=None, chroma=1.0):
     if mode == "sky_median":
@@ -346,6 +374,21 @@ def project_horizon_camera(az, alt, center_az, width, height, h_fov_deg, v_fov_d
 def galactic_center_altaz(lat_deg, lst_hours):
     az, alt = rh.gal_to_altaz(np.array([0.0]), np.array([0.0]), lat_deg, lst_hours)
     return float(az[0]), float(alt[0])
+
+
+def project_guangzhou_fov(l, b, lat_deg, lst_hours, width, height,
+                          az_width_deg, max_alt_deg, fov_axis="horizontal"):
+    """银道 (l,b) → 广州地平 FOV 相机像素，中心对准银心方位角。
+
+    这是单图模式（正式图、深星表渲染、FOV 取样）共用的取景：先用 galactic_center
+    的方位角作相机中心，再把星从银道经地平投到 rectilinear 相机。`render_fov` 和
+    `build_fov_deep_cache` 共用此函数，保证渲染和取样用完全一致的 FOV 几何。
+    返回 (px, py, inside)。
+    """
+    look_az, _ = galactic_center_altaz(lat_deg, lst_hours)
+    az, alt = rh.gal_to_altaz(l, b, lat_deg, lst_hours)
+    return project_horizon_camera(
+        az, alt, look_az, width, height, az_width_deg, max_alt_deg, fov_axis)
 
 
 def label_panel(img, text):
