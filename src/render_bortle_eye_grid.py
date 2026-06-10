@@ -333,7 +333,13 @@ def render_panel_canvas(l, b, g, bv, bortle, value, width, height, lat_deg, lst_
 
     L = visual_luminance_for_mags(g, bortle, value, limiting_contrast)
     sky = rh.skyglow_level(bortle)
-    sat_level = sat_over_sky * sky if sat_over_sky and sat_over_sky > 0 else None
+    # Saturation rides the same magnitude ladder as star luminance: a +delta_mag
+    # panel scales every star by 10^(0.4*delta), so the threshold must scale too,
+    # keeping saturation onset at a fixed magnitude depth below the effective limit.
+    # A sky-anchored constant would clip whole Milky-Way regions at high delta.
+    sat_level = None
+    if sat_over_sky and sat_over_sky > 0:
+        sat_level = sat_over_sky * sky * gain_for_mag_delta(float(value))
     canvas = accumulate_uniform_psf_stars(
         height, width, px, py, inside, g, L, cols,
         psf_core_px, faint_gain, faint_mag_min, sat_level, wing_sigmas, wing_weights,
@@ -472,8 +478,10 @@ def build_parser():
     p.add_argument("--faint-mag-min", type=float, default=9.0,
                    help="Magnitude threshold above which the catalog-truncation gain applies.")
     p.add_argument("--sat-over-sky", type=float, default=6.0,
-                   help="Linear saturation level as a multiple of skyglow; energy above it is "
-                        "redistributed into wide scattering wings. <=0 disables saturation bloom.")
+                   help="Linear saturation level as a multiple of skyglow at +0mag; it scales "
+                        "with the eye-delta gain so saturation starts at a fixed magnitude depth "
+                        "below the effective limit. Energy above it is redistributed into wide "
+                        "scattering wings. <=0 disables saturation bloom.")
     p.add_argument("--wing-sigmas", default="3,9",
                    help="Gaussian sigmas (px, CSV) for the saturation scattering wings.")
     p.add_argument("--wing-weights", default="0.65,0.35",
