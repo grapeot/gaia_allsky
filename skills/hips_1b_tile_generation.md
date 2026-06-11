@@ -60,11 +60,16 @@ python src/render_tan_wcs.py \
 需 `openjdk@11`（新版 JDK 不兼容旧 jar，Java 26 的 JApplet 已移除）。
 
 ```bash
-java -Xmx80g -jar AladinBeta.jar -hipsgen \
-  in=outputs/hips1b_tiles_bsc5 out=outputs/hips1b_out color=jpeg \
+/opt/homebrew/opt/openjdk@11/bin/java -Xmx80g \
+  -jar outputs/tmp_reference_hips/AladinBeta.jar -hipsgen \
+  in=outputs/hips1b_tiles_bsc5 out=outputs/hips1b_out_bsc5 color=jpeg \
+  creator_did=DuckBro obs_title=GaiaMW1B \
   "target=271.672 -25.873" fading=true
 ```
 
+- **`creator_did=DuckBro obs_title=GaiaMW1B` 必加**：这版 HipsGen 缺 ID 会直接报
+  `*ERROR: Missing ID` 退出（README/working.md 早期命令漏了这两个，踩过）。沿用旧
+  survey id `GaiaMW1B` 让 Aladin Lite wiring 不用改。
 - `target` 放 FOV 中心（银道 5,-2.5 → 赤道 271.672,-25.873）。
 - **`fading=true` 必加**：消重叠接缝。瓦片重叠带恰好是各自 gnomonic 边缘畸变最大处，
   默认 mean 混合会在亮处留可见接缝；fading 羽化过渡消除它。**不要用 `border=` 裁边**
@@ -74,12 +79,29 @@ java -Xmx80g -jar AladinBeta.jar -hipsgen \
   重蹈乳光丢失（见下"sum vs mean"）。若要严格物理正确，自己 sum 池化建层，别让
   hipsgen 做平均；当前成品接受 hipsgen 默认。
 
+### 3.5 用样式化落地页覆盖默认 index.html（我做）
+
+hipsgen 在输出根目录会生成一个**简陋的默认 `index.html`**（只有裸 Aladin viewer、
+无初始视角、无样式）。必须用项目的样式化落地页覆盖它：
+
+```bash
+cp outputs/_hips1b_out/index.html outputs/hips1b_out_bsc5/index.html
+```
+
+样式化落地页（`outputs/_hips1b_out/index.html`，暗色/金色风格）是**自包含、可移植**的：
+- Aladin Lite v2 从 CDN 加载，无本地 css/js 依赖。
+- HiPS 目录用 `hipsDir = location.href` 相对定位，复制进哪个 HiPS 根目录就指向同目录金字塔。
+- **自带初始视角**：`aladin.gotoRaDec(270, -22); aladin.setFov(90)` + `fov: 90`（落银心、
+  90° 起手视野）。默认页没有这个，复制过去才有正确的开场构图。
+- survey id `GaiaMW1B` 与 properties 对得上，不用改。
+
+复制后即整目录可部署，落地页和金字塔在同一目录、相对引用自洽。
+
 ### 4. 部署（用户做）
 
-HiPS 体量（>1G）超出 GitHub Pages。瓦片目录放自有服务器（如经 Cloudflare），
-页面里 Aladin Lite 跨域加载时由 Cloudflare 加 `Access-Control-Allow-Origin` 头。
-低分辨率用 4K 单图 JPG 嵌页面，高分辨率用 Aladin Lite 指向 HiPS。
-落地页范例见 `outputs/_hips1b_out/index.html`（暗色/金色 Aladin Lite 浏览页）。
+HiPS 体量（>1G）超出 GitHub Pages。整个 HiPS 输出目录（含金字塔 + 覆盖后的 index.html）
+rsync 到自有服务器（如经 Cloudflare），页面里 Aladin Lite 跨域加载时由 Cloudflare 加
+`Access-Control-Allow-Origin` 头。低分辨率用 4K 单图 JPG 嵌主页，高分辨率指向 HiPS 落地页。
 
 ## 超大图的两个致命物理 bug（背景知识，别再踩）
 
