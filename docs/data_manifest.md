@@ -17,6 +17,8 @@
 
 | 文件 | MB | 被谁读 | 说明 |
 |---|---|---|---|
+| `fov_g20_bsc5.npz` | 9216 | `render_fov.py --data`（**当前默认渲染源**） | **6.16 亿 Gaia + 20 颗 BSC5 亮星**，字段 l,b,g,bp_rp。由 `merge_bsc5_bright_stars.py` 把 fov_g20 与 BSC5 亮星合并而成。bortle 序列 / 4K / hero 都用它。删了可由脚本重建（需 fov_g20.npz + 联网拉 BSC5，或读 bsc5_raw.npz 缓存） |
+| `fov_g20.npz` | 9216 | `merge_bsc5_bright_stars.py` 输入；`render_tan_wcs.py`/`render_zoom_video.py` | 6.16 亿星纯 Gaia G<20 深星表（广州 FOV 预裁），字段 l,b,g,bp_rp。由 `build_fov_deep_cache.py` 从 412G flatiron 分片 build。HiPS/zoom 仍直接读它 |
 | `gaia_g13_render.npz` | 254 | `render_bortle_eye_grid.py` DATA_DEFAULT | 正式静态图缓存，字段 l,b,g,bp_rp,proxy_atten。由 `build_render_cache.py` 从 ag 5 段生成 |
 | `gaia_3d_deep_g13.npz` | 328 | `video_common.py` DATA_DEFAULT；`derive_video_gain_g13.py` | VR/前向视频的 3D 星表，字段 ra,dec,parallax,dist_pc,g,bp_rp |
 | `gaia_3d_deep.npz` | 57 | `render_l_video.py` | 旧 L 轨迹视频的 3D 星表（旧路线，较少用） |
@@ -47,6 +49,24 @@
 | `gaia_g12_125.npz` | 53 | G<13 合并源（12–12.5 段） |
 | `gaia_g125_128.npz` | 44 | G<13 合并源（12.5–12.8 段） |
 | `gaia_g128_13.npz` | 36 | G<13 合并源（12.8–13 段） |
+
+## BSC5 亮星补全链（活——`fov_g20_bsc5.npz` 的源 + 坑）
+
+Gaia 系统性饱和/漏测最亮星（G≲6），织女/心宿二/河鼓等不在图里。`merge_bsc5_bright_stars.py`
+拉 Yale BSC5（VizieR V/50，astroquery）补进去，生成当前默认渲染源 `fov_g20_bsc5.npz`。
+
+| 文件 | MB | 角色 |
+|---|---|---|
+| `bsc5_raw.npz` | 0.6 | BSC5 原始 fetch 缓存（RA/Dec/Vmag/B-V），merge 脚本复跑时读它、不再打 VizieR |
+
+**下载/合并/坑（务必读，避免重蹈）：**
+
+- **抓取**：`astroquery.vizier` 拉 `V/50/catalog`，必须 `Vizier(row_limit=-1)` 否则只返回 50 行。约 9110 星，完整到 V~6.5。
+- **fov_g20 是广州 FOV 预裁的，不是全天**（b 仅 -41.6..+62.4）。BSC5 星必须过同一 FOV 投影裁剪；天狼/老人/参宿四等不在这个视窗（天文正确，非缺陷）。
+- **Gaia 缺口只在 G<2**：G≥2 处 Gaia 比 BSC5 更深更全。"无脑加 G<6" 会重复计入 ~1330 颗 Gaia 已有的星。必须做**位置+星等去重**（0.05°内、|ΔG|<1.5 判为 Gaia 已有则跳过）。去重后**只真缺 20 颗**（Vega/Antares/Altair…）。
+- **去重内存**：只把 g<7 的 Gaia 子集（~5000 星）拉进内存做球面近邻，**不要**物化 616M（峰值 RSS 12.5G）。
+- **光度转换**：G←V,B-V 用 Gaia EDR3 Johnson-Cousins 多项式；bp_rp←B-V 用拟合线性式（只驱动颜色不驱动亮度，误差仅 cosmetic）。
+- 详细定标与亲眼核实记录见 `working.md` 的 PR2 节。
 
 ## 实验源（保留——只被实验版脚本读）
 

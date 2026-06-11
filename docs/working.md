@@ -358,3 +358,19 @@ Gaia 系统性饱和/漏测最亮星（G≲6）。修法：拉 Yale BSC5（Vizie
 - **eye_grid 仍留 PR3**：B1/B6×敏感度对比，20 颗几乎不影响，且走有 OOM 风险的旧 grid 路径；PR3 一并在物理路重建。
 
 **注意**：`fov_g20_bsc5.npz`(9.2G) 被 `data/raw/` gitignore，不进 git，靠脚本复现。今后渲染默认数据源切到 `fov_g20_bsc5.npz`。
+
+---
+
+## PR3：housekeeping（2026-06-11）
+
+范围克制（刚稳定渲染管线，不碰显示链/数据 build，避免回归）：
+
+- **OOM 护栏**：`render_bortle_eye_grid.py` 串行 `render_grid` 路径（`--workers` 缺省=0 时进入）加大星表拦截——星数 > 50M 直接 SystemExit、指向 `--workers` 并行路径。这正是之前硬死机的 footgun，现彻底堵死。
+- **pytest.ini**：`testpaths = tests`，把 `outputs/DSSBackendFrontend/backend/test_app.py`（不相关的 DSO 网络集成测试，默认收集会噪声性 2 failed）排除出主测试。现在 `pytest` 干净 77 passed。
+- **eye_grid 重建**：用 BSC5 cache + 并行路径（workers 16）重渲 `bortle_eye_grid`（B1/B6×+0/2/4mag 敏感度对比），落地 2700×3200 与页面一致。从 PR1/PR2 deferred 过来，现完成。
+- **文档**：`data_manifest.md` 补 `fov_g20`/`fov_g20_bsc5` 产物条目 + 专门一节"BSC5 亮星补全链"记录下载/合并/坑（VizieR row_limit=-1、FOV 预裁、Gaia 只缺 G<2、位置+星等去重、去重内存、光度转换）。
+
+**有意不做**（survey 提议但判为churn/风险）：
+- 不删 `build_render_cache_v3_experimental.py`——data_manifest.md/working.md 明确记录它是**有意保留**的实验路径（深星表裂隙 probing 可能复用），删它违背已记录决策。
+- 不抽 `tone_display.py`：把刚稳定的显示链跨 6 文件搬模块，纯组织性重构，回归风险 > 当下收益。留待真要加新渲染器时再做。
+- 不合并 cache builder：data build 脚本刚产出 BSC5 cache，不扰动。
