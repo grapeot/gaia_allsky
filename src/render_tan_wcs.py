@@ -58,15 +58,18 @@ def gnomonic(l, b, lc, bc):
 
 
 def write_hhh(path, S, lc, bc, cdelt):
-    """写 FITS WCS header（80 列卡片）。hipsgen 认 PNG + 同名 .hhh。CDELT1<0
-    表达经度向左增（与像素 +xi 配合，只处理一次手性，避免 Aladin 里镜像）。"""
+    """写 FITS WCS header（80 列卡片）。hipsgen 认 PNG + 同名 .hhh。
+
+    手性必须与像素映射自洽（astropy WCS 验证）：像素用 +xi（银经大落右），则
+    CDELT1 必须 > 0。若 CDELT1 取负，Aladin 会沿经度方向把瓦片镜像错位（表现
+    为银河带先 gap 再出现）。两处用同一手性，只处理一次。"""
     hdr = [
         "SIMPLE  = T", "BITPIX  = 8", "NAXIS   = 2",
         f"NAXIS1  = {S}", f"NAXIS2  = {S}",
         "CTYPE1  = 'GLON-TAN'", "CTYPE2  = 'GLAT-TAN'",
         f"CRVAL1  = {lc}", f"CRVAL2  = {bc}",
         f"CRPIX1  = {S / 2.0}", f"CRPIX2  = {S / 2.0}",
-        f"CDELT1  = {-cdelt}", f"CDELT2  = {cdelt}", "END",
+        f"CDELT1  = {cdelt}", f"CDELT2  = {cdelt}", "END",
     ]
     with open(path, "w") as f:
         f.write("".join(f"{line:<80}" for line in hdr))
