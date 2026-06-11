@@ -374,3 +374,19 @@ Gaia 系统性饱和/漏测最亮星（G≲6）。修法：拉 Yale BSC5（Vizie
 - 不删 `build_render_cache_v3_experimental.py`——data_manifest.md/working.md 明确记录它是**有意保留**的实验路径（深星表裂隙 probing 可能复用），删它违背已记录决策。
 - 不抽 `tone_display.py`：把刚稳定的显示链跨 6 文件搬模块，纯组织性重构，回归风险 > 当下收益。留待真要加新渲染器时再做。
 - 不合并 cache builder：data build 脚本刚产出 BSC5 cache，不扰动。
+
+---
+
+## principles 页重写为"五个坑" + ablation 全重渲 BSC5 + Weber 对修复（2026-06-11）
+
+**文案 reframe**：principles.html 从"五步流水线"改为"五个坑"叙事（我们犯过的五个错误，每步发现不理想再补规则，终点复现主图）。具体：七百万→六亿(G<20) 订正；颜色坑并进 step1（删独立颜色节）；step4 加数据说明大裂隙就是在此浮现（旧"黑不到照片"遗留问题已由加深星表解决）；step5 文案纠错"Web 预置"→"Weber 对比预置"；不提"两套星表缝合"；去 hero 术语改"主图"；删"两处边界"节，只留"城市夜空能不能纯黑"一处诚实边界。
+
+**step4 交互**：旧五联静图 `ablation_scale_up.jpg` 换成滑块切换器（5 张 `ablation_scale_g13gain/g13/g16/g18/g20.jpg` + inline JS），点按钮换图+caption。
+
+**ablation 全重渲（BSC5 + 主图 tone）**：11 张图全用 BSC5 cache 重渲、对齐夜顶主图提亮 tone（target-sky 0.038/target-white 2.6, Bortle1, boost5, Weber-off）。ablation_5_full ≡ ablation_scale_g20 ≡ 主图（逐像素相同）。命令见 `render_ablation.sh` + `skills/ablation_study_rendering.md`。删 `ablation_2_psf.jpg`（不再引用）。
+
+**Weber 对修复（关键 bug）**：weber_on/off 两张原用单图 `--bortle 7` 渲，单图路径 sky-floor 不锚物理 skyglow，B7 银河淹不掉、Weber-on 还能看见银河（对比 0.083，错）。**改走 sweep 路径**（`--sweep-bortles 7`，sky_anchor 锚 3*additive_skyglow_level），weber_on 对比 0.000（看不见，对）、weber_off 0.238（band 可见）。亲眼核实 weber_on 近黑只剩星点+银心 whisper。
+
+**视频**：zoom15 用用户 PixInsight 处理过的帧合成带停顿 H.265/hvc1（19s=首停1s+zoom15s+尾停3s），落地 `docs/assets/zoom_milkyway.mp4`（网页也用 H.265，index.html source 加 codecs="hvc1"），poster 更新。
+
+**skills**：新增 `ablation_study_rendering.md`；`hips_1b_tile_generation.md` 加端到端交接流程（agent 渲 tiles → 用户 PixInsight 调色 → 用户说 OK → agent 跑 hipsgen + 改 index.html → 用户 rsync）。
