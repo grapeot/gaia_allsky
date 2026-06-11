@@ -883,6 +883,17 @@ def main(argv=None):
         )
         print(f"wrote {out}")
         return
+    # OOM 护栏：串行 render_grid 逐面板重投影整张星表、不分块，曾在 616M 星表上把
+    # 整机内存吃爆硬死机（见 docs/working.md）。大星表必须走 --workers 并行路径
+    # （坐标预计算一次、分块累加，内存有界）。小表（探测/调试）才允许串行。
+    import numpy as _np
+    _n = int(_np.load(args.data, mmap_mode="r")["g"].shape[0])
+    _SERIAL_STAR_CAP = 50_000_000
+    if _n > _SERIAL_STAR_CAP:
+        raise SystemExit(
+            f"星表 {_n:,} 星 > {_SERIAL_STAR_CAP:,}：串行 render_grid 会逐面板重投影"
+            f"全部星点、内存爆炸（曾硬死机）。请加 --workers 16 走并行路径"
+            f"（需 --mode adapted --projection horizon_window）。")
     out = render_grid(
         args.data,
         args.output,
