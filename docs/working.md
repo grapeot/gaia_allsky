@@ -221,3 +221,20 @@
 **TAN 图"偏暗"的真因 = 每像素立体角不同（用户 push back 逼出）**：错误论证——我曾用"TAN 构图不同、银心一条带、拉低中位是正确的"搪塞。用户反驳：tone 是全局的、数据是全局的，为什么会不一样？正面查线性画布证实：TAN(40°/1024, 0.039°/px) vs 广州地平(90°/1080, 0.083°/px)，p99=0.057 vs 0.150（差 2.6×）。根因是**星光是 flux 语义**——每像素值随像素角面积 ∝Ω 变化，像素立体角越小每像素收的光越少，所以 TAN 暗。这不是 tone 能救的（sweep star_contrast/target_white 中位铁卡 24-25，证明病在画布不在 tone）。**修法：立体角归一化**——accumulate 后每像素 ÷ 像素立体角（×REF_OMEGA/cdelt²，REF_OMEGA 取广州像素 0.083² 当量），把 flux 转成面亮度 radiance，与投影/分辨率/fov 无关，一套 tone 通用，且金字塔 sum 池化后自洽。验证：归一后 TAN 图逐分位命中 ref（中位 48 vs 47、p99 185 vs 181）。这张归一化 TAN 银心图是目前最好的银河成品。
 
 **方法论锁定**：渲完图必 plot histogram 和 ref 对分位，对不上别往下；不用 local 视觉印象解释 global 统计差异。
+
+## HiPS 瓦片化的接缝 + fading 修复（2026-06-10 深夜）
+
+把 FOV 切成 TAN 瓦片（fov=20/step=16 重叠 4°，或 10 亿像素版 fov=6/step=5）交 hipsgen 拼金字塔后，用户在亮处看到接缝（暗处看不出，两边亮度无差异）。
+
+**接缝根因**：`hips_overlay=mean`，重叠区把两张瓦片 mean 平均；而重叠区恰好是两张瓦片**各自的边缘**（实测：重叠区一颗星在相邻两瓦片各落 px≈1820 和 228，都离边缘仅 ~228px、离切点 7.7°≈fov 半宽），gnomonic 投影边缘畸变最大、两张畸变方向相反，mean 混合→内容错位/重影→接缝。亮处星密看得清，暗处无星看不出。
+
+**修法对比**：
+- `border=205`（裁掉每张瓦片边缘畸变区）→ **错**：裁过头，瓦片之间露出黑线 gap，比接缝更糟，弃。
+- `fading=true`（重叠区羽化过渡，不裁边）→ **正解**，用户确认"完美"。hipsgen 专为消重叠接缝设计，让重叠带平滑混合糊掉错位。
+
+**完整 HiPS 流程（定稿）**：
+1. 渲带 WCS 的 TAN 瓦片（`render_tan_wcs.py --tiles`，多进程并行，立体角归一化，手性自洽 +xi/CDELT1>0）。
+2. hipsgen：`java -Xmx80g -jar AladinBeta.jar -hipsgen in=tiles out=hips color=jpeg "target=271.672 -25.873" fading=true`（jpeg 小、target 放 FOV 中心银道5,-2.5、fading 消缝）。10 亿像素版 338 瓦片 → Norder0-6 七层金字塔、13322 瓦片、1.2G、~16min。
+3. host：page 留 github.io，HiPS（1.2G，github 放不下）放 yage（Cloudflare 后），跨域靠 Cloudflare 加 `Access-Control-Allow-Origin` 头。低分辨率用 4K 单图 JPG 嵌 page，高分辨率用 Aladin Lite 指向 yage HiPS。
+
+**注**：preview.html 我生成的 createImageSurvey 调用 Aladin Lite v3 不认（空天球），用户用自己的方式看 HiPS，不再生成 preview.html。
