@@ -97,11 +97,12 @@ def main():
     import multiprocessing as mp
     ctx = mp.get_context("fork")
     done = 0
+    # 每帧 worker 自己即时 Image.save 到最终路径（崩了也只丢未渲的，已渲的留盘）。
+    # 进度逐帧打印（带 idx），方便实时看到进度、定位卡在哪一帧。
     with ProcessPoolExecutor(max_workers=args.workers, mp_context=ctx) as ex:
         for fut in as_completed([ex.submit(_frame_worker, j) for j in jobs]):
-            fut.result(); done += 1
-            if done % 30 == 0 or done == n_frames:
-                print(f"  {done}/{n_frames} 帧", flush=True)
+            idx = fut.result(); done += 1
+            print(f"  帧 {done}/{n_frames}（f{idx:04d}）", flush=True)
 
     # ffmpeg 合成 H.264 mp4
     print("ffmpeg 合成 ...", flush=True)

@@ -184,17 +184,21 @@ def main():
     # macOS 默认 spawn，worker 不继承 _SHARED；用 fork 让 worker 继承 + numpy
     # 大数组 copy-on-write 共享（只读不复制）。
     ctx = mp.get_context("fork")
-    done, total_in = 0, 0
+    # 每张瓦片 worker 自己即时写盘（崩了只丢未渲的，已渲留盘）。进度逐瓦片打印
+    # （含空瓦片，计数真实单调到 total），方便实时看进度、定位卡在哪格。
+    done, nonempty, total_in = 0, 0, 0
     with ProcessPoolExecutor(max_workers=args.workers, mp_context=ctx) as ex:
         futs = {ex.submit(_tile_worker, j): j for j in jobs}
         for fut in as_completed(futs):
             _, lc, bc = futs[fut]
             n = fut.result()
+            done += 1
             if n > 0:
-                done += 1
+                nonempty += 1
                 total_in += n
-                print(f"  [{done}/{len(jobs)}] l={lc:.0f} b={bc:.0f}: {n:,} 星", flush=True)
-    print(f"瓦片完成：{done} 张非空（累计落点 {total_in:,}）-> {args.out}/", flush=True)
+            print(f"  [{done}/{len(jobs)}] l={lc:.0f} b={bc:.0f}: {n:,} 星"
+                  f"{'（空，跳过）' if n == 0 else ''}", flush=True)
+    print(f"瓦片完成：{nonempty} 张非空 / {len(jobs)} 总格（累计落点 {total_in:,}）-> {args.out}/", flush=True)
 
 
 if __name__ == "__main__":
