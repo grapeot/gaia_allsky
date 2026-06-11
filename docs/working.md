@@ -339,3 +339,22 @@
 **真旋钮** `SKYGLOW_POLLUTION_BOOST`（render_horizon.py，默认 5.0）：只乘到【加性辉光 `add_skyglow` + Weber 阈值 + sky_anchor】，**绝不碰星场/银河带线性亮度**。于是放大它=高 bortle 辉光真正淹过银河，而银河带锚在 B1 不动，共享 white-point 把显示天光底拉回稳定。新增 `additive_skyglow_level()`，sweep 显示链 sat 用 `skyglow_level`（场景锚）、Weber/floor/anchor 用 `additive_skyglow_level`。CLI `--skyglow-pollution-boost` 可覆盖（sweep 只在主进程跑显示链，无 spawn 继承问题）。
 
 **boost=5 全分辨率实测**：显示天光底 B1→B9 大致平（60-65），银河对比 B1=2.44→B3=2.08→B5≈0→B7=0→B9=0 陡降。亲眼核实：B3 银河辉煌、B5 仅银心一抹柔光、B7 近黑只剩星点+银心whisper、全程柔和无硬斑。**用户取舍：保持 boost=5、B7 优先**（接受 B3→B5 曲线偏陡、中档过渡压缩，换 B7 真"被城市吞没"）。`add_skyglow` 改动使 `test_saturation_threshold_rides_magnitude_ladder` 的 floor 扣除改用 `additive_skyglow_level(1)`（保留测试本意：饱和几何对星等阶梯不变）。77 测试通过。
+
+---
+
+## PR2：BSC5 亮星补全（2026-06-11）
+
+Gaia 系统性饱和/漏测最亮星（G≲6）。修法：拉 Yale BSC5（VizieR V/50，astroquery，约 9110 星，完整到 V~6.5），把 Gaia 缺的亮星并进渲染缓存。脚本 `src/merge_bsc5_bright_stars.py`（可复现、幂等，原始 fetch 缓存到 `data/raw/bsc5_raw.npz`，输出 `data/raw/fov_g20_bsc5.npz`，不覆盖 fov_g20.npz）。
+
+**关键发现（改变了 PR2 的预期规模）**：`fov_g20.npz` 是**广州 FOV 预裁的**（b 仅 -41.6..+62.4），不是全天。且 Gaia 的缺口**只在 G<2**——G≥2 处 Gaia 已比 BSC5（V≈6.5 限）更深更全。所以"无脑加 G<6"会重复计入约 1330 颗 Gaia 已有的星；**位置+星等去重（0.05°内、|ΔG|<1.5 则判为 Gaia 已有跳过）后只真缺 20 颗亮星**：Vega(G=0.003)、Antares(0.32)、Altair(0.74)、Shaula(1.59)、Eltanin(1.78) 等。Sirius/Canopus/Betelgeuse/Rigel 等不在这个广州视窗内（天文正确，非缺陷）。
+
+**转换**：① RA/Dec(J2000)→银道 l,b 用 astropy SkyCoord(icrs).galactic。② G←V,B-V 用 Gaia EDR3 Johnson-Cousins 多项式 `G-V=-0.02704+0.01424(B-V)-0.2156(B-V)²+0.01426(B-V)³`。③ bp_rp←B-V 用对 7 颗已知星拟合的线性式 `1.007(B-V)+0.030`（残差<0.07；bp_rp 只驱动颜色不驱动亮度，误差仅 cosmetic）。色彩 sanity：Vega 白(bp_rp 0.03)、Antares 深红(1.87)✓。
+
+**去重内存**：只把 g<7 的 Gaia 子集（~4948 星）拉进内存做球面近邻，不物化 616M。峰值 RSS 12.5G。
+
+**全重渲（用户要一致性，尽管 20 颗在 1080 缩略图上几乎不可见）**：
+- bortle 1-9 走 sweep（boost=5、merged cache、T0.04 S0.5），验收 PASS（数字与无 BSC5 时一致，20 颗不动验收）。
+- 4K hires `fov_g20_4k.jpg`(2160×3840) + hero `hero_milky_way.jpg`(1000×1778) 同源：Weber-OFF(ext-threshold 0)、bortle 1、psf0.6 高分辨率渲一次。**踩 working.md:205 的坑**（高分辨率比原生 1080 暗一个量级）：用 `--save-linear` 存线性画布、`normalize_panel` 直接重 tone（非 tone_iterate.py，它漏 global stretch），histogram match 到老 noweber 基准（lum 中位 45→46/48、p99 184→169/150，per-channel 近乎逐项对上）。tone：target_sky 0.038 / target_white 2.6。亲眼核实 hero：大裂隙 profound、银心暖金、新增亮星（Vega 蓝白峰229、Antares 黄红峰234）作为视觉锚点显现。
+- **eye_grid 仍留 PR3**：B1/B6×敏感度对比，20 颗几乎不影响，且走有 OOM 风险的旧 grid 路径；PR3 一并在物理路重建。
+
+**注意**：`fov_g20_bsc5.npz`(9.2G) 被 `data/raw/` gitignore，不进 git，靠脚本复现。今后渲染默认数据源切到 `fov_g20_bsc5.npz`。
