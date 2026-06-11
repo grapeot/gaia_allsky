@@ -54,6 +54,9 @@ def main():
     ap.add_argument("--seconds", type=float, default=10.0)
     ap.add_argument("--fps", type=int, default=30)
     ap.add_argument("--workers", type=int, default=8)
+    ap.add_argument("--frames-dir", default=None,
+                    help="帧输出目录（指定则保留帧不删，便于后续续接/重剪）")
+    ap.add_argument("--keep-frames", action="store_true", help="渲完保留帧")
     # tone（默认比静态图调亮一档：target_white 2.5→2.0，star_contrast 6→7）
     ap.add_argument("--psf-core-px", type=float, default=0.6)
     ap.add_argument("--target-sky", type=float, default=0.012)
@@ -76,7 +79,11 @@ def main():
     cols = rs.bv_to_rgb(bv)
     L = beg.visual_luminance_for_mags(g, args.bortle, 0.0, 0.5)
 
-    frames_dir = tempfile.mkdtemp(prefix="zoom_frames_", dir=os.path.join(ROOT, "outputs"))
+    if args.frames_dir:
+        frames_dir = args.frames_dir
+        os.makedirs(frames_dir, exist_ok=True)
+    else:
+        frames_dir = tempfile.mkdtemp(prefix="zoom_frames_", dir=os.path.join(ROOT, "outputs"))
     tile_kw = dict(psf_core_px=args.psf_core_px, bortle=args.bortle,
                    target_sky=args.target_sky, star_contrast=args.star_contrast,
                    chroma=args.chroma, target_white=args.target_white)
@@ -105,11 +112,14 @@ def main():
         args.out,
     ], check=True, capture_output=True)
     print(f"wrote {args.out}", flush=True)
-    # 清理帧
-    for j in jobs:
-        if os.path.exists(j[2]):
-            os.remove(j[2])
-    os.rmdir(frames_dir)
+    # 默认临时帧目录用完即删；--frames-dir 或 --keep-frames 则保留
+    if args.frames_dir or args.keep_frames:
+        print(f"帧保留在 {frames_dir}/", flush=True)
+    else:
+        for j in jobs:
+            if os.path.exists(j[2]):
+                os.remove(j[2])
+        os.rmdir(frames_dir)
 
 
 if __name__ == "__main__":

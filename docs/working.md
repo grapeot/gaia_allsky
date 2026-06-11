@@ -238,3 +238,33 @@
 3. host：page 留 github.io，HiPS（1.2G，github 放不下）放 yage（Cloudflare 后），跨域靠 Cloudflare 加 `Access-Control-Allow-Origin` 头。低分辨率用 4K 单图 JPG 嵌 page，高分辨率用 Aladin Lite 指向 yage HiPS。
 
 **注**：preview.html 我生成的 createImageSurvey 调用 Aladin Lite v3 不认（空天球），用户用自己的方式看 HiPS，不再生成 preview.html。
+
+## 进行中状态（2026-06-10，compact 前快照）
+
+**已定稿产物**：
+- 10 亿像素 HiPS：`outputs/_hips1b_out`（1.4G，Norder0-6，13322 jpg，fading 消缝，用户改对的 tiles + 调亮）。源瓦片 `outputs/hips1b_tiles`（338 张 2048² + .hhh，手性 +xi/CDELT1>0 自洽）。
+- zoom 视频终版：`outputs/zoom15_h265_hold.mp4`（19 秒=首停1s+zoom15s+尾停3s，H.265 hvc1 QuickTime 兼容，CRF24，16M）。450 帧保留在 `outputs/zoom15_frames`（用户修过，是新版）。前 10 秒 70°→1.9°、后 5 秒 1.9°→0.25°。脚本 `src/render_zoom_video.py`（--frames-dir/--keep-frames 保留帧；本次 15 秒续接是手动补渲 f0288-0449）。
+
+**待办任务**（用户一连串新指令，task #37-40）：
+1. **#37 改 `_hips1b_out/index.html` 好看**：参考 `outputs/DSSBackendFrontend`（完整前端项目 dss.js/dss.css/index.html，Aladin Lite 美观嵌入范例）。这是 yage 上的高清浏览落地页。
+2. **#38 更新 GitHub Page**（`docs/index.html` 保持现设计）：用最新成果更新文案（颜色白点去黄、G<20 深星表 6.16亿星、ablation 奇技淫巧→以力破巧），embed 素材；末尾加"高清大图"区：zoom 视频自动播 + 4K 标准图并排 + 链接到 yage HiPS（URL 待用户 rsync 后给）。流程：我做好→用户 rsync 上传→给 URL→我填进 page→PR merge。
+3. **#39 L 型视频用全量 G<20 重渲**：`src/render_l_video.py`（3D 飞行，北斗起步两段叙事，import render_3d，当前用 `data/raw/gaia_3d_deep.npz`）→ 迁移到全量深星表。注意 L 视频是 3D 飞行（需 ra/dec/parallax/dist），fov_g20.npz 只有 l/b/g/bp_rp，可能需要 3D 版深星表或 build。
+4. **#40 output cleanup**：保留 zoom15_frames / hips1b_tiles / _hips1b_out / ablation_*.png / DSSBackendFrontend / 最终视频；已删 12K 全部 + 过时视频版本。其余中间产物可删。
+
+**host 方案（已定）**：page 留 github.io，HiPS（1.4G 超 Pages）放 yage（Cloudflare 后），跨域靠 Cloudflare 加 Access-Control-Allow-Origin 头。低分辨率 4K 单图嵌 page。
+
+---
+
+## 进行中状态（2026-06-10，compact 后续）
+
+完成本轮 orchestration，四件事：
+
+**#37 HiPS 落地页（done）** — `outputs/_hips1b_out/index.html` 重写为暗色/金色风格的 Aladin Lite 浏览页，与 GitHub Pages 同族视觉。删掉了 DSS 参考里全部 survey-planner 功能（相机/马赛克/CSV/DSO 搜索），只保留"界面"：slim 顶栏 + 极简介绍 + Aladin viewer 主体 + 三张 .stat 元数据卡 + footer。Aladin v2 wiring 原样保留（同 survey id GaiaMW1B、目录相对 hipsDir、不升 v3）。
+
+**#38 GitHub Page（done，待 URL）** — `docs/index.html` 新增 `#hires` 高清大图区（在 #flight 与 #boundary 之间）：左 4K 静图 `assets/fov_g20_4k.jpg`（由 `_fov_g20_12k_psf06.png` 降到 2160×3840），右自动循环 zoom 视频 `assets/zoom_milkyway.mp4`（H.264 重编码，640² 方形，原 HEVC 在 Chrome/Firefox 不解码故转码）。文案讲清"换了数据：七百万亮星 → 六亿全量 G<20"。底部 CTA "打开十亿像素浏览器" data-yage-link href="#" 占位，JS 在 href 仍为 # 时自动隐藏整个 CTA panel。**待用户 rsync HiPS 到 yage 给 URL，填入即可。** 还修了 principles 区一个破折号。
+
+**#39 L 视频重渲（in_progress）** — 关键决定：用户说"全量 G<20"物理上不可行（3D 飞行需 ra/dec/parallax/dist，fov_g20.npz 无 3D；且 Gaia 视差 G>~13 噪声主导，飞进去违背"数据边界要诚实"题眼）。改用 G<13（`gaia_3d_deep_g13.npz`，7.1M 星，6× 旧 1.2M）。runner `src/_run_l_video_g13.py` 后台渲染中（约 310/600 帧），产物 `outputs/l_flight_g13.mp4`。已记忆到 project_gaia_l_video_g13_ceiling。
+
+**#35/#40 cleanup（done）** — outputs 清到 5.2G。删了全部 `_*` 调试/probe/12k/abl/fov/tan PNG、`*_lin.npy` 中间产物、`zoom15_frames copy` 重复目录、`_tan_*.hhh` 实验头。保留：`_hips1b_out`、`hips1b_tiles`、`zoom15_frames`、`l_video_frames_g13`、ablation 系列、knob 网格、final mp4、DSSBackendFrontend、tmp_reference_hips（含 AladinBeta.jar）、notes md。
+
+**下一步**：L 视频渲完 → 合成 mp4 → 给用户看 → 决定是否进 docs/assets + 文案。GitHub Page 等 yage URL 后填 CTA → PR merge。

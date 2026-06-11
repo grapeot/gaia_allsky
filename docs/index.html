@@ -436,6 +436,62 @@
       padding: 22px;
     }
 
+    .hires-stage {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 18px;
+      margin-top: 34px;
+      align-items: start;
+    }
+
+    .hires-frame {
+      position: relative;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      overflow: hidden;
+      background: #02040a;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.42);
+    }
+
+    .hires-frame img {
+      width: 100%;
+      aspect-ratio: 9 / 16;
+      object-fit: cover;
+      background: #02040a;
+    }
+
+    .hires-frame video {
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      object-fit: cover;
+      background: #02040a;
+    }
+
+    .hires-label {
+      position: absolute;
+      left: 14px;
+      bottom: 14px;
+      right: 14px;
+      padding: 10px 14px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(5, 8, 15, 0.92);
+      color: #d8e0ee;
+      font-size: 14px;
+    }
+
+    .hires-cta {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 22px;
+      align-items: center;
+      margin-top: 22px;
+      border: 1px solid rgba(196, 173, 115, 0.42);
+      border-radius: 16px;
+      padding: 26px 28px;
+      background: linear-gradient(135deg, rgba(147, 164, 184, 0.10), rgba(196, 173, 115, 0.07));
+    }
+
     .boundary {
       display: grid;
       grid-template-columns: 0.8fr 1.2fr;
@@ -495,8 +551,14 @@
       .hero,
       .showcase,
       .boundary,
+      .hires-stage,
+      .hires-cta,
       .repo-panel {
         grid-template-columns: 1fr;
+      }
+
+      .hires-cta .button {
+        width: 100%;
       }
 
       .hero {
@@ -567,6 +629,7 @@
       <nav class="nav" aria-label="页面导航">
         <a href="#bortle">光污染</a>
         <a href="#flight">星际飞行</a>
+        <a href="#hires">高清大图</a>
         <a href="#boundary">读图须知</a>
         <a href="principles.html">原理</a>
         <a class="repo-link" data-repo-link href="https://github.com/grapeot/gaia_allsky">GitHub 仓库</a>
@@ -669,6 +732,31 @@
       </div>
     </section>
 
+    <section id="hires" class="section" aria-labelledby="hires-title">
+      <p class="eyebrow">把暗空那张图做到极致</p>
+      <h2 id="hires-title">六亿颗星，一张能一直放大的银河。</h2>
+      <p class="lead" style="max-width:760px">前面光污染那组图用的是肉眼能及的七百多万颗亮星。这一张换了数据：取了广州这片天区里 Gaia 实测到的全部恒星，一直暗到 20 等，约六亿颗，一颗颗画进同一张图。星密到这个程度，银河的明暗肌理和尘埃暗带不再靠少数亮星勾勒，而是由海量暗星的疏密自己堆出来。左边是这张图的一帧，右边的视频从全景一路推到银心，每一步放大都在掏出更暗、更密的星。</p>
+      <div class="hires-stage">
+        <figure class="hires-frame" style="margin:0">
+          <img src="assets/fov_g20_4k.jpg" alt="广州天区 Gaia 全量恒星渲染的银河，暗带和尘埃肌理由六亿颗星的疏密堆出">
+          <figcaption class="hires-label">广州天区，约六亿颗实测恒星，暗至 20 等。这里展示的是压缩到 4K 的预览。</figcaption>
+        </figure>
+        <figure class="hires-frame" style="margin:0">
+          <video autoplay loop muted playsinline preload="metadata" poster="assets/zoom_poster.jpg">
+            <source src="assets/zoom_milkyway.mp4" type="video/mp4">
+          </video>
+          <figcaption class="hires-label">从全景推进到银心核心 1:1 的连续放大。视频无声，自动循环。</figcaption>
+        </figure>
+      </div>
+      <div class="hires-cta">
+        <div>
+          <h3>想自己拖着放大看？</h3>
+          <p class="note-copy">完整分辨率有十亿像素，没法塞进一张网页图里。我们把它切成了一套分级巡天瓦片，挂在独立的浏览器里：拖动平移，滚轮缩放，越放大露出的暗星越多，跟天文学家用的 Aladin 是同一套格式。</p>
+        </div>
+        <a class="button primary" data-yage-link href="#" rel="noopener" target="_blank">打开十亿像素浏览器</a>
+      </div>
+    </section>
+
     <section id="boundary" class="section boundary" aria-labelledby="boundary-title">
       <aside class="boundary-aside">
         <strong>读图须知</strong>
@@ -679,13 +767,14 @@
         <h2 id="boundary-title">数据有边界，屏幕也有边界。</h2>
         <p>第一个边界来自数据。Gaia 测距离的精度随距离衰减，只有太阳周围几千光年内的恒星距离足够可靠。飞行视频里飞得越远星越稀疏，那不是宇宙的尽头，是测量的尽头。顺带说一句：人类至今没有任何一张银河系的真实俯视照片，网上常见的"银河系全景图"都是根据观测推算出来的想象图。</p>
         <p>第二个边界来自屏幕。真实夜空里最亮的星和最暗的银河纹理，亮度能差上百万倍，远超任何屏幕能显示的范围，所以画面必须把明暗压缩之后才能给你看。压缩保留了"谁比谁亮"的相对关系，但不保证绝对亮度的比例。看结构、看趋势、看对比，这些图都可靠；拿去量星等，不行。</p>
+        <p>还有一处已知缺陷得说清楚：最亮的那些星，Gaia 反而没测好。Gaia 是为测量遥远暗星的距离设计的，太亮的恒星会让它的感光元件过曝，所以从 6 等往亮的方向，星表越来越不全，到 2 等以上几乎一颗都不剩。这片天区里 5 等以内只剩五百多颗，最亮的天狼、参宿四这种全天最显眼的星，在我们用的数据里是缺席的。也就是说，画面里真实银河本该有的那几十颗最扎眼的亮星，目前并没有画上去。补全它们需要另一份专门的亮星表，这是接下来要做的事。</p>
       </div>
     </section>
 
     <section class="section" aria-labelledby="principles-title">
       <p class="eyebrow">给真正好奇的人</p>
       <h2 id="principles-title">这些图是怎么画出来的？</h2>
-      <p class="lead" style="max-width:760px">画面里没有银河贴图，也没有手绘辉光——全部效果来自五条有物理依据的渲染规则：亮度锚定在实测的人眼极限上、所有恒星共用同一个光学 PSF、亮星的大小来自能量守恒的饱和溢出、暗星截断用星表光度函数推出的增益补偿、再加上人眼对弥散光的 Weber 对比阈值。我们做了一组消融实验：从最朴素的"一星一像素"画法开始，逐条加上这些规则，看画面一步步变真实。</p>
+      <p class="lead" style="max-width:760px">画面里没有银河贴图，也没有手绘辉光，全部效果来自五条有物理依据的渲染规则：亮度锚定在实测的人眼极限上、所有恒星共用同一个光学 PSF、亮星的大小来自能量守恒的饱和溢出、暗星截断用星表光度函数推出的增益补偿、再加上人眼对弥散光的 Weber 对比阈值。我们做了一组消融实验：从最朴素的"一星一像素"画法开始，逐条加上这些规则，看画面一步步变真实。</p>
       <div class="section-actions">
         <a class="button primary" href="principles.html">阅读渲染原理深度解读</a>
       </div>
@@ -752,6 +841,17 @@
     }
 
     setBortle(1);
+
+    // 十亿像素浏览器链接：URL 待 yage 上线后填入。未填时把 CTA 收起，避免空链接。
+    document.querySelectorAll("[data-yage-link]").forEach((link) => {
+      const href = link.getAttribute("href");
+      if (!href || href === "#") {
+        const panel = link.closest(".hires-cta");
+        if (panel) {
+          panel.style.display = "none";
+        }
+      }
+    });
 
     const repoLinks = document.querySelectorAll("[data-repo-link]");
     const pathRepo = location.hostname.endsWith("github.io") ? location.pathname.split("/").filter(Boolean)[0] : "";
