@@ -660,8 +660,8 @@
     </section>
 
     <section class="section" aria-labelledby="questions-title">
-      <p class="eyebrow">三件事，看完图就明白</p>
-      <h2 id="questions-title">城市看不到银河，不是因为星星变少了。</h2>
+      <p class="eyebrow">同一片天空一直在头顶</p>
+      <h2 id="questions-title">城市看不到银河，不是星星少了。</h2>
       <div class="intro-grid">
         <article class="card">
           <h3>光污染是垫在天上的一层底光</h3>
@@ -694,7 +694,7 @@
               <img id="bortleImage" src="assets/bortle_1.jpg" alt="Bortle 1 顶级暗空下的完整天空渲染">
             </figure>
           </div>
-          <h3 style="margin-top: 26px;">换个问题：天空不变，眼睛更灵敏会怎样</h3>
+          <h3 style="margin-top: 26px;">天空不变，眼睛更灵敏会怎样</h3>
           <div class="comparison-img">
             <a href="assets/bortle_eye_grid.jpg" target="_blank" rel="noopener" aria-label="在新窗口打开灵敏度对比大图">
               <img src="assets/bortle_eye_grid.jpg" alt="六张星空对比图：上排为暗空、下排为明亮郊区，从左到右观测灵敏度逐级提高，露出的暗星越来越多">
@@ -751,7 +751,7 @@
       <div class="hires-cta">
         <div>
           <h3>想自己拖着放大看？</h3>
-          <p class="note-copy">完整分辨率有十亿像素，没法塞进一张网页图里。我们把它切成了一套分级巡天瓦片，挂在独立的浏览器里：拖动平移，滚轮缩放，越放大露出的暗星越多，跟天文学家用的 Aladin 是同一套格式。</p>
+          <p class="note-copy">完整分辨率有十亿像素，没法塞进一张网页图里。渲染管线把它切成了一套分级巡天瓦片，挂在独立的浏览器里：拖动平移，滚轮缩放，越放大露出的暗星越多，跟天文学家用的 Aladin 是同一套格式。</p>
         </div>
         <a class="button primary" data-yage-link href="https://yage.ai/gaia_milky_way/" rel="noopener" target="_blank">打开十亿像素浏览器</a>
       </div>
@@ -763,18 +763,18 @@
         <p>这些图适合看趋势和结构，不适合拿来做精确测量。</p>
       </aside>
       <div class="copy">
-        <p class="eyebrow">诚实地说清楚边界在哪</p>
+        <p class="eyebrow">用数据，不用贴图</p>
         <h2 id="boundary-title">数据有边界，屏幕也有边界。</h2>
         <p>第一个边界来自数据。Gaia 测距离的精度随距离衰减，只有太阳周围几千光年内的恒星距离足够可靠。飞行视频里飞得越远星越稀疏，那不是宇宙的尽头，是测量的尽头。顺带说一句：人类至今没有任何一张银河系的真实俯视照片，网上常见的"银河系全景图"都是根据观测推算出来的想象图。</p>
         <p>第二个边界来自屏幕。真实夜空里最亮的星和最暗的银河纹理，亮度能差上百万倍，远超任何屏幕能显示的范围，所以画面必须把明暗压缩之后才能给你看。压缩保留了"谁比谁亮"的相对关系，但不保证绝对亮度的比例。看结构、看趋势、看对比，这些图都可靠；拿去量星等，不行。</p>
-        <p>还有一处已知缺陷得说清楚：最亮的那些星，Gaia 反而没测好。Gaia 是为测量遥远暗星的距离设计的，太亮的恒星会让它的感光元件过曝，所以从 6 等往亮的方向，星表越来越不全，到 2 等以上几乎一颗都不剩。这片天区里 5 等以内只剩五百多颗，最亮的天狼、参宿四这种全天最显眼的星，在我们用的数据里是缺席的。也就是说，画面里真实银河本该有的那几十颗最扎眼的亮星，目前并没有画上去。补全它们需要另一份专门的亮星表，这是接下来要做的事。</p>
+        <p>还有一个边界值得提：Gaia 测亮星反而吃力。Gaia 是为遥远暗星的距离测量设计的，太亮的恒星会让感光元件过曝，2 等以上的明星几乎一颗都不剩。主页的图里已经把耶鲁亮星表里的亮星补上了，画面里那些最扎眼的亮星才算齐了。不过亮星数据的空间分辨率和颜色标定和 Gaia 暗星体系不是完全同一套，所以个别特别亮的星边缘会比暗星稍软，颜色也有细微差异——两套星表缝合的痕迹，目前还没有完全消除。</p>
       </div>
     </section>
 
     <section class="section" aria-labelledby="principles-title">
-      <p class="eyebrow">给真正好奇的人</p>
+      <p class="eyebrow">从最朴素的画法到最终效果</p>
       <h2 id="principles-title">这些图是怎么画出来的？</h2>
-      <p class="lead" style="max-width:760px">画面里没有银河贴图，也没有手绘辉光，全部效果来自五条有物理依据的渲染规则：亮度锚定在实测的人眼极限上、所有恒星共用同一个光学 PSF、亮星的大小来自能量守恒的饱和溢出、暗星截断用星表光度函数推出的增益补偿、再加上人眼对弥散光的 Weber 对比阈值。我们做了一组消融实验：从最朴素的"一星一像素"画法开始，逐条加上这些规则，看画面一步步变真实。</p>
+      <p class="lead" style="max-width:760px">画面里没有银河贴图，也没有手绘辉光，全部效果来自五条有物理依据的渲染规则：亮度锚定在实测的人眼极限上、所有恒星共用同一个光学 PSF、亮星的大小来自能量守恒的饱和溢出、暗星截断用星表光度函数推出的增益补偿、再加上人眼对弥散光的 Weber 对比阈值。下面是一组消融实验：从最朴素的"一星一像素"画法开始，逐条加上这些规则，看画面一步步变真实。</p>
       <div class="section-actions">
         <a class="button primary" href="principles.html">阅读渲染原理深度解读</a>
       </div>
@@ -783,7 +783,7 @@
     <section class="section" aria-labelledby="repo-title">
       <div class="repo-panel">
         <div>
-          <p class="eyebrow">给想自己动手的人</p>
+          <p class="eyebrow">代码和数据全部公开</p>
           <h2 id="repo-title">整个项目开源，可以在自己电脑上复现。</h2>
           <p class="lead">代码、数据下载脚本和全部参数都在 GitHub 仓库里。你可以重新生成这页所有的图和视频，也可以换个城市的纬度、换个光污染等级，渲染一张属于你自己的夜空。</p>
         </div>
