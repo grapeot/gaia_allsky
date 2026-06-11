@@ -268,3 +268,74 @@
 **#35/#40 cleanup（done）** — outputs 清到 5.2G。删了全部 `_*` 调试/probe/12k/abl/fov/tan PNG、`*_lin.npy` 中间产物、`zoom15_frames copy` 重复目录、`_tan_*.hhh` 实验头。保留：`_hips1b_out`、`hips1b_tiles`、`zoom15_frames`、`l_video_frames_g13`、ablation 系列、knob 网格、final mp4、DSSBackendFrontend、tmp_reference_hips（含 AladinBeta.jar）、notes md。
 
 **下一步**：L 视频渲完 → 合成 mp4 → 给用户看 → 决定是否进 docs/assets + 文案。GitHub Page 等 yage URL 后填 CTA → PR merge。
+
+---
+
+## 独立 PR：广州图修复 + bortle grid 升 G<20 + 原理页 5 步重写（2026-06-10 晚）
+
+- **广州主图错版修复**：assets 里 `fov_g20_4k.jpg` 被塞成了 Weber-killed 版本（弥散光被压死、银河缩成中间一小团），用户的备份 `outputs/_fov_g20_12k_noweber.jpg`（G<20 关 Weber，大裂隙 profound）才对。用它重压 4k（2160×3840）。**hero 图同源**：用户确认那张备份"超屌"，hero 不重渲，直接把同一张备份缩成 1000×1778 当 hero。两图同源不同尺寸。
+- **bortle grid 升 G<20 关键坑：Weber 必须开。** 第一次重渲两个 grid 时我让 sub-agent 传 `--ext-threshold 0`（关 Weber）——对主图/高清大图对（要展示全部弥散结构），但对 **bortle 分级序列是错的**：Weber 阈值正是"银河在城市里消失"的机制，关了它高污染面板（B7-9）弥散光不被人眼阈值砍掉 + G<20 暗星暴增，B9 亮得像旧版 B5（用户一眼看出"像 vibrance threshold 没开"）。修复：grid 重渲升 G<20 + faint_gain 1 + target_white 1.0，但 **Weber 走默认 0.035（开）**。eye_grid 同理。`render_bortle_eye_grid.py` 已被 sub-agent 加了 `--workers N` 并行路径（坐标预计算一次多面板复用，bit-exact，77 测试通过）。
+- **原理页按用户新 5 步骨架重写**：① 每颗星一个像素（无坑，诚实地基）② PSF + 增益（合并旧决策二+四）③ 饱和溢出 ④ 加数据（scale-up：奇技淫巧→以力破巧，放 `ablation_scale_up.jpg` 五联 G<13gain→G13/16/18/20 真星）⑤ Web 预置与人眼阈值（Weber）。颜色白点 + 裂隙 open question + 亮星缺席作为"颜色与边界"收尾。
+- **yage URL 填入**：`https://yage.ai/gaia_milky_way/` → CTA「打开十亿像素浏览器」。
+
+---
+
+## Weber 硬补丁的真凶：signal_stretch 逐图自适应（2026-06-10 深夜，metric 驱动定位）
+
+用户连续观察 + 一个量化诊断器定位了根因，**不是 Weber 太硬**。
+
+**诊断器**（`src/_weber_diag.py` → 将固化为 validator）：两个解耦的物理量。
+- visibility = 银河带 vs 天空底的对比，量在 **线性 + Weber + skyglow 后、tone 前** 的画布（不能量 tone 后 uint8，逐图自适应会抹平亮度差）。
+- band 显示亮度 = tone 后 uint8 band 中位，揭示"显示出来到底多亮"。
+- hardness = tone 后银河带边缘梯度 p98 / 带峰值（空间锐利度，硬补丁→高）。
+
+**关键数据**（干净画布套不同 bortle，360×640）：
+- 现状逐图 signal_stretch=None：band 显示亮度 B1=287, B6=283, B7=273, B9=208 —— **几乎不随 bortle 变**，B9 majestic 得像 B1。这就是"拆成单图后 B7 像 B0"的根因。
+- global signal_stretch（用 B1 算一次定死，所有图共用）：band B1=287, B6=105, B7=87, B9=66 —— **单调递减**，光污染如实抹掉银河。✓
+
+**根本 bug**：`normalize_panel` 的 `signal_stretch=None` 时逐图算（`signal_stretch_for_adapted` 把每图银河信号都拉到 target_white），于是 B7 微弱银河被各自拉成 majestic。`render_fov.py` 单图路径正是 None，grid 路径有共享 stretch 才侥幸对。**白点/信号拉伸补偿必须 global（一个从 B1 暗空参考算出的固定常数），不能逐图。** sky_floor 归一可保留逐图（眼睛适应天空背景，对的）。
+
+**linear visibility 是比值、对均匀 rescale 不变**，所以它对这个 bug 盲（B1/B6/B9 比值不变）；真正暴露 bug 的是 **tone 后 band 显示亮度的绝对值**。验收判据：tone 后 band 中位亮度必须随 bortle 单调递减（B1≫B6>B7>B9，B9 接近天空底）。
+
+**待修**：把 global signal_stretch 固化进架构，render_fov + grid 单图路径都用它。Weber softness（对比域 sigmoid）作为正交的"硬边羽化"手段保留，但它不是主因——主因是 stretch。
+
+---
+
+## PR1 收尾：场景/观测者解耦 + sky-floor 物理锚（2026-06-10 深夜，物理路定案）
+
+接上节。Fable5 的深度诊断把真凶定到比"stretch 逐图"更底层的地方，并给出物理正确的修法。**机器在此前一次渲染中因 OOM 硬死机**——根因是误入 `render_bortle_eye_grid.py` 的串行 `render_grid` 路径（无 --workers，逐面板重投影 6.16 亿星、不分块）。教训：bortle 系列一律走 render_fov.py 的 `--sweep-bortles` 路径，workers≤16，串行多面板路径禁用。
+
+**真凶（比 stretch 更底层）**：`render_fov.py` 的 worker 用 `visual_luminance_for_mags(g, bortle, ...)` 算星亮度——这把一个**随 bortle 变的常数 k(B)** 烤进了线性画布本身。于是"场景"（星的物理光通量）和"观测者"（光污染等级）被耦合，所谓"共享 B1 stretch"是在一张随 bortle 漂移的画布上算的，stretch 跟着漂（实测 5.26→3.92→3.13）。
+
+**物理正确修法（已实现，弃掉所有 hack）**：
+1. **场景/观测者解耦**：`--sweep-bortles` 模式把场景渲一次（星亮度锚死在 `--scene-ref-bortle 1`，与 bortle 无关），bortle 只进显示链（sat∝sky(B)、Weber vs sky(B)、加性 skyglow(B)）。6.16 亿星只渲一次（~23s），B1-9 变成对一张画布的秒级显示链 sweep。**顺带把渲染成本降 9 倍、且 renderer/validator 共享同一画布，脱节不可能再发生。** RSS 稳定 ~15GB（mmap 星表主导），不再 OOM。
+2. **sky-floor 锚死物理常数**：`adapt_sky_floor` 新增 `sky_anchor` 参数，传 `3.0 * skyglow_level(bortle)`（×3 因 y=sum(RGB)，skyglow 加在三通道）。不再用图像百分位估 sky floor——百分位估计正是逼着 star_contrast 撑到 6× 凑对比、再把 post-Weber 残留吹成硬斑的根。锚死后对比由物理定，银河该淡就淡。（实测 star_contrast 6→3.5 对 band/sky 比值无影响：signal_stretch 锚在 B1，star_contrast 在比值里抵消。）
+
+**弃掉的死路（别再走）**：
+- **频段拆分对比预算**（高频点星拿满增益、低频弥散带拿低增益）：用户一眼判为 artificial 二元 hack，非物理。已完全 revert。
+- 在亮部（B1/B6 银心）测 Weber 软膝差别：Weber 只对暗弱弥散光起效，亮部测不出。
+- 在小数据集（fov_g13 2.4M）验证：无 G<20 暗星 = fallback 到老的无 artifact 版，defeats the purpose。**bortle 系列一律在 fov_g20 6.16 亿星上验证。**
+
+**最终参数（render_fov.py 默认）**：`--ext-threshold 0.04 --ext-softness 0.5`（对比域 sigmoid 软化，高 bortle 银河柔和渐隐而非等高线硬块）。用户要 B7 近不可见、仍柔和——达成：B7 是银心一小撮柔光淡入黑，无硬边。
+
+**验收器** `src/validate_bortle_series.py`（吃真 PNG，三个解耦量）：
+- contrast=(band-sky)/sky（Weber 对比），texture=band p90-p50（防糊），hardness=过渡带 log 梯度按崖高归一（防硬斑，亮度/分辨率不变）。
+- 两个 washout-tail 豁免：(1) contrast<0.20 时豁免 hardness（band 已消退，崖高→0 使 hardness 除零退化，"边缘硬不硬"在无边缘时无定义）；(2) 相邻档都<0.20 时单调放宽到 ≥（两档都正确归零并列在天光底是对的）。
+- 全分辨率 fov_g20 实测：B1 contrast2.55/texture111、B5 0.63、B7 0.05(豁免)、B9 0.00，全 PASS。亲眼核实 B1 majestic、B5 清晰、B7 柔淡、B9 近灭，全程柔和无硬斑。
+- 77 测试通过（解耦/锚均向后兼容：sky_anchor=None、value 路径不变）。
+
+**eye_grid 留待重构 PR**：它走的是带 sensitivity(+0/2/4mag) 维度的旧 grid 路径，未呈现硬斑 bug（+sensitivity 列保持银河亮），不属 PR1 修复范围；现 sweep 模式 value 固定 0，补 sensitivity 维度是 scope creep，挪到 PR3 一起做。
+
+---
+
+## 光污染强度真旋钮：SKYGLOW_POLLUTION_BOOST（2026-06-11，并入 PR1）
+
+用户复核 PR1 物理路：裂隙在、无硬斑，但 **B7 光污染太弱、银河太亮，看着像 B2/B3**，要 substantially 提高。
+
+用户澄清的原则（关键）：**物理上**光污染=天空背景辉光抬高（淹没银河）；**视觉上**人眼自动适应曝光（tone mapping + white-point 归一），所以不该看到"画面越来越亮"，而该看到"银河越来越淡、天空显示亮度大致稳定"。
+
+**踩坑确认**：直接调 `SKYGLOW_SCALE` 是 no-op——银河带亮度 `visual_luminance_for_mags ∝ SKYGLOW_SCALE`，放大 k 倍则银河带和加性辉光同步×k，比值不变，white-point 归一后显示对比一模一样。
+
+**真旋钮** `SKYGLOW_POLLUTION_BOOST`（render_horizon.py，默认 5.0）：只乘到【加性辉光 `add_skyglow` + Weber 阈值 + sky_anchor】，**绝不碰星场/银河带线性亮度**。于是放大它=高 bortle 辉光真正淹过银河，而银河带锚在 B1 不动，共享 white-point 把显示天光底拉回稳定。新增 `additive_skyglow_level()`，sweep 显示链 sat 用 `skyglow_level`（场景锚）、Weber/floor/anchor 用 `additive_skyglow_level`。CLI `--skyglow-pollution-boost` 可覆盖（sweep 只在主进程跑显示链，无 spawn 继承问题）。
+
+**boost=5 全分辨率实测**：显示天光底 B1→B9 大致平（60-65），银河对比 B1=2.44→B3=2.08→B5≈0→B7=0→B9=0 陡降。亲眼核实：B3 银河辉煌、B5 仅银心一抹柔光、B7 近黑只剩星点+银心whisper、全程柔和无硬斑。**用户取舍：保持 boost=5、B7 优先**（接受 B3→B5 曲线偏陡、中档过渡压缩，换 B7 真"被城市吞没"）。`add_skyglow` 改动使 `test_saturation_threshold_rides_magnitude_ladder` 的 floor 扣除改用 `additive_skyglow_level(1)`（保留测试本意：饱和几何对星等阶梯不变）。77 测试通过。

@@ -1,6 +1,7 @@
 """Render Bortle skyglow x eye-sensitivity comparison grids."""
 import argparse
 import os
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import numpy as np
 
@@ -91,7 +92,9 @@ def visual_luminance_for_mag(mag, bortle, delta_mag, limiting_contrast=0.5):
 
 
 def add_skyglow(canvas, bortle):
-    return canvas + rh.skyglow_level(bortle)
+    # 加性辉光用带光污染 boost 的值（additive_skyglow_level），不是场景锚 skyglow_level。
+    # 这是让高 bortle 银河被淹的真正旋钮（见 render_horizon.SKYGLOW_POLLUTION_BOOST）。
+    return canvas + rh.additive_skyglow_level(bortle)
 
 
 def saturate_and_bloom(canvas, sat_level, wing_sigmas=(3.0, 9.0), wing_weights=(0.65, 0.35)):
@@ -148,16 +151,40 @@ def accumulate_uniform_psf_stars(height, width, px, py, inside, mag, luminance, 
     return saturate_and_bloom(canvas, sat_level, wing_sigmas, wing_weights)
 
 
-def apply_extended_visibility_threshold(canvas, sky, threshold=0.035, sigma_px=8.0):
+def apply_extended_visibility_threshold(canvas, sky, threshold=0.035, sigma_px=8.0,
+                                        knee=0.12, softness=0.0):
     """Weber-type contrast threshold for extended light.
 
     The eye detects point sources and extended surface brightness with very
     different thresholds: diffuse structure below a few percent of the sky
     background is invisible to the eye even though a camera records it. This is
     why the Milky Way disappears around Bortle 7 while a tracked exposure still
-    picks it up. Split the star canvas by spatial frequency and subtract
-    threshold*sky from the low-frequency (extended) component only; point stars
-    live in the high-frequency component and keep their NELM-anchored contrast.
+    picks it up. Split the star canvas by spatial frequency and attenuate the
+    low-frequency (extended) component; point stars live in the high-frequency
+    component and keep their NELM-anchored contrast.
+
+    Two failure modes of a hard ``max(low - threshold*sky, 0)``:
+
+    1. A sharp corner in the *brightness* dimension — the brightest galactic
+       core survives while one step dimmer collapses to zero.
+    2. A sharp edge in the *spatial* dimension — because the cut is on the
+       absolute local surface brightness, and the band falls off steeply in
+       space, the threshold acts like a contour line. The galactic core shows
+       as a hard-edged patch floating on black, with the rest of the band
+       (only slightly below threshold) clipped away entirely. A softplus knee
+       of fixed absolute width ``knee*threshold*sky`` smooths (1) but is far
+       too narrow to soften (2): the band crosses many sky-units of brightness
+       within a few pixels, so any fixed-width knee still looks like a hard edge.
+
+    ``softness`` fixes (2) by rolling off in the *contrast* (log) domain
+    instead. The attenuation is a sigmoid of ``log(low / (threshold*sky))``
+    with width ``softness`` (in e-folds of contrast): structure far above the
+    threshold keeps gain≈1, far below tends to 0, and the transition spans a
+    multiplicative band of contrast (e.g. softness=0.6 ramps over roughly a
+    factor of e on each side). Because real bands fall off slowly in *contrast*
+    even where they fall steeply in absolute brightness, this produces a wide,
+    feathered spatial transition instead of a contour. ``softness=0`` keeps the
+    subtractive behaviour (hard, or softplus-kneed when ``knee>0``).
     """
     if not threshold or threshold <= 0:
         return canvas
@@ -165,21 +192,48 @@ def apply_extended_visibility_threshold(canvas, sky, threshold=0.035, sigma_px=8
 
     y = canvas.sum(axis=-1)
     low = gaussian_filter(y, sigma_px)
-    visible_low = np.maximum(low - threshold * sky, 0.0)
+    t = threshold * sky
+    if softness and softness > 0:
+        # 对比域 sigmoid rolloff：gain = 1/(1+exp(-log(low/t)/softness))。
+        # 在 log 对比域平滑，过渡跨"几倍于阈值"而非"几个 sky 单位"，所以空间
+        # 上是宽羽化边而非等高线。低于阈值仍趋零（保留"城里银河消失"）。
+        r = np.log(np.maximum(low, 1e-12) / t)
+        gain = 1.0 / (1.0 + np.exp(-r / softness))
+        visible_low = low * gain
+    else:
+        excess = low - t
+        if knee and knee > 0:
+            beta = knee * t
+            z = excess / beta
+            # softplus(z) = max(z,0) + log1p(exp(-|z|))，max 分支防 exp 溢出。
+            visible_low = beta * (np.maximum(z, 0.0) + np.log1p(np.exp(-np.abs(z))))
+            visible_low = np.maximum(visible_low, 0.0)
+        else:
+            visible_low = np.maximum(excess, 0.0)
     new_y = (y - low) + visible_low
     scale = np.clip(new_y / np.maximum(y, 1e-12), 0.0, None)
     return canvas * scale[:, :, None]
 
 
 def adapt_sky_floor(canvas, target_sky=0.03, sky_pct=25.0, star_contrast=4.0,
-                    signal_mask=None):
+                    signal_mask=None, sky_anchor=None):
+    """Sky-floor 归一：把天空底锚到固定亮度，再把底以上的信号乘 star_contrast。
+
+    sky_anchor=None（旧/单图路径）：sky floor 从图像百分位估计（percentile(ys, sky_pct)）。
+    高分辨率渲染下大多数像素是纯天光底，会把 percentile 带偏，故可传 signal_mask
+    只在有信号像素上取分位。
+
+    sky_anchor=<float>（物理锚，sweep 路径）：直接用已知的物理天光亮度作为 sky floor，
+    单位与 y=canvas.sum(-1) 一致。这样 bortle 间的对比由物理决定（B1 亮、B9 冲白），
+    弥散银河带在高 bortle 下自然淡出，不需要任何人为的对比预算。
+    """
     y = canvas.sum(axis=-1)
-    # 高分辨率渲染下绝大多数像素是星点间的纯天光底（12K 可达 99.9%），全图
-    # 百分位会被这些空像素带偏，把 sky floor 锁死在纯底上。signal_mask 限定
-    # 只在有信号像素上取分位（全图一套，块间一致）。正式 1080 图不传 mask，
-    # 信号占比高、行为不变。
-    ys = y[signal_mask] if signal_mask is not None else y
-    sky_level = float(np.percentile(ys, sky_pct))
+    if sky_anchor is not None:
+        sky_level = float(sky_anchor)
+    else:
+        # signal_mask 限定只在有信号像素上取分位（全图一套，块间一致）。
+        ys = y[signal_mask] if signal_mask is not None else y
+        sky_level = float(np.percentile(ys, sky_pct))
     scale = target_sky / max(sky_level, 1e-9)
     adapted = canvas * scale
     sky_rgb = target_sky / 3.0
@@ -223,9 +277,10 @@ def finish_sky_adapted(adapted, target_sky=0.03, gamma=2.2, target_white=3.0, si
 
 
 def normalize_sky_adapted(canvas, target_sky=0.03, gamma=2.2, white_pct=99.5, sky_pct=25.0,
-                          star_contrast=4.0, target_white=3.0, signal_stretch=None, chroma=1.0):
+                          star_contrast=4.0, target_white=3.0, signal_stretch=None, chroma=1.0,
+                          sky_anchor=None):
     """Normalize like eye/camera adaptation: stable sky floor, stretched signal."""
-    adapted = adapt_sky_floor(canvas, target_sky, sky_pct, star_contrast)
+    adapted = adapt_sky_floor(canvas, target_sky, sky_pct, star_contrast, sky_anchor=sky_anchor)
     if target_white is None:
         return np.clip(adapted, 0, 1) ** (1 / gamma)
     if signal_stretch is None:
@@ -262,9 +317,9 @@ def tone_adapted(canvas, target_sky, star_contrast, target_white, chroma,
 
 
 def normalize_panel(canvas, mode, pct, gamma, target_sky, white_pct, sky_pct, star_contrast, target_white,
-                    signal_stretch=None, chroma=1.0):
+                    signal_stretch=None, chroma=1.0, sky_anchor=None):
     if mode == "sky_median":
-        return (normalize_sky_adapted(canvas, target_sky, gamma, white_pct, sky_pct, star_contrast, target_white, signal_stretch, chroma) * 255).astype(np.uint8)
+        return (normalize_sky_adapted(canvas, target_sky, gamma, white_pct, sky_pct, star_contrast, target_white, signal_stretch, chroma, sky_anchor) * 255).astype(np.uint8)
     return (rs.normalize_brightness(canvas, pct, "gamma", gamma) * 255).astype(np.uint8)
 
 
@@ -447,6 +502,189 @@ def render_panel_canvas(l, b, g, bv, bortle, value, width, height, lat_deg, lst_
     return add_skyglow(canvas, bortle)
 
 
+# ---------------------------------------------------------------------------
+# 并行 / 坐标预计算路径（亿级星表 grid）。
+#
+# render_panel_canvas 对每个面板都重做一遍 gal_to_altaz + 投影 + bv_to_rgb，
+# 对 6 亿星这是 68% 的时间和内存峰值（见 render_fov.py / working.md）。grid 里
+# 所有面板共享同一套投影几何（px/py/inside/cols 只依赖 l/b/bp_rp，与 bortle/value
+# 无关），变的只有逐星亮度 L = sky·lim_contrast·10^(-0.4(g-(nelm+value)))（× faint_gain）
+# 和最终叠加的 skyglow。所以把"星→像素坐标 + 颜色"提到面板循环外算一次，循环内
+# 只重做亮度累加（bincount）。再把逐星管线分块并行（参考 render_fov.py）：每个
+# worker 持有一段星，预算一次 px/py/cols，对每个面板各自累加到线性画布并返回，
+# 主进程求和。PSF 卷积 / 饱和溢出 / Weber 阈值 / skyglow / tone 这些全局非线性
+# 操作留主进程对合并画布做一次，复用 render_panel_canvas 的尾段函数，保证与串行
+# 路径逐像素一致。
+# ---------------------------------------------------------------------------
+
+_GW = {}  # worker 共享只读大数组（fork copy-on-write，不走 pickle）
+
+
+def panel_linear_accumulate(g, px, py, inside, cols, bortle, value,
+                            limiting_contrast, faint_gain, faint_mag_min,
+                            proxy_atten=None):
+    """单面板的逐星亮度累加 → 未卷积线性画布（psf=0），对应 render_panel_canvas
+    里 accumulate_uniform_psf_stars 之前的逐星部分。sat/ext/skyglow 留到尾段。"""
+    L = visual_luminance_for_mags(g, bortle, value, limiting_contrast)
+    boosted = L.copy()
+    faint = g >= faint_mag_min
+    if proxy_atten is None:
+        boosted[faint] *= faint_gain
+    else:
+        boosted[faint] *= 1.0 + (faint_gain - 1.0) * proxy_atten[faint]
+    return boosted
+
+
+def panel_finish_canvas(canvas, bortle, value, psf_core_px, sat_over_sky,
+                        wing_sigmas, wing_weights, ext_threshold, ext_sigma):
+    """对合并后的逐星线性画布做面板级全局操作：PSF → 饱和溢出 → Weber → skyglow。
+    与 render_panel_canvas 的尾段逐像素一致（那里 accumulate_stars 内做 PSF，这里
+    画布已是 psf=0 累加结果，故先在此处补卷积）。"""
+    from scipy.ndimage import gaussian_filter
+
+    canvas = np.asarray(canvas, np.float32)
+    if psf_core_px and psf_core_px > 0:
+        canvas = canvas.copy()
+        for c in range(3):
+            canvas[..., c] = gaussian_filter(canvas[..., c], psf_core_px)
+    sky = rh.skyglow_level(bortle)
+    sat_level = None
+    if sat_over_sky and sat_over_sky > 0:
+        sat_level = sat_over_sky * sky * gain_for_mag_delta(float(value))
+    if sat_level is not None:
+        canvas = saturate_and_bloom(canvas, sat_level, wing_sigmas, wing_weights)
+    canvas = apply_extended_visibility_threshold(canvas, sky, ext_threshold, ext_sigma)
+    return add_skyglow(canvas, bortle)
+
+
+def _grid_worker_init(data_path, params):
+    d = np.load(data_path, mmap_mode="r")
+    _GW["l"] = d["l"]; _GW["b"] = d["b"]; _GW["g"] = d["g"]; _GW["bp_rp"] = d["bp_rp"]
+    _GW["proxy_atten"] = d["proxy_atten"] if "proxy_atten" in d.files else None
+    _GW["p"] = params
+
+
+def _grid_worker_chunk(rng):
+    """worker：处理 [lo,hi) 段星，对所有面板各累加一张未卷积线性画布。
+    px/py/inside/cols 只算一次，面板间复用——这是 grid 路径的核心优化。"""
+    lo, hi = rng
+    p = _GW["p"]
+    l = np.asarray(_GW["l"][lo:hi], float)
+    b = np.asarray(_GW["b"][lo:hi], float)
+    g = np.asarray(_GW["g"][lo:hi], float)
+    bv = np.nan_to_num(np.asarray(_GW["bp_rp"][lo:hi], float), nan=0.7)
+    proxy = _GW["proxy_atten"]
+    proxy = np.asarray(proxy[lo:hi], float) if proxy is not None else None
+
+    az, alt = rh.gal_to_altaz(l, b, p["lat"], p["lst"])
+    cols = rs.bv_to_rgb(bv)
+    px, py, inside = project_horizon_camera(
+        az, alt, p["look_az"], p["W"], p["H"], p["az_w"], p["max_alt"], p["fov_axis"])
+    out = []
+    for (bortle, value) in p["panels"]:
+        boosted = panel_linear_accumulate(
+            g, px, py, inside, cols, bortle, value,
+            p["lim_contrast"], p["faint_gain"], p["faint_mag_min"], proxy)
+        out.append(rs.accumulate_stars(p["H"], p["W"], px, py, inside, boosted, cols, psf_px=0.0))
+    return out
+
+
+def render_grid_parallel(data_path, output, bortles, values, panel_width, panel_height,
+                         lat_deg, lst_hours, pct, gamma, projection, look_az, look_alt,
+                         fov_deg, normalization, target_sky, white_pct, sky_pct,
+                         star_contrast, target_white, limiting_contrast, az_width_deg,
+                         max_alt_deg, psf_core_px, faint_gain, faint_mag_min,
+                         reference_mode, reference_bortle, reference_value, mode,
+                         columns_per_row=None, sat_over_sky=6.0, wing_sigmas=(3.0, 9.0),
+                         wing_weights=(0.65, 0.35), fov_axis="horizontal",
+                         ext_threshold=0.035, ext_sigma=8.0, chroma=1.0,
+                         workers=28, chunk=25_000_000, separate_dir=None):
+    """并行 + 坐标预计算的 grid 渲染（亿级星表）。只支持 horizon_window 视觉模式
+    （正式两张 grid 用的取景），数值与串行 render_grid 一致。
+
+    separate_dir 不为空时，额外把每个面板单独存成不带烧入标签的图（文件名
+    bortle_<n>.jpg，仅在每行单列即纯 bortle 序列时语义清晰）。共享 stretch 不变，
+    所以单图之间的光污染差异被正确保留——这正是 bortle_1-9 单图序列要的。"""
+    import time
+    from PIL import Image
+
+    if look_az is None:
+        look_az, _ = galactic_center_altaz(lat_deg, lst_hours)
+    panels = [(bortle, value) for bortle in bortles for value in values]
+    n = int(np.load(data_path, mmap_mode="r")["g"].shape[0])
+    params = dict(lat=lat_deg, lst=lst_hours, W=panel_width, H=panel_height,
+                  az_w=az_width_deg, max_alt=max_alt_deg, look_az=look_az,
+                  fov_axis=fov_axis, lim_contrast=limiting_contrast,
+                  faint_gain=faint_gain, faint_mag_min=faint_mag_min, panels=panels)
+    ranges = [(i, min(i + chunk, n)) for i in range(0, n, chunk)]
+    print(f"{n:,} 星，{len(panels)} 面板，{workers} worker，{len(ranges)} 块", flush=True)
+
+    t = time.time()
+    sums = [np.zeros((panel_height, panel_width, 3), np.float64) for _ in panels]
+    with ProcessPoolExecutor(max_workers=workers, initializer=_grid_worker_init,
+                             initargs=(data_path, params)) as ex:
+        for fut in as_completed([ex.submit(_grid_worker_chunk, r) for r in ranges]):
+            for i, canvas in enumerate(fut.result()):
+                sums[i] += canvas
+    print(f"并行逐星累加完成 {time.time()-t:.1f}s", flush=True)
+
+    # 面板级全局操作（主进程做一次，逐像素与串行一致）。
+    finished = []
+    for (bortle, value), acc in zip(panels, sums):
+        finished.append(panel_finish_canvas(
+            acc, bortle, value, psf_core_px, sat_over_sky, wing_sigmas, wing_weights,
+            ext_threshold, ext_sigma))
+
+    # 共享信号拉伸：用参考面板（默认 brightest）标定单一 stretch。
+    signal_stretch = None
+    if normalization == "sky_median" and target_white is not None:
+        ref_idx = 0
+        if reference_bortle is not None or reference_value is not None:
+            rb = reference_bortle if reference_bortle is not None else bortles[0]
+            rv = reference_value if reference_value is not None else values[0]
+            for i, (bortle, value) in enumerate(panels):
+                if bortle == rb and value == rv:
+                    ref_idx = i
+                    break
+        elif reference_mode == "brightest":
+            best_white = -np.inf
+            for i, fc in enumerate(finished):
+                adapted = adapt_sky_floor(fc, target_sky, sky_pct, star_contrast)
+                white = float(np.percentile(adapted.sum(axis=-1), white_pct))
+                if white > best_white:
+                    best_white = white
+                    ref_idx = i
+        ref_adapted = adapt_sky_floor(finished[ref_idx], target_sky, sky_pct, star_contrast)
+        signal_stretch = signal_stretch_for_adapted(ref_adapted, target_sky, white_pct, target_white)
+
+    if separate_dir:
+        os.makedirs(separate_dir, exist_ok=True)
+    panels_flat = []
+    for (bortle, value), fc in zip(panels, finished):
+        panel = normalize_panel(fc, normalization, pct, gamma, target_sky, white_pct,
+                                sky_pct, star_contrast, target_white, signal_stretch, chroma)
+        if separate_dir:
+            # 不带烧入标签的单图，共享 stretch 已保留光污染差异。命名按 bortle
+            # （纯 bortle 序列时唯一）。
+            fn = f"bortle_{bortle}.jpg" if len(values) == 1 else f"bortle_{bortle}_v{value:g}.jpg"
+            Image.fromarray(panel).save(os.path.join(separate_dir, fn), quality=90, optimize=True)
+        label = f"Bortle {bortle}  {column_label(mode, value, bortle)}  Guangzhou horizon"
+        panels_flat.append(label_panel(panel, label))
+
+    columns = columns_per_row or len(values)
+    rows = []
+    blank = np.zeros_like(panels_flat[0])
+    for i in range(0, len(panels_flat), columns):
+        ch = panels_flat[i:i + columns]
+        while len(ch) < columns:
+            ch.append(blank)
+        rows.append(np.concatenate(ch, axis=1))
+    grid = np.concatenate(rows, axis=0)
+    os.makedirs(os.path.dirname(output), exist_ok=True)
+    Image.fromarray(grid).save(output)
+    return output
+
+
 def render_grid(data_path, output, bortles, values, panel_width, panel_height, lat_deg, lst_hours,
                 pct, gamma, projection, look_az, look_alt, fov_deg, normalization, target_sky,
                 white_pct, sky_pct, star_contrast, target_white, limiting_contrast, az_width_deg,
@@ -612,12 +850,39 @@ def build_parser():
     p.add_argument("--columns-per-row", type=int, help="Wrap panels into a fixed number of columns.")
     p.add_argument("--pct", type=float, default=99.7)
     p.add_argument("--gamma", type=float, default=2.2)
+    p.add_argument("--workers", type=int, default=0,
+                   help="并行 worker 数；>0 启用坐标预计算+分块并行路径（亿级星表 grid）。"
+                        "默认 0 = 串行路径（与历史行为一致）。仅支持 horizon_window 视觉模式。")
+    p.add_argument("--chunk", type=int, default=25_000_000,
+                   help="并行路径每 worker 处理的星数分块大小。")
+    p.add_argument("--separate-dir", default=None,
+                   help="并行路径下额外把每个面板单独存成不带标签的 jpg（bortle_<n>.jpg）。"
+                        "共享 stretch 保留光污染差异，用于 bortle_1-9 单图序列。")
     return p
 
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
     values = parse_csv_numbers(args.exposures if args.mode == "snr" else args.eye_deltas, float)
+    if args.workers and args.workers > 0:
+        if args.mode != "adapted" or args.projection != "horizon_window":
+            raise SystemExit("--workers 路径只支持 --mode adapted --projection horizon_window")
+        out = render_grid_parallel(
+            args.data, args.output, parse_csv_numbers(args.bortles, int), values,
+            args.panel_width, args.panel_height, args.lat_deg, args.lst_hours,
+            args.pct, args.gamma, args.projection, args.look_az, args.look_alt,
+            args.fov_deg, args.normalization, args.target_sky, args.white_pct,
+            args.sky_pct, args.star_contrast, args.target_white, args.limiting_contrast,
+            args.az_width_deg, args.max_alt_deg, args.psf_core_px, args.faint_gain,
+            args.faint_mag_min, args.reference_mode, args.reference_bortle,
+            args.reference_value, args.mode, args.columns_per_row, args.sat_over_sky,
+            tuple(parse_csv_numbers(args.wing_sigmas, float)),
+            tuple(parse_csv_numbers(args.wing_weights, float)),
+            args.fov_axis, args.ext_threshold, args.ext_sigma, args.chroma,
+            args.workers, args.chunk, args.separate_dir,
+        )
+        print(f"wrote {out}")
+        return
     out = render_grid(
         args.data,
         args.output,

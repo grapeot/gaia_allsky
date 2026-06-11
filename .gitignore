@@ -23,3 +23,5 @@ outputs/*.mp4
 test-results/
 tmp/
 .DS_Store
+
+.claude/

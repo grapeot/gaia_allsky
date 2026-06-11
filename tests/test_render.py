@@ -262,7 +262,11 @@ def test_saturation_threshold_rides_magnitude_ladder():
                   faint_mag_min=9.0, sat_over_sky=6.0,
                   wing_sigmas=(3.0, 9.0), wing_weights=(0.65, 0.35), mode="adapted",
                   ext_threshold=0.0)
-    sky = rh.skyglow_level(1)
+    # render_panel_canvas 末尾 add_skyglow 加的是【additive】辉光（含光污染 boost，
+    # 2026-06），不是场景锚 skyglow_level；要扣的常数底必须用同一个 additive 值，
+    # 否则残留 (boost-1)*skyglow_level(1) 会破坏阶梯线性。扣对底之后，此测试验证的
+    # 饱和几何阶梯不变性与 boost 无关（boost 只动均匀加性底，不动星点饱和几何）。
+    sky = rh.additive_skyglow_level(1)
     c0 = beg.render_panel_canvas(l, b, g, bv, 1, 0.0, **common) - sky
     c4 = beg.render_panel_canvas(l, b, g, bv, 1, 4.0, **common) - sky
     gain = beg.gain_for_mag_delta(4.0)

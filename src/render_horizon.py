@@ -32,18 +32,49 @@ BORTLE_MU = {1: 22.0, 2: 21.9, 3: 21.8, 4: 21.1, 5: 20.0,
 # skyglow 经验标定: 面亮度 μ(每角秒²) 与本渲染像素尺度差多个量级, 故标定一个
 # scale 把物理梯度(μ 相对关系)映到视觉量级。标定锚点: Bortle5(μ=20, 郊区)的辉光
 # ≈ 银河带典型线性亮度(0.9), 其余等级按 μ 自动拉开(每差1等差 10^0.4≈2.5 倍)。
+#
+# 注意 (2026-06 关键诊断)：单独调 SKYGLOW_SCALE 改不了「显示对比」。因为星场/银河带
+# 的线性亮度 visual_luminance_for_mags = skyglow_level(scene_ref)·lim_contrast·10^… ，
+# 也正比于 SKYGLOW_SCALE。把 SCALE 整体放大 k 倍，弥散带和加性辉光同步×k，比值不变，
+# 归一后显示对比完全一样。控制「银河被辉光淹没多少」的真正旋钮是【加性辉光相对
+# (B1 锚定的)星场的比值】——见下方 SKYGLOW_POLLUTION_BOOST。
 SKYGLOW_SCALE = 56786.2
+
+# 光污染强度旋钮 (2026-06)：只乘到【加性天空辉光 + sky_anchor】上，不碰星场/银河带
+# 的线性亮度 (后者锚在 scene_ref_bortle，是 bortle 无关的场景属性)。提高它 → 每个
+# bortle 的加性辉光相对银河带更强 → 高 bortle 银河被淹得更彻底；归一(白点)把显示天空
+# 重新拉回稳定底，于是银河随 bortle 渐隐而整图不变亮 (眼睛适应)。
+#   标定 (540×960, ext-threshold 0.04 ext-softness 0.5, faint-gain 1, scene-ref 1)：
+#   BOOST=1 → B7 显示对比 0.27(像 B2-B3，太弱)。BOOST=5 → B7→0.00 全淹、B5 0.93→0.63
+#   (郊区可辨但明显冲刷)、B1 仍 majestic(2.94/纹理107)、显示天空中值 B1..B9 基本恒定
+#   (63→60=眼睛适应)，validate_bortle_series 全 PASS 无硬斑。见 render_fov --skyglow-
+#   pollution-boost / SKYGLOW_DIAG。test_render 断言全 ratio-based，改此常量不破测试。
+SKYGLOW_POLLUTION_BOOST = 5.0
 
 
 def skyglow_level(bortle, m_ref=8.0, scale=None):
-    """Bortle 等级 → additive 天空辉光线性亮度(叠加到星空线性画布的均匀基底)。
+    """Bortle 等级 → 天空辉光的「场景标定」线性亮度。
 
-    物理: 辉光是加性背景。面亮度 μ(mag/arcsec²) → 线性 L ∝ 10^(−0.4μ)。
-    μ 相对关系(梯度)是物理的; 绝对值经 SKYGLOW_SCALE 标定到视觉量级。
+    这是星场/银河带亮度锚 (visual_luminance_for_mags) 与加性辉光共用的基准值。
+    物理: 面亮度 μ(mag/arcsec²) → 线性 L ∝ 10^(−0.4μ)，μ 相对关系是物理梯度，
+    绝对值经 SKYGLOW_SCALE 标定到视觉量级。**不含光污染强度旋钮**——单独放大它
+    会把银河带和辉光同步放大、比值不变 (见模块注释)。要让高 bortle 银河被淹，用
+    additive_skyglow_level() (额外乘 SKYGLOW_POLLUTION_BOOST)。
     """
     mu = BORTLE_MU[int(round(bortle))]
     base = rs.mag_to_luminance(mu, m_ref)
     return base * (scale if scale is not None else SKYGLOW_SCALE)
+
+
+def additive_skyglow_level(bortle, m_ref=8.0, scale=None, boost=None):
+    """叠加到线性画布的【加性】天空辉光 = skyglow_level × SKYGLOW_POLLUTION_BOOST。
+
+    与 skyglow_level 的区别就是这个 boost：星场亮度锚用 skyglow_level (无 boost，是
+    bortle 无关的场景属性)，而真正泼到画布上的加性辉光、Weber 阈值、sky_anchor 用
+    这个带 boost 的值。boost>1 时高 bortle 辉光相对银河带更强 → 银河淹得更彻底。
+    """
+    b = boost if boost is not None else SKYGLOW_POLLUTION_BOOST
+    return skyglow_level(bortle, m_ref, scale) * b
 
 
 def gal_to_altaz(l_deg, b_deg, lat_deg, lst_hours):
