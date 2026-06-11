@@ -39,13 +39,10 @@ USECOLS = ["l", "b", "phot_g_mean_mag", "bp_rp"]
 
 
 def _fov_inside(l, b):
-    """星是否落在广州 FOV 画面内。"""
-    import render_horizon as rh
-    from render_bortle_eye_grid import project_horizon_camera, galactic_center_altaz
-    look_az, _ = galactic_center_altaz(LAT_DEG, LST_HOURS)
-    az, alt = rh.gal_to_altaz(l, b, LAT_DEG, LST_HOURS)
-    _, _, inside = project_horizon_camera(
-        az, alt, look_az, PANEL_W, PANEL_H, H_FOV, V_REF, "horizontal")
+    """星是否落在广州 FOV 画面内（与 render_fov 共用同一取景几何）。"""
+    from render_bortle_eye_grid import project_guangzhou_fov
+    _, _, inside = project_guangzhou_fov(
+        l, b, LAT_DEG, LST_HOURS, PANEL_W, PANEL_H, H_FOV, V_REF, "horizontal")
     return inside
 
 

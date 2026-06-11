@@ -93,10 +93,9 @@ def main():
     sat = 6.0 * sky * beg.gain_for_mag_delta(0.0)
     canvas = beg.saturate_and_bloom(canvas, sat, (3.0, 9.0), (0.65, 0.35))
     canvas = beg.add_skyglow(canvas, args.bortle)
-    y = canvas.sum(-1); mask = y > (float(y.min()) + 0.004)
-    ad = beg.adapt_sky_floor(canvas, args.target_sky, 25.0, args.star_contrast, signal_mask=mask)
-    st = beg.signal_stretch_for_adapted(ad, args.target_sky, 99.5, args.target_white, signal_mask=mask)
-    rgb = beg.finish_sky_adapted(ad, args.target_sky, 2.2, args.target_white, st, args.chroma)
+    # 单图自适应 tone（带 signal_mask），与 tone_iterate 共用同一条显示链
+    rgb = beg.tone_adapted(canvas, args.target_sky, args.star_contrast,
+                           args.target_white, args.chroma)
 
     from PIL import Image
     arr = (np.clip(rgb, 0, 1) * 255).astype(np.uint8)

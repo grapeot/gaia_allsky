@@ -52,10 +52,8 @@ def _render_chunk(rng):
     g = np.asarray(_G["g"][lo:hi], float)
     bv = np.nan_to_num(np.asarray(_G["bp_rp"][lo:hi], float), nan=0.7)
 
-    look_az, _ = beg.galactic_center_altaz(p["lat"], p["lst"])
-    az, alt = rh.gal_to_altaz(l, b, p["lat"], p["lst"])
-    px, py, inside = beg.project_horizon_camera(
-        az, alt, look_az, p["W"], p["H"], p["az_w"], p["max_alt"], "horizontal")
+    px, py, inside = beg.project_guangzhou_fov(
+        l, b, p["lat"], p["lst"], p["W"], p["H"], p["az_w"], p["max_alt"], "horizontal")
     cols = rs.bv_to_rgb(bv)
     L = beg.visual_luminance_for_mags(g, p["bortle"], p["value"], p["lim_contrast"])
     faint = g >= p["faint_mag_min"]
