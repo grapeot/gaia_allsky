@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="十亿像素的 Gaia 银河巡天，每一个像素都是一颗真实测量的恒星。拖动平移、滚轮缩放，交互浏览银心方向的天区。">
+  <title>Gaia 银河 · 十亿像素巡天</title>
+
+  <!-- Aladin Lite v2 + jQuery (CDN, verified wiring — do not upgrade) -->
+  <script type="text/javascript" src="https://code.jquery.com/jquery-1.10.1.min.js"></script>
+  <link rel="stylesheet" href="https://aladin.u-strasbg.fr/AladinLite/api/v2/latest/aladin.min.css">
+  <script type="text/javascript">var jqMenu = jQuery.noConflict(); var hipsDir = null;</script>
+
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #050607;
+      --panel: #0d1117;
+      --panel-2: #121820;
+      --text: #e6edf3;
+      --muted: #8d99a8;
+      --line: rgba(178, 191, 208, 0.18);
+      --gold: #c4ad73;
+      --blue: #93a4b8;
+      --cyan: #a7bbc7;
+      --max: 1180px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 72% 5%, rgba(84, 104, 126, 0.20), transparent 35rem),
+        radial-gradient(circle at 12% 28%, rgba(124, 111, 84, 0.10), transparent 28rem),
+        var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      line-height: 1.7;
+    }
+
+    a { color: inherit; text-decoration: none; }
+
+    a:focus-visible, button:focus-visible {
+      outline: 2px solid var(--cyan);
+      outline-offset: 4px;
+    }
+
+    /* Top bar */
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      border-bottom: 1px solid var(--line);
+      background: rgba(7, 9, 16, 0.96);
+    }
+
+    .topbar-inner {
+      width: min(var(--max), calc(100% - 32px));
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      min-height: 64px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+    }
+
+    .brand-mark {
+      width: 24px;
+      height: 24px;
+      flex: 0 0 auto;
+      border: 1px solid rgba(196, 173, 115, 0.62);
+      border-radius: 50%;
+      background:
+        radial-gradient(circle at 50% 50%, #d0bc82 0 2px, transparent 3px),
+        radial-gradient(circle at 65% 34%, #a7bbc7 0 1px, transparent 2px);
+      box-shadow: 0 0 16px rgba(196, 173, 115, 0.18);
+    }
+
+    .brand-tag {
+      margin-left: 4px;
+      padding: 2px 8px;
+      border: 1px solid rgba(196, 173, 115, 0.45);
+      border-radius: 999px;
+      color: #d2bd82;
+      background: rgba(196, 173, 115, 0.08);
+      font-size: 11px;
+      font-weight: 650;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .repo-link {
+      border: 1px solid rgba(196, 173, 115, 0.52);
+      border-radius: 999px;
+      padding: 7px 13px;
+      color: #d2bd82;
+      background: rgba(196, 173, 115, 0.08);
+      font-size: 14px;
+      white-space: nowrap;
+    }
+
+    .repo-link:hover { color: var(--text); }
+
+    /* Layout */
+    main {
+      width: min(var(--max), calc(100% - 32px));
+      margin: 0 auto;
+      padding: 40px 0 64px;
+    }
+
+    .eyebrow {
+      margin: 0 0 14px;
+      color: var(--gold);
+      font-size: 13px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      line-height: 1.16;
+      letter-spacing: -0.02em;
+      font-size: clamp(30px, 4.6vw, 48px);
+      font-weight: 760;
+      max-width: 760px;
+    }
+
+    .lead {
+      max-width: 780px;
+      margin: 22px 0 0;
+      color: #c9d3e5;
+      font-size: clamp(16px, 1.6vw, 18px);
+    }
+
+    /* Aladin viewer — the hero element */
+    .viewer-panel {
+      margin-top: 34px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      overflow: hidden;
+      background: #03050a;
+      box-shadow: 0 30px 90px rgba(0, 0, 0, 0.48);
+    }
+
+    #aladin-lite-div {
+      width: 100%;
+      height: min(72vh, 800px);
+      background: #02040a;
+    }
+
+    /* Metadata stat strip */
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-top: 22px;
+    }
+
+    .stat {
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.035);
+    }
+
+    .stat strong {
+      display: block;
+      color: var(--text);
+      font-size: 20px;
+      line-height: 1.2;
+    }
+
+    .stat span {
+      display: block;
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    /* Known-defect notice */
+    .notice {
+      margin-top: 22px;
+      border: 1px solid rgba(216, 180, 106, 0.42);
+      border-radius: 14px;
+      padding: 18px 22px;
+      background: rgba(216, 180, 106, 0.07);
+    }
+
+    .notice strong {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--gold);
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .notice p {
+      margin: 0;
+      color: #c9d3e5;
+      font-size: 15px;
+    }
+
+    /* Footer */
+    footer {
+      margin-top: 40px;
+      padding-top: 24px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    footer p { margin: 0 0 8px; }
+
+    .footer-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      align-items: center;
+    }
+
+    .footer-links a {
+      color: var(--blue);
+      border-bottom: 1px solid rgba(147, 164, 184, 0.3);
+      padding-bottom: 1px;
+    }
+
+    .footer-links a:hover { color: var(--text); }
+
+    .base-url {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+      color: var(--muted);
+      word-break: break-all;
+    }
+
+    @media (max-width: 760px) {
+      .stats { grid-template-columns: 1fr; }
+      #aladin-lite-div { height: 64vh; }
+      .brand span.brand-title { font-size: 15px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-title">Gaia 银河 · 十亿像素巡天</span>
+        <span class="brand-tag">HiPS</span>
+      </div>
+      <a class="repo-link" href="https://grapeot.github.io/gaia_allsky/">项目主页</a>
+    </div>
+  </header>
+
+  <main>
+    <p class="eyebrow">真实星表 · 一像素一颗星 · 没有银河贴图</p>
+    <h1>每一个像素，都是一颗 Gaia 实测的恒星。</h1>
+    <p class="lead">这是银心方向天区的一幅约十亿像素渲染，恒星的位置、亮度和颜色全部来自欧洲航天局 Gaia 任务的实测数据。画面以 HiPS 分级方式逐级加载，拖动可平移，滚轮可缩放，越放大露出的暗星越多。银河没有单独绘制：星密到一定程度，结构自然浮现。</p>
+
+    <div class="viewer-panel">
+      <div id="aladin-lite-div"></div>
+    </div>
+
+    <div class="stats" aria-label="巡天参数">
+      <div class="stat"><strong>6.442″</strong><span>最佳像素角分辨率</span></div>
+      <div class="stat"><strong>Order 6 · NSIDE 64</strong><span>最高瓦片阶数，JPEG 512×512</span></div>
+      <div class="stat"><strong>8286 deg² ≈ 20%</strong><span>赤道坐标系，覆盖约两成天区</span></div>
+    </div>
+
+    <div class="notice" role="note">
+      <strong>已知缺陷</strong>
+      <p>最亮的那些星，Gaia 反而没测好。它为测量遥远暗星而设计，太亮的恒星会让感光元件过曝，所以从 6 等往亮的方向星表越来越不全，2 等以上几乎一颗不剩。天狼、参宿四这类全天最显眼的亮星在这份数据里是缺席的，画面里本该最扎眼的几十颗目前并未画上。补全它们需要另一份专门的亮星表，是接下来要做的事。</p>
+    </div>
+
+    <footer>
+      <p>恒星数据来自 ESA Gaia 任务。彩色 HiPS 巡天，由 Aladin / HipsGen 构建，可由 Aladin Lite、Aladin Desktop 及任意支持 HiPS 的客户端浏览。</p>
+      <div class="footer-links">
+        <a href="properties">properties</a>
+        <a href="Moc.fits">MOC 覆盖图</a>
+        <span class="base-url">Base URL: <span id="hipsBase"></span></span>
+      </div>
+    </footer>
+  </main>
+
+  <!-- Aladin Lite v2 survey wiring — preserved verbatim in spirit -->
+  <script type="text/javascript" src="https://aladin.u-strasbg.fr/AladinLite/api/v2/latest/aladin.min.js" charset="utf-8"></script>
+  <script type="text/javascript">
+    hipsDir = location.href;
+    hipsDir = hipsDir.substring(0, hipsDir.lastIndexOf("/", hipsDir.length));
+    var baseEl = document.getElementById("hipsBase");
+    if (baseEl) { baseEl.textContent = hipsDir; }
+
+    // 初始视角：中心 RA 18h(=270°)/Dec -22°，广角 fov 90° 起步。
+    var aladin = $.aladin("#aladin-lite-div", {
+      showSimbadPointerControl: true,
+      cooFrame: 'J2000',
+      fov: 90
+    });
+    aladin.setImageSurvey(aladin.createImageSurvey('GaiaMW1B', 'GaiaMW1B',
+      hipsDir, 'equatorial', 6, { imgFormat: 'jpg' }));
+    // 用裸坐标定位（避开字符串 target 走 Sesame 名字解析的歧义），再设广角 fov。
+    aladin.gotoRaDec(270, -22);
+    aladin.setFov(90);
+  </script>
+</body>
+</html>
