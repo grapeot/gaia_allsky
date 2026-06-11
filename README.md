@@ -28,7 +28,7 @@
 
 判断标准很简单：**8K 以下用单图（建议），更大规模才上 Aladin HiPS。** HiPS 模式有一个单图模式不需要面对的关键技术点——立体角归一化。星光是 flux 语义，每像素亮度随像素角面积变化，不同投影和分辨率下同一颗星给出的每像素亮度并不相同（这正是 TAN 图看起来比广州地平图暗的真因）。`src/render_tan_wcs.py` 在累积后把每像素除以像素立体角，转成与分辨率无关的面亮度，让一套 tone 参数在所有层级通用。详见 `docs/rfc.md` 第四层和 `docs/working.md` 末尾几节。
 
-TAN 投影银心图的最小验证：
+TAN 投影银心图的最小验证（单图）：
 
 ```bash
 python src/render_tan_wcs.py \
@@ -36,11 +36,26 @@ python src/render_tan_wcs.py \
   --lc 0 --bc 0 --fov-deg 40 --size 1024
 ```
 
-生成 `outputs/tan_gc.png` 和同名 `outputs/tan_gc.hhh`（FITS WCS header）。把多张这样的 PNG+.hhh 放进一个目录，再用 hipsgen 拼金字塔（需 `openjdk@11`，新版 JDK 不兼容旧 jar）：
+生成 `outputs/tan_gc.png` 和同名 `outputs/tan_gc.hhh`（FITS WCS header）。
+
+实际出 HiPS 走**瓦片模式**（标准 HiPS 做法：多张小图 + 各自 WCS，比单张巨图快得多）。把整个 FOV 切成网格，每格一张小图，多进程并行渲（worker 数与 tile-size 不变则内存恒定，凑更高分辨率只需更多格）：
 
 ```bash
-java -jar AladinBeta.jar -hipsgen in=outputs/tan_tiles color=png out=outputs/hips
+# 全 FOV 瓦片（fov=6/step=5/size=2048 ≈ 10 亿像素等效；放大调小 tile-fov/step）
+python src/render_tan_wcs.py \
+  --data data/raw/fov_g20.npz --out outputs/tiles --tiles \
+  --l-range=-41,79 --b-range=-31,43 \
+  --tile-fov 6 --tile-step 5 --tile-size 2048 --workers 8
 ```
+
+再用 hipsgen 把瓦片拼成 HiPS 金字塔（需 `openjdk@11`，新版 JDK 不兼容旧 jar）。`color=jpeg` 输出比 PNG 小、便于分发，`target` 放 FOV 中心（银道 5,-2.5 → 赤道 271.672,-25.873）：
+
+```bash
+java -Xmx60g -jar AladinBeta.jar -hipsgen \
+  in=outputs/tiles out=outputs/hips color=jpeg "target=271.672 -25.873"
+```
+
+像素映射用 `+xi`（东向）配 WCS `CDELT1<0` 表达"经度向左增"，只处理一次手性；若两处都加负号，Aladin 里图会左右镜像。
 
 亿级星表的单图渲染走并行入口 `src/render_fov.py`（详见下文"复现正式图片"）。
 

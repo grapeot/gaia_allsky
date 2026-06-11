@@ -1,19 +1,33 @@
 """TAN(gnomonic)天球投影渲染 + 输出 WCS，喂 Aladin hipsgen。
 
 地平投影没法写标准 WCS（地平坐标随时间变、非天球固定位置）。要喂 Aladin
-必须用天球投影。这里用 gnomonic(TAN)以银心为切点把星投到平面，输出 PNG +
-同名 .hhh（FITS WCS header），hipsgen 读 (in=dir color=png) 自动按 WCS 拼 HiPS。
+必须用天球投影。这里用 gnomonic(TAN)以切点把星投到平面，输出 PNG + 同名
+.hhh（FITS WCS header），hipsgen 读 (in=dir color=jpeg) 自动按 WCS 拼 HiPS。
 
-小 PSF 锐星（高分辨率本就该是分解的单星，乳光交给金字塔降采样涌现，见
-working.md 双 bug 确诊）。tone 每张图自己做（统计带 signal_mask）。
+两种模式：
+  - 单图：--lc/--bc/--fov-deg/--size 渲一张图（最小验证、单张分享）。
+  - 瓦片（标准 HiPS 做法）：--tiles 把天区切成网格，每格一张小图 + 各自 WCS，
+    多进程并行渲，全部丢进一个目录交 hipsgen 拼金字塔。大分辨率（24K→10 亿
+    像素）走这条：worker 数与 tile-size 不变则内存恒定（与 tile 总数无关），
+    凑更高分辨率只需更多格。
 
-WCS（银道 TAN）：
-  CTYPE = GLON-TAN / GLAT-TAN ; CRVAL = 切点(lc,bc) ; CRPIX = 切点像素
-  CDELT = 每像素度数（决定视场）。
+小 PSF 锐星（高分辨率本就该是分解的单星，乳光交给金字塔降采样涌现）。每像素
+立体角归一化把 flux 转面亮度，一套 tone 通用（见 working.md / rfc.md）。
 
-用法（最小验证）：
-  python src/render_tan_wcs.py --data data/raw/fov_g20.npz --out outputs/tan_test \
+手性：像素映射 xi(东)→ +x，由 WCS 的 CDELT1<0 表达"经度向左增"。两处只处理
+一次手性，否则 Aladin 里图会左右镜像。
+
+用法：
+  # 单图
+  python src/render_tan_wcs.py --data data/raw/fov_g20.npz --out outputs/tan_gc \
       --lc 0 --bc 0 --fov-deg 40 --size 1024
+  # 瓦片（全 FOV，8 进程并行）
+  python src/render_tan_wcs.py --data data/raw/fov_g20.npz --out outputs/tiles \
+      --tiles --l-range=-41,79 --b-range=-31,43 --tile-fov 6 --tile-step 5 \
+      --tile-size 2048 --workers 8
+  # 再拼 HiPS（需 openjdk@11；color=jpeg 输出小，target 放 FOV 中心）
+  java -jar AladinBeta.jar -hipsgen in=outputs/tiles out=outputs/hips \
+      color=jpeg "target=271.672 -25.873"
 """
 import argparse
 import os
@@ -26,6 +40,9 @@ sys.path.insert(0, os.path.join(ROOT, "src"))
 import render_starmap as rs
 import render_bortle_eye_grid as beg
 
+# 立体角归一化参考：广州正式图像素当量 (0.083°)²，让面亮度落在 tone 习惯范围
+REF_OMEGA = 0.083 ** 2
+
 
 def gnomonic(l, b, lc, bc):
     """银道 (l,b)→ TAN 标准平面坐标 (xi, eta)，单位弧度。切点 (lc,bc)。
@@ -34,95 +51,147 @@ def gnomonic(l, b, lc, bc):
     l0, b0 = np.radians(lc), np.radians(bc)
     dl = lr - l0
     cosc = np.sin(b0) * np.sin(br) + np.cos(b0) * np.cos(br) * np.cos(dl)
-    # cosc>0 为切点同半球（gnomonic 只在半球内有定义）
-    vis = cosc > 1e-6
+    vis = cosc > 1e-6  # gnomonic 只在切点同半球有定义
     xi = np.cos(br) * np.sin(dl) / np.maximum(cosc, 1e-9)
     eta = (np.cos(b0) * np.sin(br) - np.sin(b0) * np.cos(br) * np.cos(dl)) / np.maximum(cosc, 1e-9)
     return xi, eta, vis
 
 
+def write_hhh(path, S, lc, bc, cdelt):
+    """写 FITS WCS header（80 列卡片）。hipsgen 认 PNG + 同名 .hhh。CDELT1<0
+    表达经度向左增（与像素 +xi 配合，只处理一次手性，避免 Aladin 里镜像）。"""
+    hdr = [
+        "SIMPLE  = T", "BITPIX  = 8", "NAXIS   = 2",
+        f"NAXIS1  = {S}", f"NAXIS2  = {S}",
+        "CTYPE1  = 'GLON-TAN'", "CTYPE2  = 'GLAT-TAN'",
+        f"CRVAL1  = {lc}", f"CRVAL2  = {bc}",
+        f"CRPIX1  = {S / 2.0}", f"CRPIX2  = {S / 2.0}",
+        f"CDELT1  = {-cdelt}", f"CDELT2  = {cdelt}", "END",
+    ]
+    with open(path, "w") as f:
+        f.write("".join(f"{line:<80}" for line in hdr))
+
+
+def render_tile(l, b, cols, L, out_prefix, lc, bc, fov_deg, S, psf_core_px,
+                bortle, target_sky, star_contrast, chroma, target_white):
+    """渲一块 TAN 瓦片（切点 lc,bc），输出 PNG + .hhh。返回画面内星数（0 不输出）。"""
+    from PIL import Image
+    scale_rad = np.radians(fov_deg) / S
+    cdelt = fov_deg / S
+    xi, eta, vis = gnomonic(l, b, lc, bc)
+    # xi(东)→ +x；eta(北)→ -y（图像 y 向下）。手性由 CDELT1<0 在 WCS 里表达。
+    px = S / 2.0 + xi / scale_rad
+    py = S / 2.0 - eta / scale_rad
+    inside = vis & (px >= 0) & (px < S) & (py >= 0) & (py < S)
+    n_in = int(inside.sum())
+    if n_in == 0:
+        return 0
+    pxi = np.clip(px.astype(int), 0, S - 1)
+    pyi = np.clip(py.astype(int), 0, S - 1)
+    canvas = rs.accumulate_stars(S, S, pxi, pyi, inside, L, cols, psf_px=psf_core_px)
+    # 立体角归一化：flux → 面亮度，与投影/分辨率/fov 无关，一套 tone 通用
+    canvas = canvas * (REF_OMEGA / cdelt ** 2)
+    sky = beg.rh.skyglow_level(bortle)
+    sat = 6.0 * sky * beg.gain_for_mag_delta(0.0)
+    canvas = beg.saturate_and_bloom(canvas, sat, (3.0, 9.0), (0.65, 0.35))
+    canvas = beg.add_skyglow(canvas, bortle)
+    rgb = beg.tone_adapted(canvas, target_sky, star_contrast, target_white, chroma)
+    Image.fromarray((np.clip(rgb, 0, 1) * 255).astype(np.uint8)).save(out_prefix + ".png")
+    write_hhh(out_prefix + ".hhh", S, lc, bc, cdelt)
+    return n_in
+
+
+# 瓦片 worker 共享只读数据（fork copy-on-write）
+_SHARED = None
+
+
+def _tile_worker(job):
+    prefix, lc, bc = job
+    s = _SHARED
+    return render_tile(s["l"], s["b"], s["cols"], s["L"], prefix, lc, bc,
+                       s["tile_fov"], s["tile_size"], **s["tile_kw"])
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--data", required=True)
-    ap.add_argument("--out", required=True, help="输出前缀（生成 .png + .hhh）")
+    ap.add_argument("--out", required=True,
+                    help="单图模式：输出前缀；瓦片模式：输出目录")
+    # 单图模式
     ap.add_argument("--lc", type=float, default=0.0, help="切点银经")
     ap.add_argument("--bc", type=float, default=0.0, help="切点银纬")
-    ap.add_argument("--fov-deg", type=float, default=40.0, help="图的角宽度（度）")
-    ap.add_argument("--size", type=int, default=1024, help="图边长像素（方图）")
+    ap.add_argument("--fov-deg", type=float, default=40.0, help="单图角宽度（度）")
+    ap.add_argument("--size", type=int, default=1024, help="图边长像素")
+    # 瓦片模式
+    ap.add_argument("--tiles", action="store_true",
+                    help="分块瓦片模式（标准 HiPS 做法：多小图 + 各自 WCS）")
+    ap.add_argument("--l-range", default="-41,79", help="银经范围 lo,hi（wrap）")
+    ap.add_argument("--b-range", default="-31,43", help="银纬范围 lo,hi")
+    ap.add_argument("--tile-fov", type=float, default=20.0, help="每格角宽（度）")
+    ap.add_argument("--tile-step", type=float, default=16.0,
+                    help="格中心步长（度）；< tile-fov 让相邻格重叠，拼接无缝")
+    ap.add_argument("--tile-size", type=int, default=2048, help="每格像素边长")
+    ap.add_argument("--workers", type=int, default=8,
+                    help="瓦片并行进程数（各格独立，fork 共享只读星表；worker 数 + "
+                         "tile-size 不变 → 内存恒定，与 tile 总数无关）")
+    # 共用显示参数
     ap.add_argument("--psf-core-px", type=float, default=0.6)
-    ap.add_argument("--faint-gain", type=float, default=1.0)
     ap.add_argument("--bortle", type=int, default=1)
     ap.add_argument("--target-sky", type=float, default=0.012)
     ap.add_argument("--star-contrast", type=float, default=6.0)
     ap.add_argument("--chroma", type=float, default=1.8)
-    ap.add_argument("--target-white", type=float, default=2.5,
-                    help="高光膝点。银心 TAN 构图用 2.5（1.0 是压裂隙高光的特殊值，"
-                         "会把整图压暗）。")
+    ap.add_argument("--target-white", type=float, default=2.5)
     args = ap.parse_args()
-
-    S = args.size
-    scale_rad = np.radians(args.fov_deg) / S   # 弧度/像素
-    cdelt = args.fov_deg / S                    # 度/像素
 
     with np.load(args.data) as d:
         l, b, g = d["l"][:], d["b"][:], d["g"][:]
         bv = np.nan_to_num(d["bp_rp"][:], nan=0.7)
-
-    xi, eta, vis = gnomonic(l, b, args.lc, args.bc)
-    # 平面坐标 → 像素：切点在图中心 (S/2)。xi 东向→ -x（天文东在左），eta 北向→ -y
-    px = (S / 2.0 - xi / scale_rad)
-    py = (S / 2.0 - eta / scale_rad)
-    inside = vis & (px >= 0) & (px < S) & (py >= 0) & (py < S)
-    pxi = px.astype(int); pyi = py.astype(int)
-    pxi = np.clip(pxi, 0, S - 1); pyi = np.clip(pyi, 0, S - 1)
-    print(f"切点(l,b)=({args.lc},{args.bc}) fov={args.fov_deg}° size={S} "
-          f"画面内星 {int(inside.sum()):,}", flush=True)
-
     cols = rs.bv_to_rgb(bv)
     L = beg.visual_luminance_for_mags(g, args.bortle, 0.0, 0.5)
-    canvas = rs.accumulate_stars(S, S, pxi, pyi, inside, L, cols, psf_px=args.psf_core_px)
-    # 立体角归一化：星光是 flux 语义，每像素值随像素角面积 ∝ Ω 变化，不同
-    # fov/分辨率/投影下同样的星给出不同的每像素亮度（这正是"TAN 图比广州地平
-    # 暗"的真因，而非 tone 问题）。除以像素立体角 → 面亮度（radiance），与
-    # 分辨率/投影无关，一套 tone 通用，且金字塔 sum 池化后仍自洽。参考立体角
-    # 取广州正式图的像素当量(0.083°)²，让归一后数值落在 tone 习惯范围。
-    REF_OMEGA = 0.083 ** 2
-    canvas = canvas * (REF_OMEGA / cdelt ** 2)
-    # tone（单张图，带 signal_mask）
-    sky = beg.rh.skyglow_level(args.bortle)
-    sat = 6.0 * sky * beg.gain_for_mag_delta(0.0)
-    canvas = beg.saturate_and_bloom(canvas, sat, (3.0, 9.0), (0.65, 0.35))
-    canvas = beg.add_skyglow(canvas, args.bortle)
-    # 单图自适应 tone（带 signal_mask），与 tone_iterate 共用同一条显示链
-    rgb = beg.tone_adapted(canvas, args.target_sky, args.star_contrast,
-                           args.target_white, args.chroma)
+    tile_kw = dict(psf_core_px=args.psf_core_px, bortle=args.bortle,
+                   target_sky=args.target_sky, star_contrast=args.star_contrast,
+                   chroma=args.chroma, target_white=args.target_white)
 
-    from PIL import Image
-    arr = (np.clip(rgb, 0, 1) * 255).astype(np.uint8)
-    png = args.out + ".png"
-    Image.fromarray(arr).save(png)
+    if not args.tiles:
+        n = render_tile(l, b, cols, L, args.out, args.lc, args.bc,
+                        args.fov_deg, args.size, **tile_kw)
+        print(f"单图 切点({args.lc},{args.bc}) fov={args.fov_deg}° size={args.size} "
+              f"画面内星 {n:,} -> {args.out}.png", flush=True)
+        return
 
-    # WCS .hhh（FITS header 文本，每行 80 列，hipsgen 认 PNG+同名 .hhh）
-    hdr = [
-        f"SIMPLE  = T",
-        f"BITPIX  = 8",
-        f"NAXIS   = 2",
-        f"NAXIS1  = {S}",
-        f"NAXIS2  = {S}",
-        f"CTYPE1  = 'GLON-TAN'",
-        f"CTYPE2  = 'GLAT-TAN'",
-        f"CRVAL1  = {args.lc}",
-        f"CRVAL2  = {args.bc}",
-        f"CRPIX1  = {S/2.0}",
-        f"CRPIX2  = {S/2.0}",
-        f"CDELT1  = {cdelt}",
-        f"CDELT2  = {cdelt}",
-        f"END",
-    ]
-    hhh = args.out + ".hhh"
-    with open(hhh, "w") as f:
-        f.write("".join(f"{line:<80}" for line in hdr))
-    print(f"wrote {png} + {hhh}", flush=True)
+    os.makedirs(args.out, exist_ok=True)
+    llo, lhi = map(float, args.l_range.split(","))
+    blo, bhi = map(float, args.b_range.split(","))
+    lcs = np.arange(llo, lhi + 1e-6, args.tile_step)
+    bcs = np.arange(blo, bhi + 1e-6, args.tile_step)
+    jobs = []
+    for lc in lcs:
+        for bc in bcs:
+            prefix = os.path.join(args.out, f"tile_l{lc:+.0f}_b{bc:+.0f}"
+                                  .replace("+", "p").replace("-", "m"))
+            jobs.append((prefix, float(lc % 360), float(bc)))
+    print(f"瓦片网格 {len(lcs)}×{len(bcs)}={len(jobs)} 格，{args.workers} 进程并行，"
+          f"每格 fov={args.tile_fov}° size={args.tile_size}", flush=True)
+
+    global _SHARED
+    _SHARED = dict(l=l, b=b, cols=cols, L=L, tile_fov=args.tile_fov,
+                   tile_size=args.tile_size, tile_kw=tile_kw)
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+    import multiprocessing as mp
+    # macOS 默认 spawn，worker 不继承 _SHARED；用 fork 让 worker 继承 + numpy
+    # 大数组 copy-on-write 共享（只读不复制）。
+    ctx = mp.get_context("fork")
+    done, total_in = 0, 0
+    with ProcessPoolExecutor(max_workers=args.workers, mp_context=ctx) as ex:
+        futs = {ex.submit(_tile_worker, j): j for j in jobs}
+        for fut in as_completed(futs):
+            _, lc, bc = futs[fut]
+            n = fut.result()
+            if n > 0:
+                done += 1
+                total_in += n
+                print(f"  [{done}/{len(jobs)}] l={lc:.0f} b={bc:.0f}: {n:,} 星", flush=True)
+    print(f"瓦片完成：{done} 张非空（累计落点 {total_in:,}）-> {args.out}/", flush=True)
 
 
 if __name__ == "__main__":

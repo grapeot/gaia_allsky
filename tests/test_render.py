@@ -891,7 +891,7 @@ def test_tan_wcs_hhh_header_format(tmp_path):
     assert "CTYPE2  = 'GLAT-TAN'" in joined
     assert "CRVAL1  = 0" in joined and "CRVAL2  = 0" in joined
     assert "CRPIX1  = 32.0" in joined               # size/2
-    assert "CDELT1  = 0.625" in joined              # fov_deg/size = 40/64
+    assert "CDELT1  = -0.625" in joined             # 负号=经度向左增（正确手性，避免 Aladin 镜像）；fov/size=40/64
     assert cards[-1].strip() == "END"
 
 
