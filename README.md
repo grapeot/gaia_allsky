@@ -48,12 +48,15 @@ python src/render_tan_wcs.py \
   --tile-fov 6 --tile-step 5 --tile-size 2048 --workers 8
 ```
 
-再用 hipsgen 把瓦片拼成 HiPS 金字塔（需 `openjdk@11`，新版 JDK 不兼容旧 jar）。`color=jpeg` 输出比 PNG 小、便于分发，`target` 放 FOV 中心（银道 5,-2.5 → 赤道 271.672,-25.873）：
+再用 hipsgen 把瓦片拼成 HiPS 金字塔（需 `openjdk@11`，新版 JDK 不兼容旧 jar）。`color=jpeg` 输出比 PNG 小、便于分发，`target` 放 FOV 中心（银道 5,-2.5 → 赤道 271.672,-25.873），`fading=true` 羽化重叠区消接缝（瓦片重叠带恰好是各自 gnomonic 边缘畸变最大处，默认 mean 混合会留下亮处可见的接缝；fading 平滑过渡消除它，不要用 border 裁边，会留黑缝）：
 
 ```bash
-java -Xmx60g -jar AladinBeta.jar -hipsgen \
-  in=outputs/tiles out=outputs/hips color=jpeg "target=271.672 -25.873"
+java -Xmx80g -jar AladinBeta.jar -hipsgen \
+  in=outputs/tiles out=outputs/hips color=jpeg \
+  "target=271.672 -25.873" fading=true
 ```
+
+10 亿像素版（fov=6 的 338 张瓦片）生成 Norder0-6 七层金字塔、约 1.3 万瓦片、1.2GB、约 16 分钟。HiPS 体量超出 GitHub Pages，部署时把瓦片目录放在自有服务器（如经 Cloudflare），页面里的 Aladin Lite 跨域加载时由 Cloudflare 加 `Access-Control-Allow-Origin` 头即可；8K 以下的单图直接嵌页面。
 
 像素映射用 `+xi`（东向）配 WCS `CDELT1<0` 表达"经度向左增"，只处理一次手性；若两处都加负号，Aladin 里图会左右镜像。
 
