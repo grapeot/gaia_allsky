@@ -92,7 +92,9 @@ def visual_luminance_for_mag(mag, bortle, delta_mag, limiting_contrast=0.5):
 
 
 def add_skyglow(canvas, bortle):
-    return canvas + rh.skyglow_level(bortle)
+    # 加性辉光用带光污染 boost 的值（additive_skyglow_level），不是场景锚 skyglow_level。
+    # 这是让高 bortle 银河被淹的真正旋钮（见 render_horizon.SKYGLOW_POLLUTION_BOOST）。
+    return canvas + rh.additive_skyglow_level(bortle)
 
 
 def saturate_and_bloom(canvas, sat_level, wing_sigmas=(3.0, 9.0), wing_weights=(0.65, 0.35)):

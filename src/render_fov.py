@@ -127,7 +127,21 @@ def main():
                          "避免把 k(B) 烘进星场画布。默认 1（暗空）。")
     ap.add_argument("--sweep-out-dir", default=None,
                     help="sweep 模式下每个 bortle 单图的输出目录（写 bortle_<N>.png）。")
+    ap.add_argument("--skyglow-pollution-boost", type=float, default=None,
+                    help="覆盖 render_horizon.SKYGLOW_POLLUTION_BOOST（光污染强度真旋钮）。"
+                         "只乘到【加性辉光 + Weber 阈值 + sky_anchor】上，不碰星场/银河带的"
+                         "线性亮度，所以放大它会真正抬高高 bortle 银河被淹的程度（单纯调"
+                         "SKYGLOW_SCALE 不行：星场与辉光同步缩放、比值不变、显示对比不动）。"
+                         "不给则用模块默认 5.0。注意 sweep 路径只在主进程跑显示链，故此覆盖"
+                         "对 sweep 无 spawn 继承问题。")
     args = ap.parse_args()
+
+    # 在任何显示链调用之前覆盖光污染旋钮。注意：星场累加（worker）只用 skyglow_level
+    # （场景锚），不读 boost；boost 仅在主进程的显示链（add_skyglow / Weber / sky_anchor）
+    # 生效，故 spawn 下 worker 不读它也没关系——这正是它能解耦银河带与辉光的原因。
+    if args.skyglow_pollution_boost is not None:
+        rh.SKYGLOW_POLLUTION_BOOST = args.skyglow_pollution_boost
+        print(f"SKYGLOW_POLLUTION_BOOST override -> {rh.SKYGLOW_POLLUTION_BOOST:.3f}", flush=True)
 
     # sweep 模式：星场锚在固定参考 bortle、value=0（眼睛敏感度是观察者属性，扫到显示链
     # 里；本 PR 每个 bortle 单一敏感度即 value=0）。单图模式 scene_ref_bortle=本图 bortle、
@@ -175,13 +189,18 @@ def main():
     pre_sat = canvas  # PSF 后、sat 前的星点画布；sat 随 bortle 变，参考图要从这里重建。
 
     def _apply_sat_weber_skyglow(base, bortle):
-        sky_b = rh.skyglow_level(bortle)
+        # sat（亮星饱和）锚在【场景】skyglow_level（恒星亮度阶梯属性）；Weber 阈值
+        # 与加性辉光锚在【additive】辉光（含光污染 boost）——银河的可见度是相对它
+        # 实际坐落的天空背景判定的，这正是高 bortle 银河被淹的物理（见 render_horizon
+        # .SKYGLOW_POLLUTION_BOOST）。
+        sky_scene = rh.skyglow_level(bortle)
+        sky_add = rh.additive_skyglow_level(bortle)
         out = base
         if args.sat_over_sky > 0:
-            sat = args.sat_over_sky * sky_b * beg.gain_for_mag_delta(args.value)
+            sat = args.sat_over_sky * sky_scene * beg.gain_for_mag_delta(args.value)
             out = beg.saturate_and_bloom(out, sat, (3.0, 9.0), (0.65, 0.35))
         ext_sigma_px = max(args.ext_sigma_frac * args.width, 1.0)
-        out = beg.apply_extended_visibility_threshold(out, sky_b, args.ext_threshold, ext_sigma_px,
+        out = beg.apply_extended_visibility_threshold(out, sky_add, args.ext_threshold, ext_sigma_px,
                                                       knee=args.ext_knee, softness=args.ext_softness)
         return beg.add_skyglow(out, bortle)
 
@@ -199,12 +218,13 @@ def main():
         # 的 global-stretch 逻辑）。这是保留真实 B1→B9 光污染冲刷的关键——否则每张图
         # 各自归一，B9 会被自适应拉成 majestic、看起来像 B1。固定锚默认 global_stretch_ref
         # （默认 1）；<0 退回逐图自适应（旧 bug 行为，不建议 sweep 用）。
-        # 物理 sky-floor 锚：add_skyglow 给三个通道各加 skyglow_level(b)，故在
-        # y=canvas.sum(-1) 单位下，该 bortle 注入的天空底 = 3 * skyglow_level(b)。
-        # 把这个物理量当 sky_anchor 直接锚定 sky floor，bortle 间对比就由物理决定
-        # （B1 亮、B9 冲白），弥散带在高 bortle 自然淡出，无需对比预算 hack。
+        # 物理 sky-floor 锚：add_skyglow 给三个通道各加 additive_skyglow_level(b)，故在
+        # y=canvas.sum(-1) 单位下，该 bortle 注入的天空底 = 3 * additive_skyglow_level(b)。
+        # 锚必须用同一个【additive】值（含光污染 boost），否则归一化会把被淹的银河
+        # 重新拉回来、boost 失效。把这个物理量当 sky_anchor 直接锚定 sky floor，bortle
+        # 间对比由物理决定（B1 亮、B9 冲白），弥散带在高 bortle 自然淡出。
         def _sky_anchor(bortle):
-            return 3.0 * rh.skyglow_level(bortle)
+            return 3.0 * rh.additive_skyglow_level(bortle)
 
         sweep_stretch = None
         if args.global_stretch_ref >= 0:
@@ -217,6 +237,7 @@ def main():
             print(f"sweep 共享 signal_stretch (ref Bortle {ref_b}) = {sweep_stretch:.3f}", flush=True)
             del ref, ref_adapted
 
+        diag = os.environ.get("SKYGLOW_DIAG")  # 置 1 时打印诊断：band 线性信号 vs skyglow
         for b in sweep_bortles:
             ts = _t.time()
             # 每个 bortle 的显示链跑在 pre_sat 的 copy 上：sat（该 bortle 天空）→ Weber
@@ -226,6 +247,21 @@ def main():
                 disp, "sky_median", 99.7, 2.2, args.target_sky, 99.5, 25.0,
                 args.star_contrast, args.target_white, sweep_stretch, args.chroma,
                 sky_anchor=_sky_anchor(b))
+            if diag:
+                # disp 是 (band_linear + 3*sky_add) 的 RGB；band_linear = disp.sum - 3*sky_add。
+                # band 区按 validator 同款选法（弥散低频亮度 top 分位）。报告弥散带线性信号
+                # 中值 vs additive_skyglow_level(b)：若 ratio≳1，辉光淹不过带 → 银河不会冲白。
+                from scipy.ndimage import gaussian_filter as _gf
+                sky_add = rh.additive_skyglow_level(b)
+                y_disp = disp.sum(-1)
+                band_lin = np.maximum(y_disp - 3.0 * sky_add, 0.0)
+                ylow = _gf(y_disp, 8.0)
+                band_mask = ylow > np.percentile(ylow, 88)
+                band_med = float(np.median(band_lin[band_mask]))
+                sky_med_uint8 = float(np.median(arr.sum(-1)[ylow < np.percentile(ylow, 40)]))
+                print(f"  DIAG B{b}: band_linear_med={band_med:.4f} add_skyglow={sky_add:.4f} "
+                      f"ratio(band/add_skyglow)={band_med/max(sky_add,1e-9):.3f} "
+                      f"disp_sky_median(uint8 sum)={sky_med_uint8:.1f}", flush=True)
             out_path = os.path.join(args.sweep_out_dir, f"bortle_{b}.png")
             Image.fromarray(arr).save(out_path)
             print(f"  wrote {out_path}  ({_t.time()-ts:.1f}s)", flush=True)

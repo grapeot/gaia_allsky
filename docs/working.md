@@ -325,3 +325,17 @@
 - 77 测试通过（解耦/锚均向后兼容：sky_anchor=None、value 路径不变）。
 
 **eye_grid 留待重构 PR**：它走的是带 sensitivity(+0/2/4mag) 维度的旧 grid 路径，未呈现硬斑 bug（+sensitivity 列保持银河亮），不属 PR1 修复范围；现 sweep 模式 value 固定 0，补 sensitivity 维度是 scope creep，挪到 PR3 一起做。
+
+---
+
+## 光污染强度真旋钮：SKYGLOW_POLLUTION_BOOST（2026-06-11，并入 PR1）
+
+用户复核 PR1 物理路：裂隙在、无硬斑，但 **B7 光污染太弱、银河太亮，看着像 B2/B3**，要 substantially 提高。
+
+用户澄清的原则（关键）：**物理上**光污染=天空背景辉光抬高（淹没银河）；**视觉上**人眼自动适应曝光（tone mapping + white-point 归一），所以不该看到"画面越来越亮"，而该看到"银河越来越淡、天空显示亮度大致稳定"。
+
+**踩坑确认**：直接调 `SKYGLOW_SCALE` 是 no-op——银河带亮度 `visual_luminance_for_mags ∝ SKYGLOW_SCALE`，放大 k 倍则银河带和加性辉光同步×k，比值不变，white-point 归一后显示对比一模一样。
+
+**真旋钮** `SKYGLOW_POLLUTION_BOOST`（render_horizon.py，默认 5.0）：只乘到【加性辉光 `add_skyglow` + Weber 阈值 + sky_anchor】，**绝不碰星场/银河带线性亮度**。于是放大它=高 bortle 辉光真正淹过银河，而银河带锚在 B1 不动，共享 white-point 把显示天光底拉回稳定。新增 `additive_skyglow_level()`，sweep 显示链 sat 用 `skyglow_level`（场景锚）、Weber/floor/anchor 用 `additive_skyglow_level`。CLI `--skyglow-pollution-boost` 可覆盖（sweep 只在主进程跑显示链，无 spawn 继承问题）。
+
+**boost=5 全分辨率实测**：显示天光底 B1→B9 大致平（60-65），银河对比 B1=2.44→B3=2.08→B5≈0→B7=0→B9=0 陡降。亲眼核实：B3 银河辉煌、B5 仅银心一抹柔光、B7 近黑只剩星点+银心whisper、全程柔和无硬斑。**用户取舍：保持 boost=5、B7 优先**（接受 B3→B5 曲线偏陡、中档过渡压缩，换 B7 真"被城市吞没"）。`add_skyglow` 改动使 `test_saturation_threshold_rides_magnitude_ladder` 的 floor 扣除改用 `additive_skyglow_level(1)`（保留测试本意：饱和几何对星等阶梯不变）。77 测试通过。
