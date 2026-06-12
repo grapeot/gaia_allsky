@@ -87,11 +87,15 @@ div，再逐步加回，定位哪个元素/样式破坏加载）。
 ```bash
 source .venv/bin/activate
 python src/render_tan_wcs.py \
-  --data data/raw/fov_g20_bsc5.npz --out outputs/hips1b_tiles_bsc5 --tiles \
+  --data data/raw/fov_g20_bsc5.npz --out outputs/hips1b_tiles_hero --tiles \
   --l-range=-41,79 --b-range=-31,43 \
-  --tile-fov 6 --tile-step 5 --tile-size 2048 --workers 8
+  --tile-fov 6 --tile-step 5 --tile-size 2048 --workers 8 \
+  --value 6 --target-sky 0.038 --target-white 2.6
 ```
 
+- **`--value 6 --target-sky 0.038 --target-white 2.6` = hero/主图同款**。不加这些时 tiles
+  用 +0mag/target_sky 0.012（裸眼亮度），HiPS 会比实际暗一大截（中位 82 vs hero 同款 166，
+  暗星增益差 ~250×）。hero 同款放大看单星不过曝（饱和像素 0.02%）、暗星涌现、乳光饱满。
 - 网格 25×15=375 格，约 338 张非空（落在广州 FOV 内的）。
 - 每格一张 2048² PNG + 同名 `.hhh`（FITS WCS header），多进程并行，
   worker 数与 tile-size 不变则内存恒定（与瓦片总数无关），凑更高分辨率只需更多格。
@@ -105,9 +109,10 @@ python src/render_tan_wcs.py \
   `render_tan_wcs.py` 在累积后每像素除以像素立体角转面亮度，一套 tone 通用。
 - **手性**：像素映射 `+xi`（东向）配 WCS `CDELT1<0` 表达"经度向左增"，只处理一次。
   两处都加负号 → Aladin 里左右镜像。
-- **tone 亮度**：默认 tone 比"调亮过的成品"暗约一档（银心 tile 中位 ~82 vs 成品 ~110）。
-  star_contrast 对 TAN 路径几乎无效，target_white 影响弱。最终亮度由用户在
-  PixInsight 里调（见下）或后期 hipsgen 前处理。
+- **tone 亮度**：用上面的 hero 同款参数（`--value 6 --target-sky 0.038`）后，tiles 亮度
+  已接近主图，不再需要靠 PixInsight 大幅提亮。star_contrast 对 TAN 路径几乎无效、
+  target_white 影响弱——主要的亮度旋钮是 `--value`（敏感度 +mag，暗星增益）和
+  `--target-sky`（天光底/整体亮度）。PixInsight 这步留作色温/去绿等精修，不是救亮度。
 
 ### 2. PixInsight 批处理调色（用户做）
 

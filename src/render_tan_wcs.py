@@ -170,6 +170,9 @@ def main():
     # 共用显示参数
     ap.add_argument("--psf-core-px", type=float, default=0.6)
     ap.add_argument("--bortle", type=int, default=1)
+    ap.add_argument("--value", type=float, default=0.0,
+                    help="敏感度 +N mag（delta_mag，进 visual_luminance）。0=裸眼亮度；"
+                         "hero 同款用 6（+6mag，暗星增益 ~250×，配 --target-sky 0.038）。")
     ap.add_argument("--target-sky", type=float, default=0.012)
     ap.add_argument("--star-contrast", type=float, default=6.0)
     ap.add_argument("--chroma", type=float, default=1.8)
@@ -183,7 +186,7 @@ def main():
         l, b, g = d["l"][:], d["b"][:], d["g"][:]
         bv = np.nan_to_num(d["bp_rp"][:], nan=0.7)
     cols = rs.bv_to_rgb(bv)
-    L = beg.visual_luminance_for_mags(g, args.bortle, 0.0, 0.5)
+    L = beg.visual_luminance_for_mags(g, args.bortle, args.value, 0.5)
     tile_kw = dict(psf_core_px=args.psf_core_px, bortle=args.bortle,
                    target_sky=args.target_sky, star_contrast=args.star_contrast,
                    chroma=args.chroma, target_white=args.target_white)
