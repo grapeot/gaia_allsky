@@ -51,11 +51,20 @@ python src/rebuild_allsky_hires.py --hips outputs/hips1b_out_bsc5   # 默认 256
 不是 bloom。
 
 **解法（已落地，源头消除，重渲一次即可）**：tile 路径不调 `tone_adapted`，改为直接调底层，
-传**全局固定标定**——`adapt_sky_floor(sky_anchor=rh.additive_skyglow_level(bortle))`（物理
+传**全局固定标定**——`adapt_sky_floor(sky_anchor=rh.additive_skyglow_level(bortle)*3)`（物理
 天光底作 floor，块间同一基准）+ `finish_sky_adapted(..., TILE_STRETCH)` 固定 white-point
 stretch（`TILE_STRETCH=1.0`，hero +6mag 下背景已满，per-tile stretch 本就 clamp 到 ~1）。
 验证：重叠区差 **32% → 0.1%**。`adapt_sky_floor` 的 `sky_anchor` 参数本来就是为"块间一致 /
-sweep 路径"设计的，tile 路径漏用了才退回 per-tile percentile。改完必须**全量重渲 338 张**
+sweep 路径"设计的，tile 路径漏用了才退回 per-tile percentile。
+
+**⚠️ sky_anchor 量纲坑（必须 ×3）**：`adapt_sky_floor` 内部拿 sky_anchor 跟 `canvas.sum(-1)`
+（三通道和）比，而 `add_skyglow` 给 RGB 每通道各加 `additive_skyglow_level`，所以暗空背景
+的 sum 是它的 **3 倍**。anchor 漏乘 3 会把黑场锚高 3×（scale 偏大）→ 整图背景被向上推、
+暗空发灰发蒙（现象像"整体亮度被垫高"，不是过曝削顶——两种发白机制不同）。修正 ×3 后暗空
+tile 背景 p5 从 64→22。这个 bug 是固定标定的连带：per-tile 自适应在时会自动补偿掩盖它，
+固定标定后才显形。
+
+改完必须**全量重渲 338 张**
 再重拼金字塔。
 
 ### 升 v3 的探索记录（更彻底的修法，落地页集成待续）
