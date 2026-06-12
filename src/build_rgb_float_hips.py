@@ -102,6 +102,13 @@ def main():
         shutil.copy(landing, os.path.join(args.out, "index.html"))
         print("落地页 index.html 已注入（来源 skills/hips_landing_page.html）", flush=True)
 
+    # 5) 重建高分辨率 Allsky（否则 zoom-out 糊，见 skills/hips_1b_tile_generation.md 顶部）
+    try:
+        from rebuild_allsky_hires import rebuild
+        rebuild(args.out, order=3, per=256)
+    except Exception as e:
+        print(f"⚠ Allsky 重建失败（部署前请手动跑 rebuild_allsky_hires.py）：{e}", flush=True)
+
     if not args.keep_channels:
         for d in chan_hips.values():
             shutil.rmtree(d, ignore_errors=True)
