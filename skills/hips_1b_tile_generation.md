@@ -114,12 +114,17 @@ python src/render_tan_wcs.py \
   --data data/raw/fov_g20_bsc5.npz --out outputs/hips1b_tiles_hero --tiles \
   --l-range=-41,79 --b-range=-31,43 \
   --tile-fov 6 --tile-step 5 --tile-size 2048 --workers 8 \
-  --value 6 --target-sky 0.038 --target-white 2.6
+  --value 6 --target-sky 0.038 --target-white 2.6 --star-contrast 1.0 --chroma 1.8
 ```
 
 - **`--value 6 --target-sky 0.038 --target-white 2.6` = hero/主图同款**。不加这些时 tiles
   用 +0mag/target_sky 0.012（裸眼亮度），HiPS 会比实际暗一大截（中位 82 vs hero 同款 166，
   暗星增益差 ~250×）。hero 同款放大看单星不过曝（饱和像素 0.02%）、暗星涌现、乳光饱满。
+- **`--star-contrast 1.0` 必须显式传**（CLI 默认 6.0 会让银带过曝冲白！）。这是固定 tone
+  标定（消接缝）后**必须配套**调的：旧路径 star_contrast=6.0 靠 per-tile 白点自适应拉伸
+  补偿才不过曝，固定标定移除了 per-tile 补偿，6.0 就把银带信号放大 6× 冲到中位 255。实测
+  sc=1.0 银带中位 ~152（hero 观感）、暗区 ~83、无接缝；sc≥3 银带冲白。`chroma 1.8` 保金色
+  饱和度（CLI 默认就是 1.8）。
 - 网格 25×15=375 格，约 338 张非空（落在广州 FOV 内的）。
 - 每格一张 2048² PNG + 同名 `.hhh`（FITS WCS header），多进程并行，
   worker 数与 tile-size 不变则内存恒定（与瓦片总数无关），凑更高分辨率只需更多格。
