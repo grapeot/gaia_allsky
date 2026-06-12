@@ -75,9 +75,31 @@ def write_hhh(path, S, lc, bc, cdelt):
         f.write("".join(f"{line:<80}" for line in hdr))
 
 
+def write_fits_tile(out_prefix, rgb, S, lc, bc, cdelt):
+    """把 tone 后的 float rgb（H×W×3）写成一块 RGB 彩色 float FITS（NAXIS3=3）+ WCS。
+
+    这是给 PixInsight 调色的中间产物：在 float 域保留全动态范围（不 8-bit clip），
+    用户在 PixInsight 里当一张彩色图打开、调色温（Curves R/G/B 一起看）+ SCNR，导出
+    回 RGB float FITS。之后 split_rgb_fits 工具把它拆成 R/G/B 三套单通道喂 hipsgen
+    三通道 RGB 建树（float 域逐层池化保星点/乳光，合成才量化 JPEG，部署只留 JPEG）。
+
+    FITS 轴序 (NAXIS3=3, NAXIS2=y, NAXIS1=x)，把 (H,W,3) → (3,H,W)。手性同 write_hhh
+    （CDELT1>0，与 +xi 像素映射自洽）。"""
+    from astropy.io import fits
+    cube = np.moveaxis(rgb, -1, 0).astype(np.float32)  # (3,H,W)
+    hdu = fits.PrimaryHDU(cube)
+    h = hdu.header
+    h["CTYPE1"], h["CTYPE2"] = "GLON-TAN", "GLAT-TAN"
+    h["CRVAL1"], h["CRVAL2"] = float(lc), float(bc)
+    h["CRPIX1"], h["CRPIX2"] = S / 2.0, S / 2.0
+    h["CDELT1"], h["CDELT2"] = float(cdelt), float(cdelt)
+    hdu.writeto(out_prefix + ".fits", overwrite=True)
+
+
 def render_tile(l, b, cols, L, out_prefix, lc, bc, fov_deg, S, psf_core_px,
-                bortle, target_sky, star_contrast, chroma, target_white):
-    """渲一块 TAN 瓦片（切点 lc,bc），输出 PNG + .hhh。返回画面内星数（0 不输出）。"""
+                bortle, target_sky, star_contrast, chroma, target_white, out_fits=False):
+    """渲一块 TAN 瓦片（切点 lc,bc）。out_fits=False 出 PNG+.hhh；True 出 float FITS。
+    返回画面内星数（0 不输出）。"""
     from PIL import Image
     scale_rad = np.radians(fov_deg) / S
     cdelt = fov_deg / S
@@ -99,8 +121,15 @@ def render_tile(l, b, cols, L, out_prefix, lc, bc, fov_deg, S, psf_core_px,
     canvas = beg.saturate_and_bloom(canvas, sat, (3.0, 9.0), (0.65, 0.35))
     canvas = beg.add_skyglow(canvas, bortle)
     rgb = beg.tone_adapted(canvas, target_sky, star_contrast, target_white, chroma)
-    Image.fromarray((np.clip(rgb, 0, 1) * 255).astype(np.uint8)).save(out_prefix + ".png")
-    write_hhh(out_prefix + ".hhh", S, lc, bc, cdelt)
+    if out_fits:
+        # FITS 域金字塔：存 tone 后、8-bit clip 前的 float rgb 为 R/G/B 三套单通道
+        # FITS（hipsgen 对多面 FITS 当灰度，须分通道）。各通道 float 域逐层池化保住
+        # 星点锐度/乳光对比（zoom-out 质量根因），RGB action 合成时才量化到 JPEG。
+        write_fits_tile(out_prefix, np.clip(rgb, 0.0, None).astype(np.float32),
+                        S, lc, bc, cdelt)
+    else:
+        Image.fromarray((np.clip(rgb, 0, 1) * 255).astype(np.uint8)).save(out_prefix + ".png")
+        write_hhh(out_prefix + ".hhh", S, lc, bc, cdelt)
     return n_in
 
 
@@ -112,7 +141,8 @@ def _tile_worker(job):
     prefix, lc, bc = job
     s = _SHARED
     return render_tile(s["l"], s["b"], s["cols"], s["L"], prefix, lc, bc,
-                       s["tile_fov"], s["tile_size"], **s["tile_kw"])
+                       s["tile_fov"], s["tile_size"], **s["tile_kw"],
+                       out_fits=s.get("out_fits", False))
 
 
 def main():
@@ -144,6 +174,9 @@ def main():
     ap.add_argument("--star-contrast", type=float, default=6.0)
     ap.add_argument("--chroma", type=float, default=1.8)
     ap.add_argument("--target-white", type=float, default=2.5)
+    ap.add_argument("--fits", action="store_true",
+                    help="出 float FITS 瓦片（tone 后、未 8-bit clip）而非 PNG。供 hipsgen "
+                         "TILES 在真值域逐层池化、JPEG 从 float 导显示层，改善 zoom-out 质量。")
     args = ap.parse_args()
 
     with np.load(args.data) as d:
@@ -157,7 +190,7 @@ def main():
 
     if not args.tiles:
         n = render_tile(l, b, cols, L, args.out, args.lc, args.bc,
-                        args.fov_deg, args.size, **tile_kw)
+                        args.fov_deg, args.size, **tile_kw, out_fits=args.fits)
         print(f"单图 切点({args.lc},{args.bc}) fov={args.fov_deg}° size={args.size} "
               f"画面内星 {n:,} -> {args.out}.png", flush=True)
         return
@@ -178,7 +211,7 @@ def main():
 
     global _SHARED
     _SHARED = dict(l=l, b=b, cols=cols, L=L, tile_fov=args.tile_fov,
-                   tile_size=args.tile_size, tile_kw=tile_kw)
+                   tile_size=args.tile_size, tile_kw=tile_kw, out_fits=args.fits)
     from concurrent.futures import ProcessPoolExecutor, as_completed
     import multiprocessing as mp
     # macOS 默认 spawn，worker 不继承 _SHARED；用 fork 让 worker 继承 + numpy
