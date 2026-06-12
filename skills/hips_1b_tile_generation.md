@@ -34,10 +34,39 @@ python src/rebuild_allsky_hires.py --hips outputs/hips1b_out_bsc5   # 默认 256
 实测 Aladin v2 加载后 zoom-out 明显变清晰（用户确认"比之前好太多"）。hipsgen 自己的
 `ALLSKY` action 只出 64px、没有分辨率参数，所以必须这样手动重建。落地页/客户端不用改。
 
-> 还没试但记下：升 Aladin Lite v3（Rust/WASM+WebGL2 重写，大 FOV 走 per-pixel
-> ray-tracing 可能绕过 Allsky）是另一条路，但 v3 createImageSurvey 已 deprecated、API 要
-> 改、且"v3 更平滑≠zoom-out 更清晰"（调研对抗验证否决了乐观说法）。当前 v2 + 高分
-> Allsky 已够用，v3 留作单独任务实测再定。
+### 升 v3 的探索记录（更彻底的修法，落地页集成待续）
+
+**已实测验证：v3 大 FOV 直接取全分辨率瓦片、绕过 Allsky，根治 zoom-out 糊。**
+裸 v3 测试页加载我们的 HiPS，FOV 90°（比 v2 糊掉的 51-67° 还大）银河依然清晰；
+浏览器 Network 确认：v3 在 FOV 90° 只取 2 次 Allsky 后就全是 `NpixXX.jpg` 全分辨率
+瓦片（v2 在 50-67° 死守 Allsky 不取瓦片）。所以 v3 比"重建高分 Allsky"补丁更彻底，
+连 rebuild_allsky_hires 都不需要。
+
+**已验证的 v3 代码**（裸测试页跑通的确切写法）：
+```html
+<!-- 单 script，无 jQuery、无单独 css -->
+<script src="https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.js"></script>
+<script>
+  A.init.then(function () {                                  // v3 init 是异步 Promise
+    var aladin = A.aladin('#aladin-lite-div', { showReticle:false, cooFrame:'equatorial', fov:90 });
+    var hipsDir = location.origin + location.pathname.replace(/[^/]*$/, "");  // 目录 URL
+    var hips = A.HiPS(hipsDir, { imgFormat:'jpg', maxOrder:6, cooFrame:'equatorial' });  // createImageSurvey 已废，用 A.HiPS
+    aladin.setImageSurvey(hips);
+    aladin.gotoRaDec(270, -22); aladin.setFov(90);           // gotoRaDec/setFov v3 保留
+  });
+</script>
+```
+properties 不用改（hipsgen 已自动写 `dataproduct_subtype=color`）。v3 **必须 HTTP 不能
+file://**（空天球头号坑）。
+
+**未解的卡点（落地页集成留作单独任务）**：把上面 wiring 搬进**样式化落地页**
+（hips_landing_page.html，带大量 CSS/DOM）后报 `Survey not found`、空天球，而**裸测试页同样
+代码却成功**。根因未定死——疑似样式化页的 DOM/CSS/时序，或 v3 对部分天区 HiPS
+（moc_sky_fraction=0.2，Norder0 只 6/12 格、Npix0 等 404）的探测在不同上下文行为不同
+（补黑瓦片没解）。排查方向：裸页 vs 样式化页逐项 diff（先剥掉 CSS/其它 DOM 只留 viewer
+div，再逐步加回，定位哪个元素/样式破坏加载）。
+
+**现状**：落地页保持 v2 + 高分 Allsky（能用）。v3 根治结论已证明，落地页 v3 集成待续。
 
 ## 端到端流程与交接（谁做哪步）
 
@@ -147,6 +176,10 @@ python src/rebuild_allsky_hires.py --hips outputs/hips1b_out_bsc5
 
 把默认 64px/tile 的 Allsky 重建成 256px/tile（4×）。备份原版到 `Allsky.jpg.orig64`。
 RGB-float 路（`build_rgb_float_hips.py`）已把这步内置。
+
+> **时序坑**：这步必须在**所有 hipsgen action 之后**跑。hipsgen 的 `ALLSKY`（以及
+> `JPEG`/重建）action 会重新生成 64px Allsky、覆盖掉你的高分版。若部署前又跑过任何
+> hipsgen，记得再跑一遍 rebuild_allsky_hires。
 
 ### 4. 部署（用户做）
 
