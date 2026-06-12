@@ -90,6 +90,12 @@ cp skills/hips_landing_page.html outputs/hips1b_out_bsc5/index.html
 
 > reference 存在 **`skills/hips_landing_page.html`**（进 git）。不要从 `outputs/` 里那份
 > 拷——`outputs/` 被 gitignore，且 regenerate HiPS 会覆盖丢失。skills 这份是权威存档。
+>
+> **落地页文案的唯一来源**：要改 HiPS 落地页的文字（标题/介绍/已知缺陷等），只改
+> `skills/hips_landing_page.html` 这一份。两条 HiPS workflow 都从它注入：本 skill 的
+> 老 JPEG 路（手动 `cp`）、`src/build_rgb_float_hips.py` 的 FITS 路（自动 `shutil.copy`），
+> 改这一份两边自动同步。别在 `outputs/.../index.html` 上改（会被覆盖、且 gitignore）。
+> 注意保持与主页 `docs/index.html` 叙事一致（如亮星已由 BSC5 补全，别再写"亮星缺席"）。
 
 样式化落地页（暗色/金色风格）是**自包含、可移植**的：
 - Aladin Lite v2 从 CDN 加载，无本地 css/js 依赖。
