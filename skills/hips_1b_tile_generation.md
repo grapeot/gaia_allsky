@@ -34,6 +34,30 @@ python src/rebuild_allsky_hires.py --hips outputs/hips1b_out_bsc5   # 默认 256
 实测 Aladin v2 加载后 zoom-out 明显变清晰（用户确认"比之前好太多"）。hipsgen 自己的
 `ALLSKY` action 只出 64px、没有分辨率参数，所以必须这样手动重建。落地页/客户端不用改。
 
+## ⚠️ 暗区"沿银河方向的斜杠子" = 瓦片 tone 用了 per-tile 自适应（第二大坑）
+
+**现象**：HiPS 拼好后，银河带**两侧的暗空区**出现一组斜向、平行、扇形发散的浅色条纹
+（投影后沿银河方向）；亮带本身看不出。规则的横竖网格不是它——那才是渐晕。
+
+**真因**：`render_tan_wcs.render_tile` 早期直接调 `beg.tone_adapted`，而 `tone_adapted`
+是**单张图自适应**链——sky-floor 取本张 tile 的 25 百分位、white-point 取 99.5 百分位。
+含银河带多的 tile 这两个分位更高，标定不同，**同一片天在相邻两张里被映射到不同亮度**。
+实测相邻 tile 重叠区（同一片天）背景差 **32%**，拼接即成接缝。
+
+**关键诊断手法（别重蹈我误判三次的覆辙）**：渐晕、Gaia 扫描条带、bloom 视场外缺失我
+都先后猜错。一锤定音的判据是**量相邻 tile 重叠区**（fov=6/step=5 有 1° 重叠，是同一片
+天）：raw canvas（accumulate + 立体角归一化，bloom/tone 之前）块间比值 **1.00**（几何层
+干净），artifact 全在 tone 链。padding 重渲（补 bloom 视场外贡献）只把 33%→30%，证明
+不是 bloom。
+
+**解法（已落地，源头消除，重渲一次即可）**：tile 路径不调 `tone_adapted`，改为直接调底层，
+传**全局固定标定**——`adapt_sky_floor(sky_anchor=rh.additive_skyglow_level(bortle))`（物理
+天光底作 floor，块间同一基准）+ `finish_sky_adapted(..., TILE_STRETCH)` 固定 white-point
+stretch（`TILE_STRETCH=1.0`，hero +6mag 下背景已满，per-tile stretch 本就 clamp 到 ~1）。
+验证：重叠区差 **32% → 0.1%**。`adapt_sky_floor` 的 `sky_anchor` 参数本来就是为"块间一致 /
+sweep 路径"设计的，tile 路径漏用了才退回 per-tile percentile。改完必须**全量重渲 338 张**
+再重拼金字塔。
+
 ### 升 v3 的探索记录（更彻底的修法，落地页集成待续）
 
 **已实测验证：v3 大 FOV 直接取全分辨率瓦片、绕过 Allsky，根治 zoom-out 糊。**
@@ -136,9 +160,10 @@ python src/render_tan_wcs.py \
   `*ERROR: Missing ID` 退出（README/working.md 早期命令漏了这两个，踩过）。沿用旧
   survey id `GaiaMW1B` 让 Aladin Lite wiring 不用改。
 - `target` 放 FOV 中心（银道 5,-2.5 → 赤道 271.672,-25.873）。
-- **`fading=true` 必加**：消重叠接缝。瓦片重叠带恰好是各自 gnomonic 边缘畸变最大处，
-  默认 mean 混合会在亮处留可见接缝；fading 羽化过渡消除它。**不要用 `border=` 裁边**
-  （裁过头露黑缝，更糟）。
+- **`fading=true` 必加**：羽化重叠过渡，消**亮处**的混合硬边；默认 mean 混合会在亮处留
+  可见接缝。**不要用 `border=` 裁边**（裁过头露黑缝，更糟）。注意 fading 只处理混合边，
+  **救不了暗区的 per-tile tone 接缝**（那是渲染层的标定不一致，见上"第二大坑"，必须在
+  render_tile 用全局固定 sky_anchor + stretch 解决）。
 - 产出 Norder0-6 七层金字塔、约 1.3 万瓦片、~1.2-1.4G、~16 分钟。
 - **注意 `hips_hierarchy=median`**：Aladin 金字塔降采样用 median，对高分辨率多图会
   重蹈乳光丢失（见下"sum vs mean"）。若要严格物理正确，自己 sum 池化建层，别让

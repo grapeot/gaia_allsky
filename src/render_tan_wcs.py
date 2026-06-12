@@ -43,6 +43,11 @@ import render_bortle_eye_grid as beg
 # 立体角归一化参考：广州正式图像素当量 (0.083°)²，让面亮度落在 tone 习惯范围
 REF_OMEGA = 0.083 ** 2
 
+# 瓦片全局固定 white-point stretch（不 per-tile 自适应，避免接缝；见 render_tile 注释）。
+# hero +6mag 下背景已满，per-tile stretch 基本 clamp 到 ~1.0，固定 1.0 既消白点接缝又
+# 符合"接受 +6mag 的满"的观感。如需更亮白点可整体调高，但必须所有 tile 一致。
+TILE_STRETCH = 1.0
+
 
 def gnomonic(l, b, lc, bc):
     """银道 (l,b)→ TAN 标准平面坐标 (xi, eta)，单位弧度。切点 (lc,bc)。
@@ -120,7 +125,15 @@ def render_tile(l, b, cols, L, out_prefix, lc, bc, fov_deg, S, psf_core_px,
     sat = 6.0 * sky * beg.gain_for_mag_delta(0.0)
     canvas = beg.saturate_and_bloom(canvas, sat, (3.0, 9.0), (0.65, 0.35))
     canvas = beg.add_skyglow(canvas, bortle)
-    rgb = beg.tone_adapted(canvas, target_sky, star_contrast, target_white, chroma)
+    # 瓦片 tone 必须用全局固定标定，不能 per-tile 自适应。tone_adapted 的 sky-floor
+    # 和 white-point 都按本张 tile 的分位估计（25%/99.5%），含银河带多的 tile 标定不同，
+    # 同一片天在相邻两张里被映射到不同亮度 → 拼接出沿银河方向的接缝条纹（实测重叠区差
+    # 32%）。改用物理天光底作 sky_anchor（块间同一 floor）+ 固定 stretch（块间同一白点），
+    # 重叠区差归零。raw canvas 几何/累积层本来就块间一致，artifact 全在 tone 链。
+    adapted = beg.adapt_sky_floor(canvas, target_sky, 25.0, star_contrast,
+                                  sky_anchor=beg.rh.additive_skyglow_level(bortle))
+    rgb = beg.finish_sky_adapted(adapted, target_sky, 2.2, target_white,
+                                 TILE_STRETCH, chroma)
     if out_fits:
         # FITS 域金字塔：存 tone 后、8-bit clip 前的 float rgb 为 R/G/B 三套单通道
         # FITS（hipsgen 对多面 FITS 当灰度，须分通道）。各通道 float 域逐层池化保住
