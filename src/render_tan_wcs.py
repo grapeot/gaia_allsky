@@ -130,8 +130,12 @@ def render_tile(l, b, cols, L, out_prefix, lc, bc, fov_deg, S, psf_core_px,
     # 同一片天在相邻两张里被映射到不同亮度 → 拼接出沿银河方向的接缝条纹（实测重叠区差
     # 32%）。改用物理天光底作 sky_anchor（块间同一 floor）+ 固定 stretch（块间同一白点），
     # 重叠区差归零。raw canvas 几何/累积层本来就块间一致，artifact 全在 tone 链。
+    # sky_anchor 的单位必须与 adapt_sky_floor 内部的 y=canvas.sum(-1)（三通道和）一致：
+    # add_skyglow 给每个通道各加 additive_skyglow_level，所以暗空背景的 sum 是它的 3 倍，
+    # anchor 必须 ×3。漏乘 3 会把黑场锚高 3×（scale 偏大），整图背景被向上推、暗空发灰。
+    sky_anchor = beg.rh.additive_skyglow_level(bortle) * 3.0
     adapted = beg.adapt_sky_floor(canvas, target_sky, 25.0, star_contrast,
-                                  sky_anchor=beg.rh.additive_skyglow_level(bortle))
+                                  sky_anchor=sky_anchor)
     rgb = beg.finish_sky_adapted(adapted, target_sky, 2.2, target_white,
                                  TILE_STRETCH, chroma)
     if out_fits:
