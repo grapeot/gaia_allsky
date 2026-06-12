@@ -34,6 +34,39 @@ python src/rebuild_allsky_hires.py --hips outputs/hips1b_out_bsc5   # 默认 256
 实测 Aladin v2 加载后 zoom-out 明显变清晰（用户确认"比之前好太多"）。hipsgen 自己的
 `ALLSKY` action 只出 64px、没有分辨率参数，所以必须这样手动重建。落地页/客户端不用改。
 
+## ⚠️ 暗区"沿银河方向的斜杠子" = 瓦片 tone 用了 per-tile 自适应（第二大坑）
+
+**现象**：HiPS 拼好后，银河带**两侧的暗空区**出现一组斜向、平行、扇形发散的浅色条纹
+（投影后沿银河方向）；亮带本身看不出。规则的横竖网格不是它——那才是渐晕。
+
+**真因**：`render_tan_wcs.render_tile` 早期直接调 `beg.tone_adapted`，而 `tone_adapted`
+是**单张图自适应**链——sky-floor 取本张 tile 的 25 百分位、white-point 取 99.5 百分位。
+含银河带多的 tile 这两个分位更高，标定不同，**同一片天在相邻两张里被映射到不同亮度**。
+实测相邻 tile 重叠区（同一片天）背景差 **32%**，拼接即成接缝。
+
+**关键诊断手法（别重蹈我误判三次的覆辙）**：渐晕、Gaia 扫描条带、bloom 视场外缺失我
+都先后猜错。一锤定音的判据是**量相邻 tile 重叠区**（fov=6/step=5 有 1° 重叠，是同一片
+天）：raw canvas（accumulate + 立体角归一化，bloom/tone 之前）块间比值 **1.00**（几何层
+干净），artifact 全在 tone 链。padding 重渲（补 bloom 视场外贡献）只把 33%→30%，证明
+不是 bloom。
+
+**解法（已落地，源头消除，重渲一次即可）**：tile 路径不调 `tone_adapted`，改为直接调底层，
+传**全局固定标定**——`adapt_sky_floor(sky_anchor=rh.additive_skyglow_level(bortle)*3)`（物理
+天光底作 floor，块间同一基准）+ `finish_sky_adapted(..., TILE_STRETCH)` 固定 white-point
+stretch（`TILE_STRETCH=1.0`，hero +6mag 下背景已满，per-tile stretch 本就 clamp 到 ~1）。
+验证：重叠区差 **32% → 0.1%**。`adapt_sky_floor` 的 `sky_anchor` 参数本来就是为"块间一致 /
+sweep 路径"设计的，tile 路径漏用了才退回 per-tile percentile。
+
+**⚠️ sky_anchor 量纲坑（必须 ×3）**：`adapt_sky_floor` 内部拿 sky_anchor 跟 `canvas.sum(-1)`
+（三通道和）比，而 `add_skyglow` 给 RGB 每通道各加 `additive_skyglow_level`，所以暗空背景
+的 sum 是它的 **3 倍**。anchor 漏乘 3 会把黑场锚高 3×（scale 偏大）→ 整图背景被向上推、
+暗空发灰发蒙（现象像"整体亮度被垫高"，不是过曝削顶——两种发白机制不同）。修正 ×3 后暗空
+tile 背景 p5 从 64→22。这个 bug 是固定标定的连带：per-tile 自适应在时会自动补偿掩盖它，
+固定标定后才显形。
+
+改完必须**全量重渲 338 张**
+再重拼金字塔。
+
 ### 升 v3 的探索记录（更彻底的修法，落地页集成待续）
 
 **已实测验证：v3 大 FOV 直接取全分辨率瓦片、绕过 Allsky，根治 zoom-out 糊。**
@@ -90,12 +123,17 @@ python src/render_tan_wcs.py \
   --data data/raw/fov_g20_bsc5.npz --out outputs/hips1b_tiles_hero --tiles \
   --l-range=-41,79 --b-range=-31,43 \
   --tile-fov 6 --tile-step 5 --tile-size 2048 --workers 8 \
-  --value 6 --target-sky 0.038 --target-white 2.6
+  --value 6 --target-sky 0.038 --target-white 2.6 --star-contrast 1.0 --chroma 1.8
 ```
 
 - **`--value 6 --target-sky 0.038 --target-white 2.6` = hero/主图同款**。不加这些时 tiles
   用 +0mag/target_sky 0.012（裸眼亮度），HiPS 会比实际暗一大截（中位 82 vs hero 同款 166，
   暗星增益差 ~250×）。hero 同款放大看单星不过曝（饱和像素 0.02%）、暗星涌现、乳光饱满。
+- **`--star-contrast 1.0` 必须显式传**（CLI 默认 6.0 会让银带过曝冲白！）。这是固定 tone
+  标定（消接缝）后**必须配套**调的：旧路径 star_contrast=6.0 靠 per-tile 白点自适应拉伸
+  补偿才不过曝，固定标定移除了 per-tile 补偿，6.0 就把银带信号放大 6× 冲到中位 255。实测
+  sc=1.0 银带中位 ~152（hero 观感）、暗区 ~83、无接缝；sc≥3 银带冲白。`chroma 1.8` 保金色
+  饱和度（CLI 默认就是 1.8）。
 - 网格 25×15=375 格，约 338 张非空（落在广州 FOV 内的）。
 - 每格一张 2048² PNG + 同名 `.hhh`（FITS WCS header），多进程并行，
   worker 数与 tile-size 不变则内存恒定（与瓦片总数无关），凑更高分辨率只需更多格。
@@ -136,9 +174,10 @@ python src/render_tan_wcs.py \
   `*ERROR: Missing ID` 退出（README/working.md 早期命令漏了这两个，踩过）。沿用旧
   survey id `GaiaMW1B` 让 Aladin Lite wiring 不用改。
 - `target` 放 FOV 中心（银道 5,-2.5 → 赤道 271.672,-25.873）。
-- **`fading=true` 必加**：消重叠接缝。瓦片重叠带恰好是各自 gnomonic 边缘畸变最大处，
-  默认 mean 混合会在亮处留可见接缝；fading 羽化过渡消除它。**不要用 `border=` 裁边**
-  （裁过头露黑缝，更糟）。
+- **`fading=true` 必加**：羽化重叠过渡，消**亮处**的混合硬边；默认 mean 混合会在亮处留
+  可见接缝。**不要用 `border=` 裁边**（裁过头露黑缝，更糟）。注意 fading 只处理混合边，
+  **救不了暗区的 per-tile tone 接缝**（那是渲染层的标定不一致，见上"第二大坑"，必须在
+  render_tile 用全局固定 sky_anchor + stretch 解决）。
 - 产出 Norder0-6 七层金字塔、约 1.3 万瓦片、~1.2-1.4G、~16 分钟。
 - **注意 `hips_hierarchy=median`**：Aladin 金字塔降采样用 median，对高分辨率多图会
   重蹈乳光丢失（见下"sum vs mean"）。若要严格物理正确，自己 sum 池化建层，别让
