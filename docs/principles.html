@@ -1,332 +1,351 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Gaia 全天星空实验的渲染原理深度解读：从每颗星一个像素出发，五步把真实星表画成一张银河，每一步都附可复现的命令。">
-  <title>渲染原理深度解读 · Gaia 全天星空实验</title>
-  <style>
-    :root {
-      color-scheme: dark;
-      --bg: #050607;
-      --panel: #0d1117;
-      --text: #e6edf3;
-      --muted: #8d99a8;
-      --line: rgba(178, 191, 208, 0.18);
-      --gold: #c4ad73;
-      --cyan: #a7bbc7;
-      --max: 880px;
-    }
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="Gaia 全天星空实验的渲染原理深度解读：从每颗星一个像素出发，五步把真实星表画成一张银河，每一步都附可复现的命令。" />
+<title>渲染原理深度解读 · Gaia 全天星空实验</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #070708;
+    --ink: #0b0b0d;
+    --panel: #101013;
+    --text: #f1eee7;
+    --soft: #cfcabf;
+    --muted: #968f82;
+    --line: rgba(241, 238, 231, 0.13);
+    --line-soft: rgba(241, 238, 231, 0.07);
+    --gold: #c9a86a;
+    --gold-dim: rgba(201, 168, 106, 0.5);
+    --blue: #8fa6c4;
+    --max: 1140px;
+    --measure: 720px;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
 
-    * { box-sizing: border-box; }
-    html { scroll-behavior: smooth; }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
 
-    body {
-      margin: 0;
-      background: var(--bg);
-      color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-      line-height: 1.85;
-    }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: "Noto Sans SC", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    line-height: 1.85; -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; text-decoration: none; }
+  img { display: block; max-width: 100%; }
+  h1, h2, h3 { margin: 0; letter-spacing: -0.03em; line-height: 1.1; }
+  .mono { font-family: var(--mono); }
+  .wrap { width: min(var(--max), calc(100% - 64px)); margin: 0 auto; }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--blue); outline-offset: 4px; }
 
-    a { color: inherit; text-decoration: none; }
-    a:focus-visible { outline: 2px solid var(--cyan); outline-offset: 4px; }
-    img { display: block; max-width: 100%; }
+  /* masthead */
+  .topbar {
+    position: sticky; top: 0; z-index: 40;
+    background: rgba(7, 7, 8, 0.86); backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--line);
+  }
+  .topbar-inner { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 60px; }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand-mark {
+    width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--gold-dim);
+    background: radial-gradient(circle at 50% 50%, var(--gold) 0 2px, transparent 3px),
+               radial-gradient(circle at 66% 36%, var(--blue) 0 1.4px, transparent 2px);
+    box-shadow: 0 0 14px rgba(201, 168, 106, 0.22);
+  }
+  .brand-name { font-weight: 700; font-size: 15px; letter-spacing: 0.18em; white-space: nowrap; }
+  .nav { display: flex; align-items: center; gap: 22px; color: var(--muted); font-size: 13px; }
+  .nav a:hover { color: var(--text); }
+  .nav .repo-link {
+    border: 1px solid var(--gold-dim); color: var(--gold); padding: 7px 14px; border-radius: 999px;
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em;
+  }
+  .nav .repo-link:hover { background: rgba(201, 168, 106, 0.08); }
 
-    .topbar {
-      position: sticky;
-      top: 0;
-      z-index: 20;
-      border-bottom: 1px solid var(--line);
-      background: rgba(7, 9, 16, 0.96);
-    }
+  /* editorial bits */
+  .kicker {
+    display: inline-flex; align-items: center; gap: 12px; white-space: nowrap;
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.16em; color: var(--gold); text-transform: uppercase;
+  }
+  .kicker .bar { width: 28px; height: 3px; background: var(--gold); }
+  .chapter {
+    display: grid; grid-template-columns: auto auto 1fr; gap: 16px; align-items: center;
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.14em; color: var(--muted);
+  }
+  .chapter .ch-no { color: var(--gold); font-size: 13px; }
+  .chapter .ch-rule { height: 1px; background: var(--line); }
 
-    .topbar-inner {
-      width: min(var(--max), calc(100% - 32px));
-      margin: 0 auto;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 18px;
-      min-height: 64px;
-    }
+  /* article header */
+  .article-head { padding: 72px 0 0; }
+  .article-head h1 { font-size: clamp(40px, 5vw, 68px); font-weight: 900; margin-top: 22px; letter-spacing: -0.04em; }
+  .article-head .lead { max-width: var(--measure); margin: 28px 0 0; color: var(--soft); font-size: clamp(17px, 1.8vw, 20px); line-height: 1.8; }
+  .meta-line { margin-top: 26px; font-family: var(--mono); font-size: 12px; color: var(--muted); letter-spacing: 0.05em; }
+  .meta-line b { color: var(--gold); font-weight: 500; }
 
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-weight: 700;
-      letter-spacing: 0.03em;
-    }
+  .section { padding: 88px 0 0; }
+  .section h2 { font-size: clamp(28px, 3.4vw, 46px); font-weight: 900; margin-top: 26px; max-width: 20ch; letter-spacing: -0.035em; }
+  .prose { max-width: var(--measure); }
+  .prose p { margin: 20px 0 0; color: var(--soft); font-size: 16.5px; line-height: 1.85; }
+  .prose p b { color: var(--text); font-weight: 500; }
 
-    .brand-mark {
-      width: 24px;
-      height: 24px;
-      border: 1px solid rgba(196, 173, 115, 0.62);
-      border-radius: 50%;
-      background: radial-gradient(circle at 50% 50%, #d0bc82 0 2px, transparent 3px), radial-gradient(circle at 65% 34%, #a7bbc7 0 1px, transparent 2px);
-    }
+  /* two principles */
+  .principles { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin-top: 36px; border-top: 1px solid var(--line); }
+  .principle { padding: 28px 30px 0 0; border-right: 1px solid var(--line); }
+  .principle:last-child { border-right: 0; padding-right: 0; padding-left: 30px; }
+  .principle .pn { font-family: var(--mono); font-size: 12px; color: var(--gold); letter-spacing: 0.1em; }
+  .principle h3 { font-size: 20px; font-weight: 700; margin-top: 12px; line-height: 1.35; }
+  .principle p { color: var(--soft); font-size: 15.5px; margin: 14px 0 0; line-height: 1.8; }
 
-    .nav { display: flex; gap: 18px; color: var(--muted); font-size: 14px; white-space: nowrap; }
-    .nav a:hover { color: var(--text); }
+  /* ablation steps */
+  .ablation-step {
+    display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 48px; align-items: start;
+    margin-top: 40px; padding-top: 40px; border-top: 1px solid var(--line);
+  }
+  .step-no {
+    display: inline-flex; align-items: center; gap: 10px; white-space: nowrap;
+    font-family: var(--mono); font-size: 12px; color: var(--gold); letter-spacing: 0.1em;
+  }
+  .step-no::before { content: ""; width: 22px; height: 1px; background: var(--gold); }
+  .ablation-step h3 { font-size: 23px; font-weight: 700; margin: 14px 0 0; line-height: 1.3; }
+  .ablation-step .prose { max-width: none; }
+  pre {
+    margin: 22px 0 0; padding: 16px 18px; border: 1px solid var(--line); border-radius: 4px;
+    background: #0e0e11; overflow-x: auto; font-size: 12.5px; line-height: 1.7;
+  }
+  pre code { font-family: var(--mono); color: #d8d2c4; }
+  code {
+    font-family: var(--mono); font-size: 0.9em; border: 1px solid var(--line); border-radius: 4px;
+    padding: 1px 6px; background: rgba(255,255,255,0.05); color: #e2ddd2;
+  }
+  figure { margin: 0; }
+  .step-fig img, .pair figure img {
+    width: 100%; aspect-ratio: 1080 / 1920; object-fit: cover;
+    border: 1px solid var(--line); background: #02040a; display: block;
+  }
+  figcaption { margin-top: 12px; color: var(--muted); font-size: 13px; line-height: 1.7; font-family: var(--mono); letter-spacing: 0.02em; }
 
-    main {
-      width: min(var(--max), calc(100% - 32px));
-      margin: 0 auto;
-      padding: 56px 0 80px;
-    }
+  /* switcher */
+  .switcher-controls { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 14px; }
+  .switch-btn {
+    flex: 1 1 auto; min-width: 64px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 3px;
+    background: #0e0e11; color: var(--muted); font-family: var(--mono); font-size: 12px; cursor: pointer;
+    transition: border-color .15s, color .15s, background .15s;
+  }
+  .switch-btn:hover { color: var(--text); border-color: var(--gold-dim); }
+  .switch-btn.active { color: #14110a; background: var(--gold); border-color: var(--gold); }
 
-    .eyebrow {
-      margin: 0 0 14px;
-      color: var(--gold);
-      font-size: 13px;
-      letter-spacing: 0.16em;
-      text-transform: uppercase;
-    }
+  /* weber pair */
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; margin-top: 26px; }
 
-    h1 { font-size: clamp(32px, 5vw, 52px); line-height: 1.16; letter-spacing: -0.02em; margin: 0 0 18px; }
-    h2 { font-size: clamp(24px, 3.6vw, 34px); line-height: 1.2; letter-spacing: -0.02em; margin: 72px 0 8px; }
-    h3 { font-size: 20px; margin: 44px 0 6px; }
+  /* note */
+  .note {
+    margin-top: 36px; padding: 24px 26px; border: 1px solid var(--gold-dim); border-radius: 4px;
+    background: linear-gradient(120deg, rgba(143,166,196,0.07), rgba(201,168,106,0.06)); max-width: var(--measure);
+  }
+  .note p { margin: 0; color: var(--soft); font-size: 15.5px; }
+  .note a { color: var(--gold); border-bottom: 1px solid var(--gold-dim); }
 
-    p { margin: 14px 0 0; color: #c4cedd; }
-    .lead { font-size: clamp(17px, 1.8vw, 20px); color: #c9d3e5; }
+  footer { margin-top: 96px; border-top: 1px solid var(--line); }
+  footer .wrap { padding: 36px 0 60px; }
+  footer p { color: var(--muted); font-size: 13.5px; font-family: var(--mono); letter-spacing: 0.02em; }
+  footer a { color: var(--gold); }
 
-    code {
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      padding: 1px 5px;
-      background: rgba(255, 255, 255, 0.06);
-      color: #dbe6ff;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      font-size: 0.9em;
-    }
-
-    pre {
-      margin: 14px 0 0;
-      padding: 14px 16px;
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      background: var(--panel);
-      overflow-x: auto;
-      font-size: 13px;
-      line-height: 1.6;
-    }
-
-    pre code { border: 0; padding: 0; background: none; }
-
-    figure { margin: 26px 0 0; }
-
-    figure img {
-      width: 100%;
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      background: #02040a;
-    }
-
-    figcaption { margin-top: 10px; color: var(--muted); font-size: 14px; line-height: 1.7; }
-
-    .ablation-step {
-      display: grid;
-      grid-template-columns: minmax(0, 0.62fr) minmax(0, 1fr);
-      gap: 26px;
-      align-items: start;
-      margin-top: 40px;
-      padding-top: 32px;
-      border-top: 1px solid var(--line);
-    }
-
-    .step-no {
-      display: inline-block;
-      margin-bottom: 8px;
-      color: var(--gold);
-      font: 700 13px/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      letter-spacing: 0.1em;
-    }
-
-    .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 26px; }
-
-    .switcher-stage img { display: block; }
-    .switcher-controls {
-      display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px;
-    }
-    .switch-btn {
-      flex: 1 1 auto; min-width: 64px;
-      padding: 8px 10px;
-      border: 1px solid var(--line); border-radius: 8px;
-      background: #02040a; color: var(--muted);
-      font: 600 13px/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      cursor: pointer; transition: border-color .15s, color .15s, background .15s;
-    }
-    .switch-btn:hover { color: var(--fg); border-color: rgba(216,180,106,0.5); }
-    .switch-btn.active {
-      color: #02040a; background: var(--gold); border-color: var(--gold);
-    }
-
-    .note {
-      margin-top: 26px;
-      padding: 18px 20px;
-      border: 1px solid rgba(216, 180, 106, 0.42);
-      border-radius: 12px;
-      background: rgba(216, 180, 106, 0.07);
-    }
-
-    .note p { margin: 0; }
-
-    footer {
-      width: min(var(--max), calc(100% - 32px));
-      margin: 0 auto;
-      padding: 36px 0 60px;
-      color: var(--muted);
-      border-top: 1px solid var(--line);
-      font-size: 14px;
-    }
-
-    @media (max-width: 720px) {
-      .ablation-step { grid-template-columns: 1fr; }
-      .pair { grid-template-columns: 1fr; }
-      .nav a.hide-mobile { display: none; }
-    }
-  </style>
+  @media (max-width: 820px) {
+    .nav a:not(.repo-link) { display: none; }
+    .ablation-step { grid-template-columns: 1fr; gap: 28px; }
+    .step-fig { max-width: 380px; }
+    .principles, .pair { grid-template-columns: 1fr; }
+    .principle { border-right: 0; border-bottom: 1px solid var(--line); padding: 24px 0; }
+    .principle:last-child { border-bottom: 0; padding-left: 0; }
+  }
+  @media (max-width: 560px) { .wrap { width: calc(100% - 36px); } }
+</style>
 </head>
-<body>
+<body id="top">
   <header class="topbar">
-    <div class="topbar-inner">
+    <div class="topbar-inner wrap">
       <a class="brand" href="index.html" aria-label="返回主页">
         <span class="brand-mark" aria-hidden="true"></span>
-        <span>Gaia 全天星空实验</span>
+        <span class="brand-name">GAIA 全天星空实验</span>
       </a>
       <nav class="nav" aria-label="页面导航">
-        <a class="hide-mobile" href="#pipeline">五个坑</a>
-        <a class="hide-mobile" href="#scaleup">加数据</a>
-        <a class="hide-mobile" href="#color">一处边界</a>
+        <a href="#pipeline">五个坑</a>
+        <a href="#scaleup">加数据</a>
+        <a href="#boundary">一处边界</a>
         <a href="index.html">返回主页</a>
-        <a href="https://github.com/grapeot/gaia_allsky">GitHub</a>
+        <a class="repo-link" href="https://github.com/grapeot/gaia_allsky">GITHUB ↗</a>
       </nav>
     </div>
   </header>
 
   <main>
-    <p class="eyebrow">五个坑，五次发现不理想</p>
-    <h1>渲染原理深度解读</h1>
-    <p class="lead">主页上那些图没有用任何银河贴图、尘埃素材或手绘辉光。画面里每一个像素都能追溯到 Gaia 星表里某一批真实恒星，加上几条有物理依据的显示规则。这一页不是一份从头到尾顺利的流水线说明，而是把主图的来路如实讲一遍：从最朴素的"每颗星一个像素"出发，我们先后踩过五个坑，每加一步都发现画面还差点意思，再补上一条规则。五步走完，正好复现主图。每一步都配一张消融实验图和可复现的命令。</p>
+    <!-- ===================== ARTICLE HEAD ===================== -->
+    <header class="article-head wrap">
+      <p class="kicker"><span class="bar" aria-hidden="true"></span>渲染原理 / RENDERING PRINCIPLES</p>
+      <h1>渲染原理<br />深度解读</h1>
+      <p class="lead">主页上那些图没有用任何银河贴图、尘埃素材或手绘辉光。画面里每一个像素都能追溯到 Gaia 星表里某一批真实恒星，加上几条有物理依据的显示规则。这一页不是一份从头到尾顺利的流水线说明，而是把主图的来路如实讲一遍：从最朴素的"每颗星一个像素"出发，我们先后踩过五个坑，每加一步都发现画面还差点意思，再补上一条规则。五步走完，正好复现主图。每一步都配一张消融实验图和可复现的命令。</p>
+      <p class="meta-line">数据来源 · <b>ESA / Gaia 任务 DR3</b> · 五步消融实验 · 全部命令可复现</p>
+    </header>
 
-    <h2>两条贯穿始终的原则</h2>
-    <p>第一，物理层和显示层严格分开。恒星的位置、亮度、颜色由星表数据和坐标变换决定，这部分不为视觉效果让步；屏幕上最终的观感由显示参数控制，这部分明确承认自己是显示决策。两套体系各自独立，显示参数永远不伪装成天体物理常数。</p>
-    <p>第二，每个显示参数都要有物理锚点，并且在命令行里显式暴露。下面会看到，连"暗星该补偿多少倍亮度"这样听起来像美学调参的数字，也能从星表自己的统计里推出来。这样做的直接好处是：本页所有实验图都附了完整命令，任何人 clone 仓库都能逐字复现。先说一个所有步骤都用到的锚点：星等到屏幕亮度的换算需要一个"多亮算可见"的基准，这里用天文爱好者社区长期积累的经验——每个 Bortle 光污染等级对应一个裸眼极限星等（NELM），顶级暗空约 7.8 等、明亮郊区约 5.3 等、市中心约 4.0 等。恰好处在极限星等的恒星被画成天空背景的固定比例（默认 0.5 倍），更亮的星按 Pogson 公式（每差 5 等亮度差 100 倍）往上走。什么星看得见，不是调出来的，是从观测经验表里读出来的。</p>
-
-    <h2 id="pipeline">五个坑</h2>
-    <p>下面固定同一片天空（广州纬度、顶级暗空，主图的设定），从完全不真实的画法开始，每一步只动一处，终点正是主图。所有图都用仓库里的同一条命令渲染，只换参数开关。</p>
-
-    <div class="ablation-step">
-      <div>
-        <span class="step-no">STEP 1 / 每颗星一个像素</span>
-        <h3 style="margin-top:0">真实落点是诚实的地基，但颜色差点把它毁了</h3>
-        <p>六亿颗星按真实位置和 Pogson 亮度直接落在单个像素上。银河的密度起伏此刻已经在了，数据本身就带着它，不需要任何后续技巧去"造"出银河。这一步是地基，位置和亮度都对。它的不足首先是视觉质感：所有星都是同样大小的硬颗粒，亮暗只有明度差没有大小差，画面像撒了一层盐，缩小一半就开始闪烁断裂。后面几步会补上成像物理和人眼感知。</p>
-        <p>但这一步藏着第一个坑，在颜色上。Gaia 给了每颗星的色指数（BP-RP），直觉是亮的偏蓝、暗的偏红，照着上色就行。早期版本却让整条银河泛着一层暖黄，跟任何一张像样的天文照片都不像。问题出在一个张冠李戴的等号：把 Gaia 的 BP-RP 当成了天文里更常见的另一个色指数 B-V，用手搓的近似公式直接转成颜色。两者是不同滤光片测出来的，数值不对应，银盘里 BP-RP 落在 1 到 2 的主力恒星被整体推向暖黄，再被显示层的饱和度放大，整张图就黄成了一片。</p>
-        <p>修法是换成标准的物理链：色指数先换算成恒星表面温度（用 Pecaut &amp; Mamajek 的主序星标定，太阳 G2V 对应 BP-RP≈0.82、温度 5772K），温度再通过黑体辐射谱乘以 CIE 1931 配色函数积分，得到线性 sRGB。关键是最后一步的锚点：把太阳这颗 5772K 的恒星定为中性白，每颗星的 RGB 都除以太阳的 RGB。这正是 PixInsight 的光度色彩校准、或图像软件里"设定白点"操作的物理版本，先言明哪种光算白，其余颜色的冷暖才有了参照。锚定之后，那层假暖黄褪去，而星与星之间真实的蓝黄差异完整保留：该蓝的还蓝，该红的还红，只是不再泡在咖啡色里。</p>
-        <pre><code>--psf-core-px 0 --faint-gain 1 \
---sat-over-sky 0 --ext-threshold 0</code></pre>
+    <!-- ===================== 00 · 原则 ===================== -->
+    <section class="section wrap" aria-labelledby="principles-title">
+      <div class="chapter"><span class="ch-no">00</span><span class="ch-rule" aria-hidden="true"></span><span class="ch-title">两条原则 / TWO PRINCIPLES</span></div>
+      <h2 id="principles-title">两条贯穿始终的原则。</h2>
+      <div class="principles">
+        <article class="principle">
+          <div class="pn">原则 i</div>
+          <h3>物理层和显示层严格分开</h3>
+          <p>恒星的位置、亮度、颜色由星表数据和坐标变换决定，这部分不为视觉效果让步；屏幕上最终的观感由显示参数控制，这部分明确承认自己是显示决策。两套体系各自独立，显示参数永远不伪装成天体物理常数。</p>
+        </article>
+        <article class="principle">
+          <div class="pn">原则 ii</div>
+          <h3>每个显示参数都要有物理锚点</h3>
+          <p>连"暗星该补偿多少倍亮度"这样听起来像美学调参的数字，也能从星表自己的统计里推出来，并在命令行里显式暴露。星等到屏幕亮度的换算用一个"多亮算可见"的基准：每个 Bortle 等级对应一个裸眼极限星等（NELM），顶级暗空约 7.8 等、明亮郊区约 5.3 等、市中心约 4.0 等。恰好处在极限星等的恒星被画成天空背景的固定比例（默认 0.5 倍），更亮的星按 Pogson 公式往上走。什么星看得见，不是调出来的，是从观测经验表里读出来的。</p>
+        </article>
       </div>
-      <figure>
-        <img src="assets/ablation_1_naive.jpg" alt="每颗星一个像素：真实位置与亮度直接落点，颜色经白点锚定，银河密度起伏已在，但画面像盐粒" loading="lazy">
-      </figure>
-    </div>
+    </section>
 
-    <div class="ablation-step">
-      <div>
-        <span class="step-no">STEP 2 / 光学弥散</span>
-        <h3 style="margin-top:0">同一个 PSF 给所有星，但核太宽会糊掉整张图</h3>
-        <p>第二个坑在点扩散函数（PSF，一颗点光源在成像面上的弥散形状）上。真实光学系统里 PSF 是相机的属性，不是恒星的属性：同一台相机拍出来，织女星和一颗 10 等星的光斑形状完全相同，差别只在振幅。所以让所有恒星共用同一个高斯核，盐粒感消失，星点有了真实成像系统的柔和形态。到这一步画面已经相当像银河了。</p>
-        <p>坑在核的宽度。早期取 1.1 像素，整幅画面偏糊像隔了层毛玻璃，暗星的颗粒感和银河纹理都被抹掉。收窄到接近点采样的 0.6 像素后，暗星重新有了颗粒、银河纹理变锐，而"亮星该显大"这件事交给下一步的饱和溢出去产生，PSF 不必靠加宽来兼任。顺带一个实现事实：PSF 是对整幅画布做一次卷积，代价和星数无关。</p>
-        <pre><code>--psf-core-px 0.6 --faint-gain 1 \
---sat-over-sky 0 --ext-threshold 0</code></pre>
-      </div>
-      <figure>
-        <img src="assets/ablation_3_faintgain.jpg" alt="加窄PSF后：星点有了成像形态，盐粒感消失，画面已相当像银河" loading="lazy">
-      </figure>
-    </div>
+    <!-- ===================== 01 · 五个坑 ===================== -->
+    <section class="section wrap" id="pipeline" aria-labelledby="pipeline-title">
+      <div class="chapter"><span class="ch-no">01</span><span class="ch-rule" aria-hidden="true"></span><span class="ch-title">五个坑 / FIVE PITFALLS</span></div>
+      <h2 id="pipeline-title">从最朴素的画法，五步走到主图。</h2>
+      <div class="prose"><p>下面固定同一片天空（广州纬度、顶级暗空，主图的设定），从完全不真实的画法开始，每一步只动一处，终点正是主图。所有图都用仓库里的同一条命令渲染，只换参数开关。</p></div>
 
-    <div class="ablation-step">
-      <div>
-        <span class="step-no">STEP 3 / 饱和溢出</span>
-        <h3 style="margin-top:0">亮星的大小来自能量守恒，不是更大的笔刷</h3>
-        <p>上一步把 PSF 收窄了，亮星却因此显得太小、压不住场面。第三个坑是怎么让亮星正确地变大。真实照片里亮星显大有两个机制：传感器（或视网膜）在亮星核心处饱和，同样的光斑轮廓有更宽的部分越过显示上限；散射和衍射把溢出的能量摊成光晕。实现上按这个机制来做：线性亮度超过饱和线的部分被截下来，按两个更宽的高斯（3 像素和 9 像素）重新散布回画面。关键性质是能量守恒，溢出翼只是把过亮核心的光摊开，不无中生有。这样恒星的视大小随亮度连续增长，从暗星的单像素颗粒到亮星的饱和盘面之间没有任何分段缝，星空照片里那种"亮星压得住场面"的层次感就来自这一步。</p>
-        <p>这里还藏着一个子坑：饱和线必须挂在星等阶梯上，不能挂在某个固定亮度上。模拟"眼睛灵敏度提高若干等"时所有星光等比放大，饱和线若不跟着走，画面里一大片像素会被截断、整条银河洗成一片柔光。修正后的饱和线表达成"比极限星等亮若干等的星开始饱和"，随亮度阶梯平移，任何灵敏度设定下饱和的都是该饱和的那批星。</p>
-        <pre><code>--psf-core-px 0.6 --faint-gain 1 \
---sat-over-sky 6 --ext-threshold 0</code></pre>
-      </div>
-      <figure>
-        <img src="assets/ablation_4_satbloom.jpg" alt="加饱和溢出后：亮星有了盘面和光晕，星点大小随亮度连续变化" loading="lazy">
-      </figure>
-    </div>
-
-    <div class="ablation-step" id="scaleup">
-      <div>
-        <span class="step-no">STEP 4 / 加数据</span>
-        <h3 style="margin-top:0">奇技淫巧不如以力破巧</h3>
-        <p>前三步为了在稀疏数据上凑出乳光，用了一个聪明的奇技淫巧：让较亮的星乘一个增益，用光度函数把截断之后几十亿颗不可分辨恒星的总光量代理回来。它够用，但有个代理不到的东西，光的颗粒统计。"少量较亮的颗粒乘大增益"和"大量细颗粒乘小增益"总光量一样，放大看质感完全不同，后者乳光细腻、暗带锐利，前者像被放大的噪点。</p>
-        <p>解法不是更精巧的技巧，而是更多的真实数据。广州这片天区的星表一路加深：13 等 240 万颗、16 等 3300 万颗、18 等 1.5 亿颗、20 等 6.16 亿颗。下面这个切换器，从 13 等加增益的奇技淫巧版起步，往后是真实星无增益、逐级加深的四档，拖动按钮对比同一视角。真星越多，乳光越细腻饱满、暗带越有结构，全部自然涌现，不需要任何 trick。</p>
-        <p>这一步还顺手解决了一个一直没解决的遗留问题：大裂隙。早先它在渲染里发灰，黑不到照片那个程度，怎么调消光衰减都只黑一档。真正让它浮现的不是更巧的算法，而是这里的加深星表——加到 20 等真星，裂隙两侧的亮云亮起来、衬得那条连续的宽暗带终于显出来。增益只能逼近，真实数据才是上限。主页和这一页的高清大图都来自 20 等真星这一档。</p>
-        <pre><code># 真星无增益，只换星表深度
---data data/raw/fov_g20_bsc5.npz --faint-gain 1</code></pre>
-      </div>
-      <figure>
-        <div class="switcher" id="scaleSwitcher">
-          <div class="switcher-stage">
-            <img id="scaleImg" src="assets/ablation_scale_g20.jpg" alt="加数据：G<20 真星无增益，6.2 亿颗，银河细腻饱满、大裂隙显现" loading="lazy">
+      <div class="ablation-step">
+        <div>
+          <span class="step-no">STEP 1 · 每颗星一个像素</span>
+          <h3>真实落点是诚实的地基，但颜色差点把它毁了</h3>
+          <div class="prose">
+            <p>六亿颗星按真实位置和 Pogson 亮度直接落在单个像素上。银河的密度起伏此刻已经在了，数据本身就带着它，不需要任何后续技巧去"造"出银河。这一步是地基，位置和亮度都对。它的不足首先是视觉质感：所有星都是同样大小的硬颗粒，亮暗只有明度差没有大小差，画面像撒了一层盐，缩小一半就开始闪烁断裂。后面几步会补上成像物理和人眼感知。</p>
+            <p>但这一步藏着第一个坑，在颜色上。Gaia 给了每颗星的色指数（BP-RP），直觉是亮的偏蓝、暗的偏红，照着上色就行。早期版本却让整条银河泛着一层暖黄，跟任何一张像样的天文照片都不像。问题出在一个张冠李戴的等号：把 Gaia 的 BP-RP 当成了天文里更常见的另一个色指数 B-V，用手搓的近似公式直接转成颜色。两者是不同滤光片测出来的，数值不对应，银盘里 BP-RP 落在 1 到 2 的主力恒星被整体推向暖黄，再被显示层的饱和度放大，整张图就黄成了一片。</p>
+            <p>修法是换成标准的物理链：色指数先换算成恒星表面温度（用 Pecaut &amp; Mamajek 的主序星标定，太阳 G2V 对应 BP-RP≈0.82、温度 5772K），温度再通过黑体辐射谱乘以 CIE 1931 配色函数积分，得到线性 sRGB。关键是最后一步的锚点：把太阳这颗 5772K 的恒星定为中性白，每颗星的 RGB 都除以太阳的 RGB。锚定之后，那层假暖黄褪去，而星与星之间真实的蓝黄差异完整保留：该蓝的还蓝，该红的还红，只是不再泡在咖啡色里。</p>
           </div>
-          <div class="switcher-controls" role="tablist" aria-label="星表深度切换">
-            <button type="button" class="switch-btn" data-img="assets/ablation_scale_g13gain.jpg" data-label="G<13 加增益（外推近似）">G&lt;13 增益</button>
-            <button type="button" class="switch-btn" data-img="assets/ablation_scale_g13.jpg" data-label="G<13 真星（240 万颗）">G&lt;13</button>
-            <button type="button" class="switch-btn" data-img="assets/ablation_scale_g16.jpg" data-label="G<16 真星（3300 万颗）">G&lt;16</button>
-            <button type="button" class="switch-btn" data-img="assets/ablation_scale_g18.jpg" data-label="G<18 真星（1.5 亿颗）">G&lt;18</button>
-            <button type="button" class="switch-btn active" data-img="assets/ablation_scale_g20.jpg" data-label="G<20 真星无增益（6.2 亿颗）">G&lt;20</button>
-          </div>
+          <pre><code>--psf-core-px 0 --faint-gain 1 \
+--sat-over-sky 0 --ext-threshold 0</code></pre>
         </div>
-        <figcaption id="scaleCaption">G&lt;20 真星无增益（6.2 亿颗）。同一视角、同一显示参数，只换星表深度。</figcaption>
-      </figure>
-    </div>
-
-    <div class="ablation-step">
-      <div>
-        <span class="step-no">STEP 5 / Weber 对比预置与人眼阈值</span>
-        <h3 style="margin-top:0">最后一步交给观看者的眼睛和屏幕</h3>
-        <p>前四步把真实的天空算了出来，最后一个坑是把它正确地交付到屏幕和人眼。这里有一条关键的感知规则：人眼探测一颗点状的星，和察觉一片大面积的微弱亮光，是两套完全不同的机制。前者由极限星等描述，后者服从 Weber 对比阈值，低于天空背景百分之几的弥散结构，眼睛就是看不见，哪怕相机长曝光拍得清清楚楚。各级光污染下银河带相对天空的对比度实测：顶级暗空 93%，明亮郊区 9%，市中心 2.8%。如果显示管线把任何正对比都画出来，市中心也会残留一条隐约的银河，与真实经验相悖。</p>
-        <p>实现上用一个高斯把画面分成弥散光（低频）和点源（高频），弥散光在对比域按一条平滑曲线压向阈值以下，点源原样保留。施加之后银河在 7 级光污染左右从画面里消失，8、9 级只剩亮星，顶级暗空几乎无感。这个阈值刻意不随灵敏度增益缩放：双筒望远镜把弥散光对比放大过阈值后银河重新可见，这正是器材党在城里也能扫到银河的机制。在这张暗空主图里这一步几乎不改变画面（银河对比远高于阈值），它真正的作用在光污染下，见下面的对比。走到这里，五个坑都补完了，画面就是主图。</p>
-        <pre><code>默认参数（全部规则开启）</code></pre>
+        <figure class="step-fig">
+          <img src="assets/ablation_1_naive.jpg" alt="每颗星一个像素：真实位置与亮度直接落点，颜色经白点锚定，银河密度起伏已在，但画面像盐粒" loading="lazy" />
+          <figcaption>STEP 1 · 一星一像素 — 银河密度起伏已在，但星点像盐粒</figcaption>
+        </figure>
       </div>
-      <figure>
-        <img src="assets/ablation_5_full.jpg" alt="完整模型：与主页一致的最终渲染效果" loading="lazy">
-      </figure>
-    </div>
 
-    <h3 style="margin-top:64px">Weber 阈值在光污染下的作用</h3>
-    <p>同一片天空，Bortle 7（城市边缘）、裸眼。左边关闭阈值：银河带残留一条隐约的痕迹，这是相机才能看到的对比度。右边打开阈值：弥散光低于人眼能察觉的水平，被显示层移除，只剩亮星——这才是城市边缘抬头真实看到的天空。</p>
-    <div class="pair">
-      <figure>
-        <img src="assets/ablation_weber_off.jpg" alt="Bortle 7 关闭Weber阈值：银河残留隐约痕迹" loading="lazy">
-        <figcaption>关闭阈值（--ext-threshold 0）：残留的银河痕迹其实低于人眼可见水平。</figcaption>
-      </figure>
-      <figure>
-        <img src="assets/ablation_weber_on.jpg" alt="Bortle 7 打开Weber阈值：弥散光消失只剩亮星" loading="lazy">
-        <figcaption>打开阈值（默认 0.035）：与真实观测经验一致，银河完全不可见。</figcaption>
-      </figure>
-    </div>
+      <div class="ablation-step">
+        <div>
+          <span class="step-no">STEP 2 · 光学弥散</span>
+          <h3>同一个 PSF 给所有星，但核太宽会糊掉整张图</h3>
+          <div class="prose">
+            <p>第二个坑在点扩散函数（PSF，一颗点光源在成像面上的弥散形状）上。真实光学系统里 PSF 是相机的属性，不是恒星的属性：同一台相机拍出来，织女星和一颗 10 等星的光斑形状完全相同，差别只在振幅。所以让所有恒星共用同一个高斯核，盐粒感消失，星点有了真实成像系统的柔和形态。到这一步画面已经相当像银河了。</p>
+            <p>坑在核的宽度。早期取 1.1 像素，整幅画面偏糊像隔了层毛玻璃，暗星的颗粒感和银河纹理都被抹掉。收窄到接近点采样的 0.6 像素后，暗星重新有了颗粒、银河纹理变锐，而"亮星该显大"这件事交给下一步的饱和溢出去产生，PSF 不必靠加宽来兼任。顺带一个实现事实：PSF 是对整幅画布做一次卷积，代价和星数无关。</p>
+          </div>
+          <pre><code>--psf-core-px 0.6 --faint-gain 1 \
+--sat-over-sky 0 --ext-threshold 0</code></pre>
+        </div>
+        <figure class="step-fig">
+          <img src="assets/ablation_3_faintgain.jpg" alt="加窄PSF后：星点有了成像形态，盐粒感消失，画面已相当像银河" loading="lazy" />
+          <figcaption>STEP 2 · 加窄 PSF — 星点有了成像形态，盐粒感消失</figcaption>
+        </figure>
+      </div>
 
-    <h2 id="color">一处诚实的边界</h2>
-    <p>五个坑补完，主图就出来了。最后留一处没有干净结尾的边界，照实说。</p>
+      <div class="ablation-step">
+        <div>
+          <span class="step-no">STEP 3 · 饱和溢出</span>
+          <h3>亮星的大小来自能量守恒，不是更大的笔刷</h3>
+          <div class="prose">
+            <p>上一步把 PSF 收窄了，亮星却因此显得太小、压不住场面。第三个坑是怎么让亮星正确地变大。真实照片里亮星显大有两个机制：传感器（或视网膜）在亮星核心处饱和，同样的光斑轮廓有更宽的部分越过显示上限；散射和衍射把溢出的能量摊成光晕。实现上按这个机制来做：线性亮度超过饱和线的部分被截下来，按两个更宽的高斯（3 像素和 9 像素）重新散布回画面。关键性质是能量守恒，溢出翼只是把过亮核心的光摊开，不无中生有。这样恒星的视大小随亮度连续增长，星空照片里那种"亮星压得住场面"的层次感就来自这一步。</p>
+            <p>这里还藏着一个子坑：饱和线必须挂在星等阶梯上，不能挂在某个固定亮度上。模拟"眼睛灵敏度提高若干等"时所有星光等比放大，饱和线若不跟着走，画面里一大片像素会被截断、整条银河洗成一片柔光。修正后的饱和线表达成"比极限星等亮若干等的星开始饱和"，随亮度阶梯平移，任何灵敏度设定下饱和的都是该饱和的那批星。</p>
+          </div>
+          <pre><code>--psf-core-px 0.6 --faint-gain 1 \
+--sat-over-sky 6 --ext-threshold 0</code></pre>
+        </div>
+        <figure class="step-fig">
+          <img src="assets/ablation_4_satbloom.jpg" alt="加饱和溢出后：亮星有了盘面和光晕，星点大小随亮度连续变化" loading="lazy" />
+          <figcaption>STEP 3 · 加饱和溢出 — 亮星有了盘面和光晕，层次拉开</figcaption>
+        </figure>
+      </div>
 
-    <h3>城市夜空到底能不能纯黑</h3>
-    <p>大裂隙在暗空主图里已经靠加深星表显出来了（见 STEP 4）。真正还够不到的是另一头：照片里城市上空那种纯黑的背景。Gaia 是为测量遥远暗星设计的，它能往很暗处看，但模拟"裸眼在城里看到什么"时，照片那种纯黑不全是物理，还来自长曝光看到了远超裸眼的暗星、再叠上激进的曲线拉伸。本项目坚持"只画真实星、不叠尘埃或夜空贴图"，于是高污染下的天空是被城市辉光均匀抬亮的灰，而不是照片里压到死黑的背景。这不是 bug，是"诚实渲染"和"修图美学"的分界：缺什么就补真实数据，补不到的地方就承认，不假装修好了。</p>
+      <div class="ablation-step" id="scaleup">
+        <div>
+          <span class="step-no">STEP 4 · 加数据</span>
+          <h3>奇技淫巧不如以力破巧</h3>
+          <div class="prose">
+            <p>前三步为了在稀疏数据上凑出乳光，用了一个聪明的奇技淫巧：让较亮的星乘一个增益，用光度函数把截断之后几十亿颗不可分辨恒星的总光量代理回来。它够用，但有个代理不到的东西，光的颗粒统计。"少量较亮的颗粒乘大增益"和"大量细颗粒乘小增益"总光量一样，放大看质感完全不同，后者乳光细腻、暗带锐利，前者像被放大的噪点。</p>
+            <p>解法不是更精巧的技巧，而是更多的真实数据。广州这片天区的星表一路加深：13 等 240 万颗、16 等 3300 万颗、18 等 1.5 亿颗、20 等 6.16 亿颗。下面这个切换器，从 13 等加增益的奇技淫巧版起步，往后是真实星无增益、逐级加深的四档，点按对比同一视角。真星越多，乳光越细腻饱满、暗带越有结构，全部自然涌现，不需要任何 trick。</p>
+            <p>这一步还顺手解决了大裂隙：早先它在渲染里发灰，黑不到照片那个程度。真正让它浮现的不是更巧的算法，而是这里的加深星表——加到 20 等真星，裂隙两侧的亮云亮起来、衬得那条连续的宽暗带终于显出来。增益只能逼近，真实数据才是上限。主页和这一页的高清大图都来自 20 等真星这一档。</p>
+          </div>
+          <pre><code># 真星无增益，只换星表深度
+--data data/raw/fov_g20_bsc5.npz --faint-gain 1</code></pre>
+        </div>
+        <figure class="step-fig">
+          <div class="switcher" id="scaleSwitcher">
+            <img id="scaleImg" src="assets/ablation_scale_g20.jpg" alt="加数据：G<20 真星无增益，6.2 亿颗，银河细腻饱满、大裂隙显现" loading="lazy" />
+            <div class="switcher-controls" role="tablist" aria-label="星表深度切换">
+              <button type="button" class="switch-btn" data-img="assets/ablation_scale_g13gain.jpg" data-label="G<13 加增益（外推近似）">G&lt;13 增益</button>
+              <button type="button" class="switch-btn" data-img="assets/ablation_scale_g13.jpg" data-label="G<13 真星（240 万颗）">G&lt;13</button>
+              <button type="button" class="switch-btn" data-img="assets/ablation_scale_g16.jpg" data-label="G<16 真星（3300 万颗）">G&lt;16</button>
+              <button type="button" class="switch-btn" data-img="assets/ablation_scale_g18.jpg" data-label="G<18 真星（1.5 亿颗）">G&lt;18</button>
+              <button type="button" class="switch-btn active" data-img="assets/ablation_scale_g20.jpg" data-label="G<20 真星无增益（6.2 亿颗）">G&lt;20</button>
+            </div>
+          </div>
+          <figcaption id="scaleCaption">G&lt;20 真星无增益（6.2 亿颗）。同一视角、同一显示参数，只换星表深度。</figcaption>
+        </figure>
+      </div>
 
-    <div class="note">
-      <p>想看全部实现细节（坐标变换、tone mapping、共享亮度基准、视频管线的饱和锚点等），仓库里的 <a href="https://github.com/grapeot/gaia_allsky/blob/master/docs/rfc.md" style="color:var(--gold)">docs/rfc.md</a> 是完整的设计文档，<a href="https://github.com/grapeot/gaia_allsky/blob/master/docs/working.md" style="color:var(--gold)">docs/working.md</a> 记录了每一次调参和踩坑的过程。</p>
-    </div>
+      <div class="ablation-step">
+        <div>
+          <span class="step-no">STEP 5 · Weber 对比阈值</span>
+          <h3>最后一步交给观看者的眼睛和屏幕</h3>
+          <div class="prose">
+            <p>前四步把真实的天空算了出来，最后一个坑是把它正确地交付到屏幕和人眼。这里有一条关键的感知规则：人眼探测一颗点状的星，和察觉一片大面积的微弱亮光，是两套完全不同的机制。前者由极限星等描述，后者服从 Weber 对比阈值，低于天空背景百分之几的弥散结构，眼睛就是看不见，哪怕相机长曝光拍得清清楚楚。各级光污染下银河带相对天空的对比度实测：顶级暗空 93%，明亮郊区 9%，市中心 2.8%。</p>
+            <p>实现上用一个高斯把画面分成弥散光（低频）和点源（高频），弥散光在对比域按一条平滑曲线压向阈值以下，点源原样保留。施加之后银河在 7 级光污染左右从画面里消失，8、9 级只剩亮星，顶级暗空几乎无感。这个阈值刻意不随灵敏度增益缩放：双筒望远镜把弥散光对比放大过阈值后银河重新可见，这正是器材党在城里也能扫到银河的机制。走到这里，五个坑都补完了，画面就是主图。</p>
+          </div>
+          <pre><code>默认参数（全部规则开启）</code></pre>
+        </div>
+        <figure class="step-fig">
+          <img src="assets/ablation_5_full.jpg" alt="完整模型：与主页一致的最终渲染效果" loading="lazy" />
+          <figcaption>STEP 5 · 完整模型 — 与主页一致的最终渲染</figcaption>
+        </figure>
+      </div>
+
+      <div class="prose" style="max-width:none;margin-top:72px">
+        <div class="chapter" style="margin-bottom:18px"><span class="ch-no">01b</span><span class="ch-rule" aria-hidden="true"></span><span class="ch-title">WEBER 阈值在光污染下的作用</span></div>
+        <p style="max-width:var(--measure)">同一片天空，Bortle 7（城市边缘）、裸眼。左边关闭阈值：银河带残留一条隐约的痕迹，这是相机才能看到的对比度。右边打开阈值：弥散光低于人眼能察觉的水平，被显示层移除，只剩亮星——这才是城市边缘抬头真实看到的天空。</p>
+        <div class="pair">
+          <figure>
+            <img src="assets/ablation_weber_off.jpg" alt="Bortle 7 关闭Weber阈值：银河残留隐约痕迹" loading="lazy" />
+            <figcaption>关闭阈值（--ext-threshold 0）：残留的银河痕迹其实低于人眼可见水平</figcaption>
+          </figure>
+          <figure>
+            <img src="assets/ablation_weber_on.jpg" alt="Bortle 7 打开Weber阈值：弥散光消失只剩亮星" loading="lazy" />
+            <figcaption>打开阈值（默认 0.035）：与真实观测经验一致，银河完全不可见</figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 02 · 边界 ===================== -->
+    <section class="section wrap" id="boundary" aria-labelledby="boundary-title">
+      <div class="chapter"><span class="ch-no">02</span><span class="ch-rule" aria-hidden="true"></span><span class="ch-title">一处边界 / ONE HONEST LIMIT</span></div>
+      <h2 id="boundary-title">一处诚实的边界。</h2>
+      <div class="prose">
+        <p>五个坑补完，主图就出来了。最后留一处没有干净结尾的边界，照实说。</p>
+        <p><b>城市夜空到底能不能纯黑。</b>大裂隙在暗空主图里已经靠加深星表显出来了（见 STEP 4）。真正还够不到的是另一头：照片里城市上空那种纯黑的背景。Gaia 是为测量遥远暗星设计的，它能往很暗处看，但模拟"裸眼在城里看到什么"时，照片那种纯黑不全是物理，还来自长曝光看到了远超裸眼的暗星、再叠上激进的曲线拉伸。本项目坚持"只画真实星、不叠尘埃或夜空贴图"，于是高污染下的天空是被城市辉光均匀抬亮的灰，而不是照片里压到死黑的背景。这不是 bug，是"诚实渲染"和"修图美学"的分界：缺什么就补真实数据，补不到的地方就承认，不假装修好了。</p>
+      </div>
+      <div class="note">
+        <p>想看全部实现细节（坐标变换、tone mapping、共享亮度基准、视频管线的饱和锚点等），仓库里的 <a href="https://github.com/grapeot/gaia_allsky/blob/master/docs/rfc.md">docs/rfc.md</a> 是完整的设计文档，<a href="https://github.com/grapeot/gaia_allsky/blob/master/docs/working.md">docs/working.md</a> 记录了每一次调参和踩坑的过程。</p>
+      </div>
+    </section>
   </main>
 
   <footer>
-    <p><a href="index.html">← 返回主页</a> · Gaia 全天星空实验 · 恒星数据来自欧洲航天局 Gaia 任务</p>
+    <div class="wrap">
+      <p><a href="index.html">← 返回主页</a> · Gaia 全天星空实验 · 恒星数据来自欧洲航天局 Gaia 任务（ESA / Gaia / DPAC）</p>
+    </div>
   </footer>
+
   <script>
     // STEP 4 星表深度切换器：点按钮换图 + 更新 caption。
     (function () {
