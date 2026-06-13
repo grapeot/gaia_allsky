@@ -390,3 +390,75 @@ Gaia 系统性饱和/漏测最亮星（G≲6）。修法：拉 Yale BSC5（Vizie
 **视频**：zoom15 用用户 PixInsight 处理过的帧合成带停顿 H.265/hvc1（19s=首停1s+zoom15s+尾停3s），落地 `docs/assets/zoom_milkyway.mp4`（网页也用 H.265，index.html source 加 codecs="hvc1"），poster 更新。
 
 **skills**：新增 `ablation_study_rendering.md`；`hips_1b_tile_generation.md` 加端到端交接流程（agent 渲 tiles → 用户 PixInsight 调色 → 用户说 OK → agent 跑 hipsgen + 改 index.html → 用户 rsync）。
+
+## 杠子接缝 → 全天 tone 标定（PR42-43，2026-06-12，复刻 hero 的完整链）
+
+用户报"暗区沿银河方向的斜杠子"。诊断绕了几轮（误判渐晕、Gaia 扫描、bloom 视场外缺失），
+一锤定音判据是**量相邻 tile 重叠区**（同一片天）：raw canvas（accumulate+立体角归一化）块间
+比值 1.00 干净，artifact 全在 tone 链。真因：`render_tile` 直接调 `tone_adapted`（单张图自适应，
+sky-floor 取本 tile 25 百分位、white-point 取 99.5），含银带多的 tile 标定不同 → 同片天映射到
+不同亮度 → 接缝（PR42, #42）。
+
+修复连环揭出三个 bug：
+1. **接缝**：改全局固定标定（sky_anchor + 固定 stretch），重叠区 32%→0.1%。
+2. **银带过曝**：固定标定移除 per-tile 白点补偿后，CLI 默认 star_contrast=6 把银带冲白；过渡期降到 1.0。
+3. **暗空发灰（sky_anchor 量纲）**：anchor 传了 `additive_skyglow_level`（单通道），但 adapt 内部跟
+   `canvas.sum(-1)`（三通道）比，差 3 倍 → 黑场抬高 3×、整图发灰。修正 ×3，暗空 p5 64→22。
+
+**最终方案：全天 tone 标定（PR43, #43）**。真根因——hero（render_fov）**无**立体角归一化、
+tile（render_tan_wcs）**有**（×REF_OMEGA/cdelt²≈×50），喂进同一 tone 链的 canvas 量级差 50 倍，
+所以 hero 的 stretch 数值搬到 tile 必爆。解法 `calibrate_alltile_tone.py`：用与渲染相同 fov/size
+**实测**暗空 canvas sum 作 sky_anchor（依赖 norm，render 校验一致），配 hero 同款 star_contrast=4
++ stretch=1.0。render_tan_wcs 加 `--calib`。4K 验证：暗 p5≈26、银心亮 p99≈214 不爆、接缝<1%，
+复刻 hero 观感。
+
+## HEALPix 分桶 memory-aware + 高分辨率（PR44，2026-06-12）
+
+要把分辨率从 1B 的 10.5 arcsec/px 压到 zoom video 同款 1.5 arcsec/px（细 7×），全天等效 ~238
+亿像素。瓶颈是内存：profile 实测每 tile 对全 6 亿星算 gnomonic 投影 **+30GB/进程**、×8 ~240GB，
+且**与 tile-size 无关**（证伪「降 tile-size 省内存」）。根治 `build_healpix_bucketed.py`：星表按
+Norder6 像素排序建索引，render_tile 分桶模式用 `cone_search` 只读 tile 邻桶（几万星 vs 6 亿）。
+实测渲染**内存零增量（45GB=基线）、快 8×**、结果一致。24 进程 45GB（300G 预算内）。
+
+连带修**亚度文件名碰撞**：tile 名原用 `%+.0f` 整数度，step<1° 时四舍五入同名互相覆盖（361 tile
+塌成 132，且并发同名互写让 PI 报 `w undefined`）。改网格索引 `i_j`（hipsgen 靠 .hhh 定位、不靠
+文件名）。修后 361→361、PI 0 失败。
+
+## PixInsight shm 段耗尽 + 断点续传（PR45，2026-06-12/13）
+
+batch「卡死一半 worker」的真根因（误判过 slot/WebEngine）：每个 PI 实例占 1 个 SysV shm 段，
+macOS 上限 `kern.sysv.shmmni=32`，崩溃实例**泄漏僵尸段**累积占满 → `QSharedMemory::create:
+out of resources` 启动即崩。`pixinsight_batch.py` 内置：跑前清无附着 PI 段 + 余量降并发 + 收尾清理。
+
+`--resume` 断点续传：处理过的累积到 `<indir>/.pi_batch_done.log`，--resume 读它跳过、只跑差集
+（in-place 必须用，否则双重调色）。实验教训：**mtime 不可靠**（渲染/PI 多进程乱序并发写、交织
+无分界，27581 张最大断层仅 10s），done log 才精确。损坏 tile 闭环：零星 `w undefined` 多是渲染
+被 kill 时写坏的截断 PNG（PIL 报 truncated），提取 ERR → 从文件名解析 (l,b) 分桶重渲 → --resume
+补 PI，最终 done log = 全量（广州高分 27581/27581 0 失败）。
+
+## hipsgen hips_order 限深度（PR45）
+
+1.5 arcsec/px 源不限 order，hipsgen 自动选 Norder9（0.8 arcsec，2× 过采样插值、无新信息、放大
+反而糊），瓦片 4×、**12h vs 3.5h**。显式 `hips_order=8`（1.6 arcsec≈源真分辨率）画质不损、省 75%。
+（参照 yage.ai/dssv2 旧巡天 properties=hips_order 6 定位此坑。）判据：选 Norder N 的 arcsec/px
+最接近源的 N。用户看 Norder9 糊正是这个超采样层——源 tile 本身锐（PSF 无问题）。
+
+## 全天数据 + Linux 远程 hipsgen（PR46，2026-06-13）
+
+扩到真全天（不止广州 FOV）：`build_allsky_manifest.py` 解析 Flatiron 全集目录逐文件字节算真实
+增量——全集 688GiB、已有 412（含银心、占大半数据）、**增量仅 276GiB**（非面积外推的 1.9TB）。
+`build_fov_deep_cache --all-sky` 跳过 FOV 裁剪读全部 3386 分片 → 全天 npz **10.6 亿星**（b -90~90，
+广州版只 -42~62）。
+
+`tools/hipsgen_linux_pkg/`：把最重的 hipsgen 步打包外包给更强 Linux 机器（瓦片渲染/PI 仍本机做，
+渲好的 tiles + 自包含包 rsync 过去，那边照 README 跑 hipsgen→HiPS）。hipsgen framing：默认本机、
+大规模（全天 ~22 万 tile）可外包。
+
+## 工程教训（这一段沉淀）
+
+- **长程后台任务用 `nohup ... & disown` 脱离会话** + 设 ~30min wakeup 巡检：会话中断会连带 kill
+  后台进程且**不发通知**（下载/hipsgen 反复 silently fail 才发现），心跳巡检兜底。
+- **删文件用 trash 不用 rm**（pipeline 脚本同理，加 `[ -e ]` 守卫）。
+- **产物落 outputs/ 不放 /tmp**（/tmp 会被清、user 接管不了）。
+- **每次 merge PR 后切回 master + pull**，本地基线不落后。
+- 统计量对 size 不敏感只对**分布形状**成立；sky_anchor 是 canvas **绝对量级**（含 norm），依赖 fov/size。
