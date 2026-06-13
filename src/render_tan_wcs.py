@@ -101,6 +101,54 @@ def write_fits_tile(out_prefix, rgb, S, lc, bc, cdelt):
     hdu.writeto(out_prefix + ".fits", overwrite=True)
 
 
+def render_tile_canvas(l, b, cols, L, lc, bc, fov_deg, S, psf_core_px, bortle, buckets=None):
+    """渲一块 TAN 瓦片的 raw canvas（tone 之前）：候选星筛选 → gnomonic 投影 → accumulate →
+    立体角归一化 → saturate_and_bloom → add_skyglow。返回 HxWx3 float canvas，或 None（无星）。
+    render_tile 和 calibrate_alltile_tone 共用——保证标定的 anchor 和实际渲染的 canvas 同源。
+    buckets=None 全表角距粗筛；buckets={...} 分桶模式只读邻桶（memory-aware，见 render_tile docstring）。"""
+    scale_rad = np.radians(fov_deg) / S
+    cdelt = fov_deg / S
+    rad_deg = fov_deg * 0.7071 * 1.3  # 半对角线 + 30% 余量（粗筛半径，宁松勿紧）
+
+    if buckets is not None:
+        import astropy.units as u
+        hp = buckets["hp"]; start = buckets["start"]; count = buckets["count"]
+        pix = hp.cone_search_lonlat(lc * u.deg, bc * u.deg, rad_deg * u.deg)
+        pix = pix[count[pix] > 0]
+        if len(pix) == 0:
+            return None
+        segs_l, segs_b, segs_L, segs_c = [], [], [], []
+        for p in pix:
+            s = int(start[p]); c = int(count[p])
+            segs_l.append(l[s:s + c]); segs_b.append(b[s:s + c])
+            segs_L.append(L[s:s + c]); segs_c.append(cols[s:s + c])
+        ls = np.concatenate(segs_l); bs = np.concatenate(segs_b)
+        Ls = np.concatenate(segs_L); colss = np.concatenate(segs_c)
+    else:
+        cos_rad = np.cos(np.radians(min(rad_deg, 180.0)))
+        lr, br = np.radians(l), np.radians(b)
+        l0, b0 = np.radians(lc), np.radians(bc)
+        cosd = np.sin(b0) * np.sin(br) + np.cos(b0) * np.cos(br) * np.cos(lr - l0)
+        near = cosd >= cos_rad
+        if not np.any(near):
+            return None
+        ls, bs, Ls, colss = l[near], b[near], L[near], cols[near]
+    xi, eta, vis = gnomonic(ls, bs, lc, bc)
+    px = S / 2.0 + xi / scale_rad
+    py = S / 2.0 - eta / scale_rad
+    inside = vis & (px >= 0) & (px < S) & (py >= 0) & (py < S)
+    if not np.any(inside):
+        return None
+    pxi = np.clip(px.astype(int), 0, S - 1)
+    pyi = np.clip(py.astype(int), 0, S - 1)
+    canvas = rs.accumulate_stars(S, S, pxi, pyi, inside, Ls, colss, psf_px=psf_core_px)
+    canvas = canvas * (REF_OMEGA / cdelt ** 2)
+    sat = 6.0 * beg.rh.skyglow_level(bortle) * beg.gain_for_mag_delta(0.0)
+    canvas = beg.saturate_and_bloom(canvas, sat, (3.0, 9.0), (0.65, 0.35))
+    canvas = beg.add_skyglow(canvas, bortle)
+    return canvas
+
+
 def render_tile(l, b, cols, L, out_prefix, lc, bc, fov_deg, S, psf_core_px,
                 bortle, target_sky, star_contrast, chroma, target_white, out_fits=False,
                 calib=None, buckets=None):
@@ -116,54 +164,14 @@ def render_tile(l, b, cols, L, out_prefix, lc, bc, fov_deg, S, psf_core_px,
       星做投影（几十万 vs 6 亿），内存几十 MB、快几百倍。见 build_healpix_bucketed.py。
     """
     from PIL import Image
-    scale_rad = np.radians(fov_deg) / S
     cdelt = fov_deg / S
-    rad_deg = fov_deg * 0.7071 * 1.3  # 半对角线 + 30% 余量（粗筛半径，宁松勿紧）
-
-    if buckets is not None:
-        # 分桶模式：算 tile 中心 rad_deg 内覆盖哪些 Norder 像素，只 gather 这些桶的星。
-        import astropy.units as u
-        hp = buckets["hp"]; start = buckets["start"]; count = buckets["count"]
-        pix = hp.cone_search_lonlat(lc * u.deg, bc * u.deg, rad_deg * u.deg)
-        pix = pix[count[pix] > 0]
-        if len(pix) == 0:
-            return 0
-        # 拼接这些桶的连续 slice（桶内星在全表里是连续段）
-        segs_l, segs_b, segs_L, segs_c = [], [], [], []
-        for p in pix:
-            s = int(start[p]); c = int(count[p])
-            segs_l.append(l[s:s + c]); segs_b.append(b[s:s + c])
-            segs_L.append(L[s:s + c]); segs_c.append(cols[s:s + c])
-        ls = np.concatenate(segs_l); bs = np.concatenate(segs_b)
-        Ls = np.concatenate(segs_L); colss = np.concatenate(segs_c)
-        # 桶比 tile 略大，邻桶星含 tile 外的——下面 gnomonic+inside 会精确裁掉，无需再粗筛。
-    else:
-        # 全表角距粗筛（小规模兜底）：对全 6 亿星算 cos 球面距离，留 tile 附近的。
-        cos_rad = np.cos(np.radians(min(rad_deg, 180.0)))
-        lr, br = np.radians(l), np.radians(b)
-        l0, b0 = np.radians(lc), np.radians(bc)
-        cosd = np.sin(b0) * np.sin(br) + np.cos(b0) * np.cos(br) * np.cos(lr - l0)
-        near = cosd >= cos_rad
-        if not np.any(near):
-            return 0
-        ls, bs, Ls, colss = l[near], b[near], L[near], cols[near]
-    xi, eta, vis = gnomonic(ls, bs, lc, bc)
-    # xi(东)→ +x；eta(北)→ -y（图像 y 向下）。手性由 CDELT1<0 在 WCS 里表达。
-    px = S / 2.0 + xi / scale_rad
-    py = S / 2.0 - eta / scale_rad
-    inside = vis & (px >= 0) & (px < S) & (py >= 0) & (py < S)
-    n_in = int(inside.sum())
-    if n_in == 0:
+    # raw canvas（候选星筛选→投影→accumulate→立体角归一化→saturate→skyglow）抽成共用函数，
+    # calibrate_alltile_tone 也调它——保证标定 anchor 与实际渲染 canvas 同源。
+    canvas = render_tile_canvas(l, b, cols, L, lc, bc, fov_deg, S, psf_core_px, bortle,
+                                buckets=buckets)
+    if canvas is None:
         return 0
-    pxi = np.clip(px.astype(int), 0, S - 1)
-    pyi = np.clip(py.astype(int), 0, S - 1)
-    canvas = rs.accumulate_stars(S, S, pxi, pyi, inside, Ls, colss, psf_px=psf_core_px)
-    # 立体角归一化：flux → 面亮度，与投影/分辨率/fov 无关，一套 tone 通用
-    canvas = canvas * (REF_OMEGA / cdelt ** 2)
-    sky = beg.rh.skyglow_level(bortle)
-    sat = 6.0 * sky * beg.gain_for_mag_delta(0.0)
-    canvas = beg.saturate_and_bloom(canvas, sat, (3.0, 9.0), (0.65, 0.35))
-    canvas = beg.add_skyglow(canvas, bortle)
+    n_in = 1  # 有星（render_tile_canvas 非 None 即画面内有星）
     # 瓦片 tone 必须用全局固定标定，不能 per-tile 自适应。tone_adapted 的 sky-floor
     # 和 white-point 都按本张 tile 的分位估计（25%/99.5%），含银河带多的 tile 标定不同，
     # 同一片天在相邻两张里被映射到不同亮度 → 拼接出沿银河方向的接缝条纹（实测重叠区差

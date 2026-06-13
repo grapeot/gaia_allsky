@@ -42,26 +42,18 @@ import render_tan_wcs as rtw
 DARK_POINTS = [(74.0, 29.0), (60.0, 35.0), (-35.0, 33.0), (50.0, -28.0)]
 
 
-def _dark_anchor(l, b, cols, L, tile_fov, tile_size, psf, bortle):
-    """用与全量渲染相同的 fov/size，在几个高纬暗空点渲 raw canvas，取暗空 sum 的 p25 中位。"""
-    cdelt = tile_fov / tile_size
-    scale_rad = np.radians(cdelt)
-    sat = 6.0 * beg.rh.skyglow_level(bortle) * beg.gain_for_mag_delta(0.0)
+def _dark_anchor(l, b, cols, L, tile_fov, tile_size, psf, bortle, buckets=None):
+    """用与全量渲染相同的 fov/size，在几个高纬暗空点渲 raw canvas，取暗空 sum 的 p25 中位。
+    每个点的投影/accumulate 复用 render_tile_canvas（分桶模式只读邻桶、有进度，否则对全表算）。"""
     p25s = []
-    for lc, bc in DARK_POINTS:
-        xi, eta, vis = rtw.gnomonic(l, b, lc, bc)
-        px = tile_size / 2.0 + xi / scale_rad
-        py = tile_size / 2.0 - eta / scale_rad
-        inside = vis & (px >= 0) & (px < tile_size) & (py >= 0) & (py < tile_size)
-        if inside.sum() == 0:
+    for i, (lc, bc) in enumerate(DARK_POINTS):
+        print(f"  [标定 {i+1}/{len(DARK_POINTS)}] 暗空点 ({lc},{bc}) 渲 raw canvas...", flush=True)
+        c = rtw.render_tile_canvas(l, b, cols, L, lc, bc, tile_fov, tile_size, psf,
+                                   bortle, buckets=buckets)
+        if c is None:
             continue
-        pxi = np.clip(px.astype(int), 0, tile_size - 1)
-        pyi = np.clip(py.astype(int), 0, tile_size - 1)
-        c = rs.accumulate_stars(tile_size, tile_size, pxi, pyi, inside, L, cols, psf_px=psf)
-        c = c * (rtw.REF_OMEGA / cdelt ** 2)
-        c = beg.saturate_and_bloom(c, sat, (3.0, 9.0), (0.65, 0.35))
-        c = beg.add_skyglow(c, bortle)
         p25s.append(float(np.percentile(c.sum(-1), 25.0)))
+        print(f"      p25 = {p25s[-1]:.4f}", flush=True)
     if not p25s:
         raise SystemExit("没有暗空标定点落在数据范围内")
     return float(np.median(p25s)), p25s
@@ -69,13 +61,24 @@ def _dark_anchor(l, b, cols, L, tile_fov, tile_size, psf, bortle):
 
 def calibrate(data, tile_fov, tile_size, value, target_sky, star_contrast,
               target_white, stretch, psf, bortle):
-    with np.load(data) as d:
-        l, b, g = d["l"][:], d["b"][:], d["g"][:]
-        bv = np.nan_to_num(d["bp_rp"][:], nan=0.7)
+    print(f"加载星表 {data} ...", flush=True)
+    d = np.load(data)
+    l, b, g = d["l"][:], d["b"][:], d["g"][:]
+    bv = np.nan_to_num(d["bp_rp"][:], nan=0.7)
+    print(f"  {len(l):,} 星，算颜色 + 视亮度 ...", flush=True)
     cols = rs.bv_to_rgb(bv)
     L = beg.visual_luminance_for_mags(g, bortle, value, 0.5)
+    # 分桶 npz（含 bucket_start）自动启用分桶：暗空点只读邻桶（几千星 vs 10 亿），快几百倍。
+    buckets = None
+    if "bucket_start" in d.files:
+        from astropy_healpix import HEALPix
+        from astropy.coordinates import Galactic
+        order = int(d["order"])
+        buckets = dict(hp=HEALPix(nside=2 ** order, order="nested", frame=Galactic()),
+                       start=d["bucket_start"][:], count=d["bucket_count"][:])
+        print(f"  分桶模式（Norder{order}），标定只读暗空邻桶", flush=True)
 
-    sky_anchor, p25s = _dark_anchor(l, b, cols, L, tile_fov, tile_size, psf, bortle)
+    sky_anchor, p25s = _dark_anchor(l, b, cols, L, tile_fov, tile_size, psf, bortle, buckets=buckets)
     print(f"暗空 anchor 标定（fov={tile_fov} size={tile_size}）：各点 p25={['%.3f' % x for x in p25s]}"
           f" → 中位 {sky_anchor:.4f}", flush=True)
 
