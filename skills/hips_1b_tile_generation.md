@@ -209,6 +209,33 @@ done 标记 = 表现为「卡死」（误判过 slot/WebEngine，都不是）。
 - **注意 `hips_hierarchy=median`**：Aladin 金字塔降采样用 median，对高分辨率多图会
   重蹈乳光丢失（见下"sum vs mean"）。若要严格物理正确，自己 sum 池化建层，别让
   hipsgen 做平均；当前成品接受 hipsgen 默认。
+- **⚠️ 高分辨率源必加 `hips_order=N`（否则 hipsgen 过采样、时间数倍）**：hipsgen 不限 order
+  时按源像素密度**自动选深一层**。1.5 arcsec/px 源会被选到 Norder9（0.8 arcsec/px），对源
+  2× 过采样插值（无新信息、放大反而糊）、瓦片 ×4、**12h vs 3.5h**。显式 `hips_order=8`
+  （Norder8≈1.6 arcsec/px 匹配源）画质不损、省 75%。判据：Norder N 的 arcsec/px =
+  `sqrt(4π/(12·4^N))·(180·3600/π)/512`，选最接近源 arcsec/px 的 N（1.5→8, 6→6, 10→5/6）。
+  配 `maxthread=32` 吃满核。低分辨率源（1B 的 10 arcsec）不加也行（自适应到 Norder6）。
+
+### 3.4 远程 hipsgen：打包到更强的 Linux 机器跑（可选）
+
+hipsgen 是单机计算密集步（几万源瓦片 + order8 ≈ 数小时）。有更强的 Linux 机器时，可只把
+**这一步**外包过去——瓦片渲染/PixInsight 仍在本机做完，把渲好的 tiles + 一个自包含包 rsync
+过去，那边只跑 hipsgen → HiPS。包在 `tools/hipsgen_linux_pkg/`（自包含、可移植）：
+
+```bash
+# 本机：现打包（拷 jar + tar）
+bash tools/hipsgen_linux_pkg/pack.sh           # 产出 tools/hipsgen_linux_pkg.tar.gz（~6M）
+# rsync 包 + 瓦片到 Linux
+rsync -avz tools/hipsgen_linux_pkg.tar.gz user@linux:/data/
+rsync -av outputs/<tiles_dir>/ user@linux:/data/tiles/
+# Linux 端（装 openjdk-11 + Pillow 后）
+tar xzf hipsgen_linux_pkg.tar.gz
+TILES=/data/tiles OUT=/data/hips_out bash hipsgen_linux_pkg/run_hipsgen.sh
+```
+
+包内 `run_hipsgen.sh` 用 `JAVA/XMX/MAXTHREAD/HIPS_ORDER` 环境变量适配机器；`README.md` 给
+对端 AI 看（依赖、流程、hips_order 坑、JDK 必须 11、验收）。瓦片靠 `.hhh`(WCS) 定位、**不靠
+文件名度数**，所以跨机无碍。这就是「我只 rsync 过去、那边 AI 接手」的交接形态。
 
 ### 3.5 用样式化落地页覆盖默认 index.html（我做）
 
