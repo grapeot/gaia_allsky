@@ -102,9 +102,15 @@ def write_fits_tile(out_prefix, rgb, S, lc, bc, cdelt):
 
 
 def render_tile(l, b, cols, L, out_prefix, lc, bc, fov_deg, S, psf_core_px,
-                bortle, target_sky, star_contrast, chroma, target_white, out_fits=False):
+                bortle, target_sky, star_contrast, chroma, target_white, out_fits=False,
+                calib=None):
     """渲一块 TAN 瓦片（切点 lc,bc）。out_fits=False 出 PNG+.hhh；True 出 float FITS。
-    返回画面内星数（0 不输出）。"""
+    返回画面内星数（0 不输出）。
+
+    calib=None：sky_anchor 用物理天光底 ×3、white-point stretch 用 TILE_STRETCH=1.0。
+    calib={"sky_level":.., "stretch":..}：用全天联合标定的冻结值（见 calibrate_alltile_tone.py），
+      复刻 hero 整图的对比观感且块间一致。全量渲染走这条路。
+    """
     from PIL import Image
     scale_rad = np.radians(fov_deg) / S
     cdelt = fov_deg / S
@@ -133,11 +139,22 @@ def render_tile(l, b, cols, L, out_prefix, lc, bc, fov_deg, S, psf_core_px,
     # sky_anchor 的单位必须与 adapt_sky_floor 内部的 y=canvas.sum(-1)（三通道和）一致：
     # add_skyglow 给每个通道各加 additive_skyglow_level，所以暗空背景的 sum 是它的 3 倍，
     # anchor 必须 ×3。漏乘 3 会把黑场锚高 3×（scale 偏大），整图背景被向上推、暗空发灰。
-    sky_anchor = beg.rh.additive_skyglow_level(bortle) * 3.0
-    adapted = beg.adapt_sky_floor(canvas, target_sky, 25.0, star_contrast,
+    # calib 提供全天标定的冻结 sky_anchor + star_contrast + stretch（复刻 hero 对比、块间
+    # 一致，见 calibrate_alltile_tone.py）；calib 的 sky_anchor 是用相同 fov/size 实测的暗空
+    # canvas sum 底（依赖归一化 norm，必须配套）。无 calib 时退回保守路径：物理天光底 ×3 作
+    # floor + 入参 star_contrast/TILE_STRETCH（无接缝但不复刻 hero 对比）。
+    if calib is not None:
+        sky_anchor = float(calib["sky_anchor"])
+        tile_sc = float(calib["star_contrast"])
+        tile_stretch = float(calib["stretch"])
+    else:
+        sky_anchor = beg.rh.additive_skyglow_level(bortle) * 3.0
+        tile_sc = star_contrast
+        tile_stretch = TILE_STRETCH
+    adapted = beg.adapt_sky_floor(canvas, target_sky, 25.0, tile_sc,
                                   sky_anchor=sky_anchor)
     rgb = beg.finish_sky_adapted(adapted, target_sky, 2.2, target_white,
-                                 TILE_STRETCH, chroma)
+                                 tile_stretch, chroma)
     if out_fits:
         # FITS 域金字塔：存 tone 后、8-bit clip 前的 float rgb 为 R/G/B 三套单通道
         # FITS（hipsgen 对多面 FITS 当灰度，须分通道）。各通道 float 域逐层池化保住
@@ -197,7 +214,24 @@ def main():
     ap.add_argument("--fits", action="store_true",
                     help="出 float FITS 瓦片（tone 后、未 8-bit clip）而非 PNG。供 hipsgen "
                          "TILES 在真值域逐层池化、JPEG 从 float 导显示层，改善 zoom-out 质量。")
+    ap.add_argument("--calib", default=None,
+                    help="全天 tone 标定 JSON（calibrate_alltile_tone.py 产出）。提供则用其冻结的"
+                         " sky_anchor/star_contrast/stretch 复刻 hero 对比且块间一致。标定的"
+                         " tile_fov/tile_size 必须与本次渲染一致。")
     args = ap.parse_args()
+
+    calib = None
+    if args.calib:
+        import json
+        with open(args.calib) as f:
+            calib = json.load(f)
+        if (abs(calib.get("tile_fov", args.tile_fov) - args.tile_fov) > 1e-6
+                or calib.get("tile_size", args.tile_size) != args.tile_size):
+            raise SystemExit(f"calib 的 tile_fov/tile_size ({calib.get('tile_fov')}/"
+                             f"{calib.get('tile_size')}) 与渲染 ({args.tile_fov}/{args.tile_size}) "
+                             f"不一致——sky_anchor 依赖归一化 norm，必须重新标定。")
+        print(f"用全天标定 {args.calib}: sky_anchor={calib['sky_anchor']:.3f} "
+              f"sc={calib['star_contrast']} stretch={calib['stretch']}", flush=True)
 
     with np.load(args.data) as d:
         l, b, g = d["l"][:], d["b"][:], d["g"][:]
@@ -206,7 +240,7 @@ def main():
     L = beg.visual_luminance_for_mags(g, args.bortle, args.value, 0.5)
     tile_kw = dict(psf_core_px=args.psf_core_px, bortle=args.bortle,
                    target_sky=args.target_sky, star_contrast=args.star_contrast,
-                   chroma=args.chroma, target_white=args.target_white)
+                   chroma=args.chroma, target_white=args.target_white, calib=calib)
 
     if not args.tiles:
         n = render_tile(l, b, cols, L, args.out, args.lc, args.bc,

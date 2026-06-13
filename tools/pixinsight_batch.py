@@ -32,6 +32,44 @@ import xml.etree.ElementTree as ET
 
 NS = "{http://www.pixinsight.com/xpsm}"
 PI = "/Applications/PixInsight/PixInsight.app/Contents/MacOS/PixInsight"
+PI_SHM_KEY_PREFIX = "0x510f"  # PixInsight 的 SysV shm key 前缀（实测）
+
+
+def _shm_count():
+    """系统当前 SysV shm 段总数（macOS 全局上限 kern.sysv.shmmni 默认 32）。"""
+    try:
+        out = subprocess.run(["ipcs", "-m"], capture_output=True, text=True).stdout
+        return sum(1 for ln in out.splitlines() if ln.startswith("m "))
+    except Exception:
+        return -1
+
+
+def _shm_limit():
+    try:
+        out = subprocess.run(["sysctl", "-n", "kern.sysv.shmmni"],
+                             capture_output=True, text=True).stdout.strip()
+        return int(out)
+    except Exception:
+        return 32
+
+
+def _cleanup_pi_shm():
+    """清理无进程附着（NATTCH=0）的 PixInsight 残留 shm 段，防泄漏累积占满配额。
+    每个 PI 实例占 1 个 shm 段；崩溃/被杀的实例会泄漏不释放，反复后占满 shmmni(32)，
+    导致后续 PI 实例 QSharedMemory::create 失败、启动即崩——这是 batch 卡死的真根因。
+    只删 PI key 前缀 + NATTCH=0 的段（无附着=无进程在用，删除安全）。"""
+    try:
+        out = subprocess.run(["ipcs", "-m", "-o"], capture_output=True, text=True).stdout
+    except Exception:
+        return 0
+    removed = 0
+    for ln in out.splitlines():
+        f = ln.split()
+        # 格式: m <id> <key> <mode> <owner> <group> <nattch>
+        if len(f) >= 7 and f[0] == "m" and f[2].startswith(PI_SHM_KEY_PREFIX) and f[6] == "0":
+            if subprocess.run(["ipcrm", "-m", f[1]], capture_output=True).returncode == 0:
+                removed += 1
+    return removed
 
 
 def parse_xpsm(path):
@@ -127,6 +165,10 @@ def main():
                          "并行时给不同基址（如 200 / 220）避免撞 slot。范围 [1,256]。")
     ap.add_argument("--pattern", default="*.png")
     ap.add_argument("--timeout", type=int, default=1800, help="总超时秒")
+    ap.add_argument("--stagger", type=float, default=2.0,
+                    help="实例间错开启动秒数，缓解瞬时资源争用。0=同时起。注意 batch 卡死的真"
+                         "根因是 SysV shm 段耗尽（崩溃实例泄漏僵尸段占满 shmmni=32），已由跑前"
+                         "清残留+余量降并发+收尾清理解决，stagger 只是辅助。")
     args = ap.parse_args()
 
     if not args.in_place and not args.outdir:
@@ -147,8 +189,20 @@ def main():
         shutil.rmtree(work)
     os.makedirs(work)
 
-    # 分片
+    # 跑前清残留 shm + 检测余量。每个 PI 实例占 1 个 SysV shm 段，系统上限 shmmni（默认 32）。
+    # 残留僵尸段（崩溃泄漏）会占满配额让新实例 QSharedMemory::create 失败。先清无附着的 PI 段。
+    freed = _cleanup_pi_shm()
+    if freed:
+        print(f"清理了 {freed} 个无附着的 PixInsight 残留 shm 段", flush=True)
+    shm_now, shm_max = _shm_count(), _shm_limit()
     n = min(args.workers, len(files))
+    if shm_now >= 0 and shm_now + n > shm_max:
+        safe = max(1, shm_max - shm_now - 1)
+        print(f"⚠ shm 余量不足：已用 {shm_now}/{shm_max}，{n} worker 会触顶。降到 {safe} worker。"
+              f"（每实例占 1 段；如需更高并发，sudo sysctl -w kern.sysv.shmmni=128）", flush=True)
+        n = safe
+
+    # 分片
     shards = [files[i::n] for i in range(n)]
     procs_running = []
     done_paths = []
@@ -166,8 +220,14 @@ def main():
             [PI, f"-n={slot}", "--automation-mode", "--no-splash", f"-r={js_path}"],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         procs_running.append(p)
-    print(f"起了 {n} 个 PixInsight instance（slot {args.slot_base}..{args.slot_base+n-1}），"
-          f"各处理 ~{len(shards[0])} 张（不 pkill，与 GUI/其它任务并存）", flush=True)
+        # 错开启动：实例间隔几秒起，避免同时启动的瞬时资源争用。真正会卡死的是 SysV shm
+        # 段耗尽（见上 _cleanup_pi_shm）——崩溃实例泄漏的僵尸段累积占满 shmmni(32) 后，新
+        # 实例 QSharedMemory::create 失败、启动即崩、无 done 标记（实测固定卡死后半批 worker）。
+        # stagger 只缓解瞬时争用，真根因靠跑前清残留 + 余量降并发解决。最后一个不用等。
+        if i < len(shards) - 1 and args.stagger > 0:
+            time.sleep(args.stagger)
+    print(f"起了 {n} 个 PixInsight instance（slot {args.slot_base}..{args.slot_base+n-1}，"
+          f"错开 {args.stagger}s 启动），各处理 ~{len(shards[0])} 张（不 pkill，与 GUI 并存）", flush=True)
 
     # join：轮询 done 标记
     t0 = time.time()
@@ -180,10 +240,20 @@ def main():
             break
         time.sleep(10)
 
-    # 收尾
+    # 收尾：先 terminate 本次起的实例，等它们退出后清残留 shm 段（防泄漏累积占满配额，
+    # 否则下次跑会触顶。每个 PI 实例占 1 段，正常退出会自己释放，被 terminate/崩溃的不会）。
     for p in procs_running:
         if p.poll() is None:
             p.terminate()
+    for p in procs_running:
+        try:
+            p.wait(timeout=10)
+        except Exception:
+            p.kill()
+    time.sleep(1)
+    freed = _cleanup_pi_shm()
+    if freed:
+        print(f"收尾清理了 {freed} 个残留 shm 段", flush=True)
     ok = sum(open(d).read().count("OK ") for d in done_paths if os.path.isfile(d))
     err = sum(open(d).read().count("ERR ") for d in done_paths if os.path.isfile(d))
     print(f"DONE: {ok} 成功, {err} 失败 / {len(files)} 张", flush=True)
