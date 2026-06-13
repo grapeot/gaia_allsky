@@ -61,7 +61,7 @@ def _ecsv_body_offset(raw):
 
 def process_shard(args):
     """worker：解压一个分片，filter G<gmax + FOV，写 per-shard npy，返回路径+计数。"""
-    name, gmax, tmpdir = args
+    name, gmax, tmpdir, all_sky = args
     import pyarrow as pa
     import pyarrow.csv as pacsv
 
@@ -85,7 +85,8 @@ def process_shard(args):
     l, b, g, bp_rp = l[ok], b[ok], g[ok], bp_rp[ok]
     keep = g < gmax
     l, b, g, bp_rp = l[keep], b[keep], g[keep], bp_rp[keep]
-    if l.size:
+    if l.size and not all_sky:
+        # all_sky=True 时跳过广州 FOV 裁剪，保留全天所有星（全天 HiPS 用）。
         inside = _fov_inside(l, b)
         l, b, g, bp_rp = l[inside], b[inside], g[inside], bp_rp[inside]
     out = os.path.join(tmpdir, name.replace(".csv.gz", ".npy"))
@@ -100,6 +101,8 @@ def main():
     p.add_argument("--out", required=True)
     p.add_argument("--workers", type=int, default=16)
     p.add_argument("--limit", type=int, default=0, help="只处理前 N 片（调试用）。")
+    p.add_argument("--all-sky", action="store_true",
+                   help="跳过广州 FOV 裁剪，保留全天所有星（全天 HiPS 用）。")
     args = p.parse_args()
 
     shards = sorted(os.path.basename(x) for x in
@@ -110,7 +113,7 @@ def main():
 
     tmpdir = tempfile.mkdtemp(prefix="fov_deep_", dir=os.path.join(ROOT, "data", "raw"))
     os.environ["POLARS_MAX_THREADS"] = "1"
-    tasks = [(s, args.gmax, tmpdir) for s in shards]
+    tasks = [(s, args.gmax, tmpdir, args.all_sky) for s in shards]
     parts, total, done, fails = [], 0, 0, []
     with ProcessPoolExecutor(max_workers=args.workers) as ex:
         for fut in as_completed([ex.submit(process_shard, t) for t in tasks]):
