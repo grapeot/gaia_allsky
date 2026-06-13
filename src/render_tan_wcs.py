@@ -50,8 +50,10 @@ TILE_STRETCH = 1.0
 
 # bloom 翼 σ 的【角尺寸】基准（arcsec），渲染时按 arcsec/px 反算像素 σ——让亮星光晕角尺寸
 # 与分辨率无关（按像素写死会让高分辨率亮星没气场，见 render_tile_canvas 注释）。
-# (小翼, 大翼)。高分(1.5arcsec/px)下实测 ~40arcsec 大翼亮星有气场又不糊；1:3 比例承自旧 (3,9)px。
-BLOOM_SIGMAS_ARCSEC = (13.3, 40.0)
+# (小翼, 大翼)。大翼 240arcsec：让亮星在 zoom-out 到 ~60°FOV（Aladin 取 Norder1-2、屏幕每
+# 像素 ~200arcsec）降采样后仍占几像素、明确跳出星海。实测 40arcsec 在低层被抹平、240 是
+# 「大 FOV 可认出 vs 小 FOV 不糊大饼」的甜点。1:3 比例承自旧 (3,9)px。
+BLOOM_SIGMAS_ARCSEC = (80.0, 240.0)
 
 
 def gnomonic(l, b, lc, bc):
