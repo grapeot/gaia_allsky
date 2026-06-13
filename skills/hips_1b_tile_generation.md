@@ -64,6 +64,12 @@ sweep 路径"设计的，tile 路径漏用了才退回 per-tile percentile。
 tile 背景 p5 从 64→22。这个 bug 是固定标定的连带：per-tile 自适应在时会自动补偿掩盖它，
 固定标定后才显形。
 
+**⚠️ 演进（最终解法见步骤 1 的标定流程）**：上面 `TILE_STRETCH=1.0 + sky_anchor=天光底×3`
+是早期固定标定，能消接缝但对比平（复刻不了 hero 的暗压亮提）。**最终方案是「全天 tone 标定」**
+（`calibrate_alltile_tone.py` 产出 calib JSON，render 加 `--calib`）：sky_anchor 用相同 fov/size
+**实测**暗空 canvas sum（不是解析的天光底×3）、配 `star_contrast=4` + `stretch=1.0`，既消接缝
+又复刻 hero 对比。**正式渲染走 --calib**，本节的 ×3/TILE_STRETCH 是无 calib 时的保守兜底。
+
 改完必须**全量重渲 338 张**
 再重拼金字塔。
 
@@ -186,6 +192,10 @@ done 标记 = 表现为「卡死」（误判过 slot/WebEngine，都不是）。
 或 `sudo sysctl -w kern.sysv.shmmni=128` 抬上限。
 
 ### 3. hipsgen 拼金字塔（用户做）
+
+**默认本机跑**（下面命令）。**大规模时（几万~几十万 tile、十几小时）可外包给更强的 Linux
+机器**——见 3.4，把渲好的 tiles 打包 rsync 过去那边只拼 hipsgen。规模判断：万级 tile 本机
+（数十分钟~数小时）够；全天 1.5arcsec/px（~22 万 tile）建议外包。
 
 需 `openjdk@11`（新版 JDK 不兼容旧 jar，Java 26 的 JApplet 已移除）。
 
