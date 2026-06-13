@@ -173,12 +173,12 @@ def fov_inside(l, b):
 # ---------------------------------------------------------------------------
 # 3. 位置去重（只用 Gaia g<GAIA_BRIGHT_GCUT 的亮子集，省内存）
 # ---------------------------------------------------------------------------
-def load_gaia_bright_subset():
-    """流式扫 fov_g20，只取 g<GAIA_BRIGHT_GCUT 的星，返回 (l,b,g)。
+def load_gaia_bright_subset(in_path=None):
+    """流式扫 Gaia 缓存，只取 g<GAIA_BRIGHT_GCUT 的星，返回 (l,b,g)。
 
     分块读，绝不一次性把 6 亿星塞进稠密结构。bp_rp 这步不需要。
     """
-    d = np.load(FOV_CACHE, mmap_mode="r")
+    d = np.load(in_path or FOV_CACHE, mmap_mode="r")
     n = d["l"].shape[0]
     chunk = 20_000_000
     ls, bs, gs = [], [], []
@@ -216,7 +216,17 @@ def dedup_against_gaia(cl, cb, cg, gl, gb, gg):
 # main
 # ---------------------------------------------------------------------------
 def main():
-    print(f"[RSS] start {rss_gb():.2f} GB")
+    import argparse
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--in", dest="in_path", default=FOV_CACHE,
+                    help=f"输入 Gaia 缓存（默认 {FOV_CACHE}）")
+    ap.add_argument("--out", dest="out_path", default=OUT_CACHE,
+                    help=f"输出 +BSC5 缓存（默认 {OUT_CACHE}）")
+    ap.add_argument("--all-sky", action="store_true",
+                    help="跳过广州 FOV 裁剪，全天补 BSC5（全天渲染用）")
+    args = ap.parse_args()
+    in_path, out_path = args.in_path, args.out_path
+    print(f"[RSS] start {rss_gb():.2f} GB  in={in_path} out={out_path} all_sky={args.all_sky}")
 
     # --- 1. BSC5 ---
     ra, dec, vmag, bv, name = fetch_bsc5()
@@ -246,17 +256,18 @@ def main():
               f"{bp_rp[j]:6.2f} {bvs:>5s}  {col}")
 
     # --- 3. FOV 裁剪（与 Gaia 缓存同一几何）+ 亮度阈值 ---
-    inside = fov_inside(l, b)
+    # all_sky：跳过广州 FOV 裁剪，全天补（inside 全 True）。否则只补落在广州 FOV 的亮星。
+    inside = np.ones(l.shape, bool) if args.all_sky else fov_inside(l, b)
     bright = g < ADD_GMAX
     cand = inside & bright
-    print(f"\n[FILTER] FOV 内 {inside.sum()}，G<{ADD_GMAX} 的 {bright.sum()}，"
-          f"两者皆满足(候选) {cand.sum()}")
+    print(f"\n[FILTER] {'全天(不裁剪)' if args.all_sky else 'FOV 内'} {inside.sum()}，"
+          f"G<{ADD_GMAX} 的 {bright.sum()}，两者皆满足(候选) {cand.sum()}")
     cl, cb, cg, cbp = l[cand], b[cand], g[cand], bp_rp[cand]
     cname = name[cand]
 
     # --- Gaia 完整性核对（VERIFY 3）---
     print("\n[VERIFY 3] Gaia fov_g20 分 G bin 计数（看亮端何处坍塌）：")
-    gl, gb, gg = load_gaia_bright_subset()
+    gl, gb, gg = load_gaia_bright_subset(in_path)
     print(f"[RSS] after gaia bright subset ({gg.size} 星 g<{GAIA_BRIGHT_GCUT}) {rss_gb():.2f} GB")
     edges = np.array([0, 1, 2, 3, 4, 5, 6, 7], dtype=float)
     hist, _ = np.histogram(gg, bins=edges)
@@ -273,7 +284,7 @@ def main():
 
     # --- 4. 合并写出 ---
     print("\n[MERGE] 读原 Gaia 缓存并拼接补星 ...")
-    d = np.load(FOV_CACHE, mmap_mode="r")
+    d = np.load(in_path, mmap_mode="r")
     n_gaia = d["l"].shape[0]
     n_add = al.size
     n_tot = n_gaia + n_add
@@ -295,8 +306,8 @@ def main():
     out_g[n_gaia:] = ag.astype(np.float32)
     out_bp[n_gaia:] = abp.astype(np.float32)
 
-    np.savez(OUT_CACHE, l=out_l, b=out_b, g=out_g, bp_rp=out_bp)
-    print(f"[OUT] {OUT_CACHE}: {n_tot} 星 = {n_gaia} Gaia + {n_add} BSC5")
+    np.savez(out_path, l=out_l, b=out_b, g=out_g, bp_rp=out_bp)
+    print(f"[OUT] {out_path}: {n_tot} 星 = {n_gaia} Gaia + {n_add} BSC5")
     print(f"[RSS] after write {rss_gb():.2f} GB")
 
     # --- VERIFY 4: 著名亮星是否进了合并输出（按位置反查）---
