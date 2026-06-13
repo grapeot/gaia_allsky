@@ -29,7 +29,7 @@ python src/calibrate_alltile_tone.py --data "$DATA" \
   --star-contrast 4 --target-white 2.6 --out "$CALIB"
 
 echo "=== [1/5] 渲 tile (用 calib) ==="
-rm -rf "$TILES"; mkdir -p "$TILES"
+[ -e "$TILES" ] && trash "$TILES"; mkdir -p "$TILES"
 python src/render_tan_wcs.py --data "$DATA" --out "$TILES" --tiles \
   --l-range="$LRANGE" --b-range="$BRANGE" \
   --tile-fov "$TFOV" --tile-step "$TSTEP" --tile-size "$TSIZE" --workers "$W" \
@@ -40,7 +40,7 @@ python tools/pixinsight_batch.py --xpsm skills/batch_process_frames.xpsm \
   --in "$TILES" --in-place --workers "$W" --slot-base 200
 
 echo "=== [3/5] hipsgen 拼金字塔 ==="
-rm -rf "$OUT"
+[ -e "$OUT" ] && trash "$OUT" || true
 /opt/homebrew/opt/openjdk@11/bin/java -Xmx80g \
   -jar outputs/tmp_reference_hips/AladinBeta.jar -hipsgen \
   in="$TILES" out="$OUT" color=jpeg \
