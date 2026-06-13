@@ -24,9 +24,16 @@
 python tools/pixinsight_batch.py --xpsm <icon.xpsm> --in <图目录> --out <输出目录> --workers 10
 # 原地覆盖
 python tools/pixinsight_batch.py --xpsm <icon.xpsm> --in <图目录> --in-place --workers 10
+# 断点续传（中断后重跑，只处理没处理过的）
+python tools/pixinsight_batch.py --xpsm <icon.xpsm> --in <图目录> --in-place --workers 24 --resume
 ```
 
 `--in` 目录里所有 `*.png`（`--pattern` 可改）被处理。`--workers N` = 并行 instance 数。
+
+**`--resume` 断点续传**：大批量（几万张）+ 会话中断 / 被 kill 时关键。每次跑把处理过的文件
+累积到 `<图目录>/.pi_batch_done.log`（append，跨多次运行累积）。`--resume` 读它跳过已处理、
+只跑差集。**in-place 模式尤其必须用**——否则重处理会双重调色（CurvesTransformation 叠加）。
+长任务建议配 `nohup ... & disown` 脱离会话（会话断后台进程才不被 kill）。
 
 ## 验收标准
 
@@ -40,6 +47,7 @@ python tools/pixinsight_batch.py --xpsm <icon.xpsm> --in <图目录> --in-place 
 | 陷阱 | 表现 | 应对 |
 |------|------|------|
 | **SysV shm 段耗尽（「卡死一半 worker」的真根因）** | 后半批 worker 无 done 标记、PI 进程秒退、表现为「固定卡死 N 个」；手动单跑报 `*** Fatal Error: ... QSharedMemory::create: out of resources` | 每个 PI 实例占 1 个 SysV 共享内存段，macOS 全局上限 `kern.sysv.shmmni=32`。崩溃/被 kill 的实例**泄漏僵尸段不释放**（`ipcs -m -o` 看 NATTCH=0、key 前缀 `0x510f`），反复跑累积占满 32 → 新实例 `QSharedMemory::create` 失败、启动即崩。**误判过 slot 冲突/WebEngine 竞争，都不是。** 工具已内置：跑前 `_cleanup_pi_shm()` 清无附着 PI 段 + 余量不足自动降并发 + 收尾 terminate 后清理。手动清（确认 PI 全退）：`ipcs -m \| awk '$1=="m"&&$5=="<user>"{print $2}' \| xargs -n1 ipcrm -m`；抬上限：`sudo sysctl -w kern.sysv.shmmni=128` |
+| **中断后续传别靠 mtime** | in-place 大批量被 kill 后想只补没处理的，想用文件 mtime 区分已处理/未处理 | **mtime 不可靠**：渲染和 PI 都多进程（24）乱序并发写、mtime 交织无清晰分界（实测 27581 张最大时间断层仅 10s，切不出来）。**用 `--resume`（走 `.pi_batch_done.log` 的 OK 清单）**：全部 − done = 未处理差集，精确。实验验证过 mtime 切不出、done log 精确给出 3274/27581 未处理。 |
 | **不指定 slot → worker yield 给已运行实例** | worker JS 完全不执行、无日志、无产物，进程秒退 | 裸 `-n`（不指定 slot）会 yield 给已运行实例、脚本不跑。**解法是用高 slot（`-n=<200+>`）起独立实例**，不是 pkill——实测高 slot 实例与 GUI/其它任务**完美并存、互不 yield、互不干扰**。CLI 默认 `--slot-base 200`；多个 batch 并行给不同基址（如 200/220）。**不要 pkill**（会杀 GUI、阻止并存，是过度方案） |
 | **`--force-exit` 抢跑** | 脚本没执行就退出 | `-r` 脚本"just after startup"执行，但 `--force-exit` 会抢在前面退出。**不要用 `--force-exit`**；worker JS 末尾自己 `Console.terminate()` 退出 |
 | **xpsm 命名空间** | 正则/ET 解析匹配不到 process 类 | xpsm 有 `xmlns="http://www.pixinsight.com/xpsm"`，ElementTree 解析要带 ns 前缀 |
