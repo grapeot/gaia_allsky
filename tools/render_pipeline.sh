@@ -33,7 +33,9 @@ python src/calibrate_alltile_tone.py --data "$HPX" \
   --tile-fov "$TFOV" --tile-size "$TSIZE" --value 6 --target-sky 0.020 \
   --star-contrast 4 --target-white 2.6 --out "$CALIB"
 
-echo "=== [2/2] 渲 tile（分桶 memory-aware，$W 进程，1.5 arcsec/px，6× bloom）==="
+# 渲染默认在 worker 里做 Python 版 PixInsight 调色（pi_curves_scnr，复现 batch_process_frames.xpsm），
+# 免 PI 依赖、随渲染并行——tile 渲出来已调好色，无需单独 PI 步。--color-xpsm none 可关。
+echo "=== [2/2] 渲 tile（分桶 memory-aware，$W 进程，1.5 arcsec/px，6× bloom，Python 调色）==="
 [ -e "$TILES" ] && trash "$TILES" 2>/dev/null || rm -rf "$TILES" 2>/dev/null || true
 mkdir -p "$TILES"
 python src/render_tan_wcs.py --data "$HPX" --out "$TILES" --tiles \

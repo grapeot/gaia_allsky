@@ -163,7 +163,7 @@ def render_tile_canvas(l, b, cols, L, lc, bc, fov_deg, S, psf_core_px, bortle, b
 
 def render_tile(l, b, cols, L, out_prefix, lc, bc, fov_deg, S, psf_core_px,
                 bortle, target_sky, star_contrast, chroma, target_white, out_fits=False,
-                calib=None, buckets=None):
+                calib=None, buckets=None, color_procs=None):
     """渲一块 TAN 瓦片（切点 lc,bc）。out_fits=False 出 PNG+.hhh；True 出 float FITS。
     返回画面内星数（0 不输出）。
 
@@ -208,6 +208,11 @@ def render_tile(l, b, cols, L, out_prefix, lc, bc, fov_deg, S, psf_core_px,
                                   sky_anchor=sky_anchor)
     rgb = beg.finish_sky_adapted(adapted, target_sky, 2.2, target_white,
                                  tile_stretch, chroma)
+    # Python 版 PixInsight 调色（色温/去绿微调）——渲完直接在 worker 里做，免 PI 依赖、
+    # 天然随渲染多进程并行、省一次读写。与真 PI 逐像素 eval mean≈3.6/255 等价（见 pi_curves_scnr）。
+    if color_procs is not None:
+        import pi_curves_scnr as pcs
+        rgb = pcs.apply_xpsm(np.clip(rgb, 0.0, 1.0), color_procs)
     if out_fits:
         # FITS 域金字塔：存 tone 后、8-bit clip 前的 float rgb 为 R/G/B 三套单通道
         # FITS（hipsgen 对多面 FITS 当灰度，须分通道）。各通道 float 域逐层池化保住
@@ -229,7 +234,8 @@ def _tile_worker(job):
     s = _SHARED
     return render_tile(s["l"], s["b"], s["cols"], s["L"], prefix, lc, bc,
                        s["tile_fov"], s["tile_size"], **s["tile_kw"],
-                       out_fits=s.get("out_fits", False), buckets=s.get("buckets"))
+                       out_fits=s.get("out_fits", False), buckets=s.get("buckets"),
+                       color_procs=s.get("color_procs"))
 
 
 def main():
@@ -267,11 +273,28 @@ def main():
     ap.add_argument("--fits", action="store_true",
                     help="出 float FITS 瓦片（tone 后、未 8-bit clip）而非 PNG。供 hipsgen "
                          "TILES 在真值域逐层池化、JPEG 从 float 导显示层，改善 zoom-out 质量。")
+    ap.add_argument("--color-xpsm", default=None,
+                    help="PixInsight process icon (.xpsm)，渲完在 worker 里用 Python 复现做色温/"
+                         "去绿调色（pi_curves_scnr，免 PI 依赖、随渲染并行）。默认 skills/"
+                         "batch_process_frames.xpsm；传 'none' 跳过调色。")
     ap.add_argument("--calib", default=None,
                     help="全天 tone 标定 JSON（calibrate_alltile_tone.py 产出）。提供则用其冻结的"
                          " sky_anchor/star_contrast/stretch 复刻 hero 对比且块间一致。标定的"
                          " tile_fov/tile_size 必须与本次渲染一致。")
     args = ap.parse_args()
+
+    # Python 版 PixInsight 调色：默认用 batch_process_frames.xpsm（渲完在 worker 里做，免 PI
+    # 依赖、随渲染并行）。--color-xpsm none 跳过、给别的 xpsm 路径则用那个。
+    color_procs = None
+    cx = args.color_xpsm if args.color_xpsm is not None else os.path.join(
+        ROOT, "skills", "batch_process_frames.xpsm")
+    if str(cx).lower() != "none" and os.path.isfile(cx):
+        sys.path.insert(0, os.path.join(ROOT, "tools"))
+        import pixinsight_batch as _pb
+        color_procs = _pb.parse_xpsm(cx)
+        print(f"Python 调色（pi_curves_scnr）: {cx} → {len(color_procs)} process", flush=True)
+    elif str(cx).lower() != "none":
+        print(f"⚠ color-xpsm 不存在，跳过调色: {cx}", flush=True)
 
     calib = None
     if args.calib:
@@ -308,7 +331,7 @@ def main():
     if not args.tiles:
         n = render_tile(l, b, cols, L, args.out, args.lc, args.bc,
                         args.fov_deg, args.size, **tile_kw, out_fits=args.fits,
-                        buckets=buckets)
+                        buckets=buckets, color_procs=color_procs)
         print(f"单图 切点({args.lc},{args.bc}) fov={args.fov_deg}° size={args.size} "
               f"画面内星 {n:,} -> {args.out}.png", flush=True)
         return
@@ -332,7 +355,7 @@ def main():
     global _SHARED
     _SHARED = dict(l=l, b=b, cols=cols, L=L, tile_fov=args.tile_fov,
                    tile_size=args.tile_size, tile_kw=tile_kw, out_fits=args.fits,
-                   buckets=buckets)
+                   buckets=buckets, color_procs=color_procs)
     from concurrent.futures import ProcessPoolExecutor, as_completed
     import multiprocessing as mp
     # macOS 默认 spawn，worker 不继承 _SHARED；用 fork 让 worker 继承 + numpy
