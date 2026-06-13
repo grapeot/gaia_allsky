@@ -164,6 +164,9 @@ def main():
                          "用高 slot 避开 GUI/其它任务，从而不用 pkill、可并存。多个 batch "
                          "并行时给不同基址（如 200 / 220）避免撞 slot。范围 [1,256]。")
     ap.add_argument("--pattern", default="*.png")
+    ap.add_argument("--resume", action="store_true",
+                    help="断点续传：读输入目录的 .pi_batch_done.log，跳过已处理的文件只跑差集"
+                         "（避免 in-place 重处理双重调色）。中断后重跑加这个。")
     ap.add_argument("--timeout", type=int, default=1800, help="总超时秒")
     ap.add_argument("--stagger", type=float, default=2.0,
                     help="实例间错开启动秒数，缓解瞬时资源争用。0=同时起。注意 batch 卡死的真"
@@ -179,6 +182,23 @@ def main():
     files = sorted(glob.glob(os.path.join(args.indir, args.pattern)))
     if not files:
         sys.exit(f"{args.indir} 里没有 {args.pattern}")
+    # 断点续传：持久 done log 累积所有处理过的文件（in-place 时尤其重要——重处理会双重调色）。
+    # 工作目录 /tmp/pi_batch_work 每次清空，所以 done log 另存到输入目录旁。--resume 时读它
+    # 剔除已处理的，只跑差集。注意：mtime 不可靠（渲染/PI 多进程乱序并发写、交织无分界，实测
+    # 最大断层仅 10s），done log 才是精确来源。
+    persist_done = os.path.join(args.indir, ".pi_batch_done.log")
+    if args.resume and os.path.isfile(persist_done):
+        processed_before = set()
+        for ln in open(persist_done):
+            if ln.startswith("OK "):
+                processed_before.add(os.path.abspath(ln.split("OK ", 1)[1].strip()))
+        before = len(files)
+        files = [f for f in files if os.path.abspath(f) not in processed_before]
+        print(f"--resume：done log 记录已处理 {len(processed_before)}，跳过；本次只处理 "
+              f"{len(files)}/{before}", flush=True)
+        if not files:
+            print("全部已处理，无需续跑。", flush=True)
+            return
     procs = parse_xpsm(args.xpsm)
     print(f"解析 xpsm：{len(procs)} 个启用 process "
           f"({', '.join(p['cls'] for p in procs)})；{len(files)} 张图，{args.workers} worker", flush=True)
@@ -256,7 +276,14 @@ def main():
         print(f"收尾清理了 {freed} 个残留 shm 段", flush=True)
     ok = sum(open(d).read().count("OK ") for d in done_paths if os.path.isfile(d))
     err = sum(open(d).read().count("ERR ") for d in done_paths if os.path.isfile(d))
-    print(f"DONE: {ok} 成功, {err} 失败 / {len(files)} 张", flush=True)
+    # 累积本次 OK 到持久 done log（供 --resume 续传）。append 不覆盖，跨多次运行累积。
+    with open(persist_done, "a") as pf:
+        for d in done_paths:
+            if os.path.isfile(d):
+                for ln in open(d):
+                    if ln.startswith("OK "):
+                        pf.write(ln)
+    print(f"DONE: {ok} 成功, {err} 失败 / {len(files)} 张（done log: {persist_done}）", flush=True)
     if err:
         for d in done_paths:
             if os.path.isfile(d):

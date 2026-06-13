@@ -40,10 +40,14 @@ python tools/pixinsight_batch.py --xpsm skills/batch_process_frames.xpsm \
   --in "$TILES" --in-place --workers "$W" --slot-base 200
 
 echo "=== [3/5] hipsgen 拼金字塔 ==="
+# hips_order=8：显式限最深 Norder=8（≈1.6 arcsec/px，匹配 1.5arcsec/px 源真分辨率）。
+# 不限的话 hipsgen 按源像素密度自动选 Norder9（0.8arcsec，对源 2× 过采样插值、无新信息），
+# 多拼一整层 → 瓦片 4×（56万 vs 14万）、时间 12h vs 3.5h。Norder8 画质不损、省 75%。
+# 低分辨率源（如 1B 的 10arcsec）应相应调小，或去掉让其自适应。
 [ -e "$OUT" ] && trash "$OUT" || true
 /opt/homebrew/opt/openjdk@11/bin/java -Xmx80g \
   -jar outputs/tmp_reference_hips/AladinBeta.jar -hipsgen \
-  in="$TILES" out="$OUT" color=jpeg \
+  in="$TILES" out="$OUT" color=jpeg hips_order=8 maxthread=32 \
   creator_did=DuckBro obs_title=GaiaMW1B "target=271.672 -25.873" fading=true
 
 echo "=== [4/5] rebuild 高分 Allsky（修 zoom-out 糊）==="
