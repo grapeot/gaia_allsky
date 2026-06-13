@@ -35,13 +35,20 @@ python src/calibrate_alltile_tone.py --data "$HPX" \
 
 # 渲染默认在 worker 里做 Python 版 PixInsight 调色（pi_curves_scnr，复现 batch_process_frames.xpsm），
 # 免 PI 依赖、随渲染并行——tile 渲出来已调好色，无需单独 PI 步。--color-xpsm none 可关。
-echo "=== [2/2] 渲 tile（分桶 memory-aware，$W 进程，1.5 arcsec/px，6× bloom，Python 调色）==="
-[ -e "$TILES" ] && trash "$TILES" 2>/dev/null || rm -rf "$TILES" 2>/dev/null || true
-mkdir -p "$TILES"
+# RESUME=1：断点续传（跳过已渲 tile，不清目录）。默认 RESUME=1（重跑只补未渲的，大 job 友好）；
+# RESUME=0 则清目录从头渲。
+RESUME="${RESUME:-1}"
+echo "=== [2/2] 渲 tile（分桶 memory-aware，$W 进程，1.5 arcsec/px，6× bloom，Python 调色，resume=$RESUME）==="
+RESUME_FLAG=""
+if [ "$RESUME" = "1" ]; then
+  mkdir -p "$TILES"; RESUME_FLAG="--resume"
+else
+  [ -e "$TILES" ] && (trash "$TILES" 2>/dev/null || rm -rf "$TILES"); mkdir -p "$TILES"
+fi
 python src/render_tan_wcs.py --data "$HPX" --out "$TILES" --tiles \
   --l-range="$LRANGE" --b-range="$BRANGE" \
   --tile-fov "$TFOV" --tile-step "$TSTEP" --tile-size "$TSIZE" --workers "$W" \
-  --value 6 --calib "$CALIB"
+  --value 6 --calib "$CALIB" $RESUME_FLAG
 echo "TILES_DONE → $TILES"
 
 if [ "$DO_HIPSGEN" = "1" ]; then
