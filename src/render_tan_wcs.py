@@ -103,18 +103,51 @@ def write_fits_tile(out_prefix, rgb, S, lc, bc, cdelt):
 
 def render_tile(l, b, cols, L, out_prefix, lc, bc, fov_deg, S, psf_core_px,
                 bortle, target_sky, star_contrast, chroma, target_white, out_fits=False,
-                calib=None):
+                calib=None, buckets=None):
     """渲一块 TAN 瓦片（切点 lc,bc）。out_fits=False 出 PNG+.hhh；True 出 float FITS。
     返回画面内星数（0 不输出）。
 
     calib=None：sky_anchor 用物理天光底 ×3、white-point stretch 用 TILE_STRETCH=1.0。
     calib={"sky_level":.., "stretch":..}：用全天联合标定的冻结值（见 calibrate_alltile_tone.py），
       复刻 hero 整图的对比观感且块间一致。全量渲染走这条路。
+    buckets=None：l/b/cols/L 是全星表，对全表做角距粗筛（内存 ~15GB/进程，仅小规模可用）。
+    buckets={...}：HEALPix 分桶模式（memory-aware 根治，高分辨率全天必走）——l/b/cols/L 是
+      按 Norder<order> 像素排序的全表，buckets 含 start/count/order/hp。只取 tile 覆盖的邻桶
+      星做投影（几十万 vs 6 亿），内存几十 MB、快几百倍。见 build_healpix_bucketed.py。
     """
     from PIL import Image
     scale_rad = np.radians(fov_deg) / S
     cdelt = fov_deg / S
-    xi, eta, vis = gnomonic(l, b, lc, bc)
+    rad_deg = fov_deg * 0.7071 * 1.3  # 半对角线 + 30% 余量（粗筛半径，宁松勿紧）
+
+    if buckets is not None:
+        # 分桶模式：算 tile 中心 rad_deg 内覆盖哪些 Norder 像素，只 gather 这些桶的星。
+        import astropy.units as u
+        hp = buckets["hp"]; start = buckets["start"]; count = buckets["count"]
+        pix = hp.cone_search_lonlat(lc * u.deg, bc * u.deg, rad_deg * u.deg)
+        pix = pix[count[pix] > 0]
+        if len(pix) == 0:
+            return 0
+        # 拼接这些桶的连续 slice（桶内星在全表里是连续段）
+        segs_l, segs_b, segs_L, segs_c = [], [], [], []
+        for p in pix:
+            s = int(start[p]); c = int(count[p])
+            segs_l.append(l[s:s + c]); segs_b.append(b[s:s + c])
+            segs_L.append(L[s:s + c]); segs_c.append(cols[s:s + c])
+        ls = np.concatenate(segs_l); bs = np.concatenate(segs_b)
+        Ls = np.concatenate(segs_L); colss = np.concatenate(segs_c)
+        # 桶比 tile 略大，邻桶星含 tile 外的——下面 gnomonic+inside 会精确裁掉，无需再粗筛。
+    else:
+        # 全表角距粗筛（小规模兜底）：对全 6 亿星算 cos 球面距离，留 tile 附近的。
+        cos_rad = np.cos(np.radians(min(rad_deg, 180.0)))
+        lr, br = np.radians(l), np.radians(b)
+        l0, b0 = np.radians(lc), np.radians(bc)
+        cosd = np.sin(b0) * np.sin(br) + np.cos(b0) * np.cos(br) * np.cos(lr - l0)
+        near = cosd >= cos_rad
+        if not np.any(near):
+            return 0
+        ls, bs, Ls, colss = l[near], b[near], L[near], cols[near]
+    xi, eta, vis = gnomonic(ls, bs, lc, bc)
     # xi(东)→ +x；eta(北)→ -y（图像 y 向下）。手性由 CDELT1<0 在 WCS 里表达。
     px = S / 2.0 + xi / scale_rad
     py = S / 2.0 - eta / scale_rad
@@ -124,7 +157,7 @@ def render_tile(l, b, cols, L, out_prefix, lc, bc, fov_deg, S, psf_core_px,
         return 0
     pxi = np.clip(px.astype(int), 0, S - 1)
     pyi = np.clip(py.astype(int), 0, S - 1)
-    canvas = rs.accumulate_stars(S, S, pxi, pyi, inside, L, cols, psf_px=psf_core_px)
+    canvas = rs.accumulate_stars(S, S, pxi, pyi, inside, Ls, colss, psf_px=psf_core_px)
     # 立体角归一化：flux → 面亮度，与投影/分辨率/fov 无关，一套 tone 通用
     canvas = canvas * (REF_OMEGA / cdelt ** 2)
     sky = beg.rh.skyglow_level(bortle)
@@ -176,7 +209,7 @@ def _tile_worker(job):
     s = _SHARED
     return render_tile(s["l"], s["b"], s["cols"], s["L"], prefix, lc, bc,
                        s["tile_fov"], s["tile_size"], **s["tile_kw"],
-                       out_fits=s.get("out_fits", False))
+                       out_fits=s.get("out_fits", False), buckets=s.get("buckets"))
 
 
 def main():
@@ -233,18 +266,29 @@ def main():
         print(f"用全天标定 {args.calib}: sky_anchor={calib['sky_anchor']:.3f} "
               f"sc={calib['star_contrast']} stretch={calib['stretch']}", flush=True)
 
-    with np.load(args.data) as d:
-        l, b, g = d["l"][:], d["b"][:], d["g"][:]
-        bv = np.nan_to_num(d["bp_rp"][:], nan=0.7)
+    # 分桶星表（build_healpix_bucketed.py 产出，含 bucket_start/count/order）自动启用 memory-aware
+    # 分桶模式：每 tile 只读邻桶。否则全表角距粗筛（仅小规模可用）。
+    d = np.load(args.data)
+    l, b, g = d["l"][:], d["b"][:], d["g"][:]
+    bv = np.nan_to_num(d["bp_rp"][:], nan=0.7)
     cols = rs.bv_to_rgb(bv)
     L = beg.visual_luminance_for_mags(g, args.bortle, args.value, 0.5)
+    buckets = None
+    if "bucket_start" in d.files:
+        from astropy_healpix import HEALPix
+        from astropy.coordinates import Galactic
+        order = int(d["order"])
+        buckets = dict(hp=HEALPix(nside=2 ** order, order="nested", frame=Galactic()),
+                       start=d["bucket_start"][:], count=d["bucket_count"][:])
+        print(f"分桶模式（Norder{order}，memory-aware）：每 tile 只读邻桶", flush=True)
     tile_kw = dict(psf_core_px=args.psf_core_px, bortle=args.bortle,
                    target_sky=args.target_sky, star_contrast=args.star_contrast,
                    chroma=args.chroma, target_white=args.target_white, calib=calib)
 
     if not args.tiles:
         n = render_tile(l, b, cols, L, args.out, args.lc, args.bc,
-                        args.fov_deg, args.size, **tile_kw, out_fits=args.fits)
+                        args.fov_deg, args.size, **tile_kw, out_fits=args.fits,
+                        buckets=buckets)
         print(f"单图 切点({args.lc},{args.bc}) fov={args.fov_deg}° size={args.size} "
               f"画面内星 {n:,} -> {args.out}.png", flush=True)
         return
@@ -255,17 +299,20 @@ def main():
     lcs = np.arange(llo, lhi + 1e-6, args.tile_step)
     bcs = np.arange(blo, bhi + 1e-6, args.tile_step)
     jobs = []
-    for lc in lcs:
-        for bc in bcs:
-            prefix = os.path.join(args.out, f"tile_l{lc:+.0f}_b{bc:+.0f}"
-                                  .replace("+", "p").replace("-", "m"))
-            jobs.append((prefix, float(lc % 360), float(bc)))
+    for i, lc in enumerate(lcs):
+        for j, bc in enumerate(bcs):
+            # 文件名用网格索引 i_j 保唯一（亚度 step 时 %.0f 整数度会碰撞——361 tile 塌成
+            # 132 个同名互相覆盖，高分辨率致命 bug）。hipsgen 靠 .hhh 的 WCS 定位，不靠文件名
+            # 度数，所以索引命名安全。度数附在名里仅供人读/调试。
+            tag = f"tile_i{i:04d}_j{j:04d}_l{lc % 360:.2f}_b{bc:.2f}".replace("-", "m")
+            jobs.append((os.path.join(args.out, tag), float(lc % 360), float(bc)))
     print(f"瓦片网格 {len(lcs)}×{len(bcs)}={len(jobs)} 格，{args.workers} 进程并行，"
           f"每格 fov={args.tile_fov}° size={args.tile_size}", flush=True)
 
     global _SHARED
     _SHARED = dict(l=l, b=b, cols=cols, L=L, tile_fov=args.tile_fov,
-                   tile_size=args.tile_size, tile_kw=tile_kw, out_fits=args.fits)
+                   tile_size=args.tile_size, tile_kw=tile_kw, out_fits=args.fits,
+                   buckets=buckets)
     from concurrent.futures import ProcessPoolExecutor, as_completed
     import multiprocessing as mp
     # macOS 默认 spawn，worker 不继承 _SHARED；用 fork 让 worker 继承 + numpy
