@@ -48,6 +48,13 @@ REF_OMEGA = 0.083 ** 2
 # 符合"接受 +6mag 的满"的观感。如需更亮白点可整体调高，但必须所有 tile 一致。
 TILE_STRETCH = 1.0
 
+# bloom 翼 σ 的【角尺寸】基准（arcsec），渲染时按 arcsec/px 反算像素 σ——让亮星光晕角尺寸
+# 与分辨率无关（按像素写死会让高分辨率亮星没气场，见 render_tile_canvas 注释）。
+# (小翼, 大翼)。大翼 240arcsec：让亮星在 zoom-out 到 ~60°FOV（Aladin 取 Norder1-2、屏幕每
+# 像素 ~200arcsec）降采样后仍占几像素、明确跳出星海。实测 40arcsec 在低层被抹平、240 是
+# 「大 FOV 可认出 vs 小 FOV 不糊大饼」的甜点。1:3 比例承自旧 (3,9)px。
+BLOOM_SIGMAS_ARCSEC = (80.0, 240.0)
+
 
 def gnomonic(l, b, lc, bc):
     """银道 (l,b)→ TAN 标准平面坐标 (xi, eta)，单位弧度。切点 (lc,bc)。
@@ -144,7 +151,12 @@ def render_tile_canvas(l, b, cols, L, lc, bc, fov_deg, S, psf_core_px, bortle, b
     canvas = rs.accumulate_stars(S, S, pxi, pyi, inside, Ls, colss, psf_px=psf_core_px)
     canvas = canvas * (REF_OMEGA / cdelt ** 2)
     sat = 6.0 * beg.rh.skyglow_level(bortle) * beg.gain_for_mag_delta(0.0)
-    canvas = beg.saturate_and_bloom(canvas, sat, (3.0, 9.0), (0.65, 0.35))
+    # bloom 翼 σ 按【角尺寸】固定，不按像素——否则高分辨率下亮星光晕角尺寸缩小（1B 的
+    # 9px@10.5arcsec≈95arcsec 霸气，高分 9px@1.5arcsec 只 13arcsec、亮星没气场，溢出成方块）。
+    # 基准 BLOOM_SIGMAS_ARCSEC 在任意 arcsec/px 下反算像素 σ，亮星气场与分辨率无关。
+    arcsec_px = cdelt * 3600.0
+    wing_sigmas = tuple(s / arcsec_px for s in BLOOM_SIGMAS_ARCSEC)
+    canvas = beg.saturate_and_bloom(canvas, sat, wing_sigmas, (0.65, 0.35))
     canvas = beg.add_skyglow(canvas, bortle)
     return canvas
 
