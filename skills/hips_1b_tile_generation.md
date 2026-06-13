@@ -194,7 +194,7 @@ done 标记 = 表现为「卡死」（误判过 slot/WebEngine，都不是）。
 ### 3. hipsgen 拼金字塔（用户做）
 
 **默认本机跑**（下面命令）。**大规模时（几万~几十万 tile、十几小时）可外包给更强的 Linux
-机器**——见 3.4，把渲好的 tiles 打包 rsync 过去那边只拼 hipsgen。规模判断：万级 tile 本机
+机器**——见 3.4，sync 整个 repo 过去那边渲+拼。规模判断：万级 tile 本机
 （数十分钟~数小时）够；全天 1.5arcsec/px（~22 万 tile）建议外包。
 
 需 `openjdk@11`（新版 JDK 不兼容旧 jar，Java 26 的 JApplet 已移除）。
@@ -226,26 +226,32 @@ done 标记 = 表现为「卡死」（误判过 slot/WebEngine，都不是）。
   `sqrt(4π/(12·4^N))·(180·3600/π)/512`，选最接近源 arcsec/px 的 N（1.5→8, 6→6, 10→5/6）。
   配 `maxthread=32` 吃满核。低分辨率源（1B 的 10 arcsec）不加也行（自适应到 Norder6）。
 
-### 3.4 远程 hipsgen：打包到更强的 Linux 机器跑（可选）
+### 3.4 在更强的机器上渲染：sync 整个 repo（不打包）
 
-hipsgen 是单机计算密集步（几万源瓦片 + order8 ≈ 数小时）。有更强的 Linux 机器时，可只把
-**这一步**外包过去——瓦片渲染/PixInsight 仍在本机做完，把渲好的 tiles + 一个自包含包 rsync
-过去，那边只跑 hipsgen → HiPS。包在 `tools/hipsgen_linux_pkg/`（自包含、可移植）：
+大规模时（全天 1.5arcsec/px ~22 万 tile，渲染+hipsgen 十几小时）外包给更强的机器。**不打
+专用包**——代码本就在 repo，直接 rsync 整个工作区过去（排除大产物），那边重建 venv 跑现成脚本。
+比传渲好的 tiles 轻得多：全天 tiles ~513G vs 分桶 npz 16G + 代码。
 
 ```bash
-# 本机：现打包（拷 jar + tar）
-bash tools/hipsgen_linux_pkg/pack.sh           # 产出 tools/hipsgen_linux_pkg.tar.gz（~6M）
-# rsync 包 + 瓦片到 Linux
-rsync -avz tools/hipsgen_linux_pkg.tar.gz user@linux:/data/
-rsync -av outputs/<tiles_dir>/ user@linux:/data/tiles/
-# Linux 端（装 openjdk-11 + Pillow 后）
-tar xzf hipsgen_linux_pkg.tar.gz
-TILES=/data/tiles OUT=/data/hips_out bash hipsgen_linux_pkg/run_hipsgen.sh
+# 本机：sync repo（排大目录，只带代码 + 要用的分桶 npz，~17G）
+rsync -av --progress \
+  --exclude='outputs/' --exclude='.venv/' --exclude='__pycache__/' \
+  --exclude='data/raw/flatiron_gaia_source_fov_gz/' \
+  --include='data/raw/' --include='data/raw/<分桶 npz>' --exclude='data/raw/*.npz' \
+  ./ user@host:/path/repo/
+
+# 目标机：重建 venv + 跑（渲染链纯 numpy/scipy/PIL/astropy，无 macOS 依赖）
+python3 -m venv .venv && source .venv/bin/activate
+pip install numpy scipy Pillow astropy astropy-healpix
+sudo apt install openjdk-11-jdk            # hipsgen 必须 JDK 11
+# 标定→渲→PI(可选,装了PI才有)→hipsgen→allsky，按 W/XMX/MAXTHREAD 调机器：
+bash tools/build_hips_pipeline.sh <tag> <tile-fov> <tile-step> <tile-size> <workers>
+# 或手动分步（calibrate_alltile_tone → render_tan_wcs --calib → hipsgen hips_order=8 → rebuild_allsky）
 ```
 
-包内 `run_hipsgen.sh` 用 `JAVA/XMX/MAXTHREAD/HIPS_ORDER` 环境变量适配机器；`README.md` 给
-对端 AI 看（依赖、流程、hips_order 坑、JDK 必须 11、验收）。瓦片靠 `.hhh`(WCS) 定位、**不靠
-文件名度数**，所以跨机无碍。这就是「我只 rsync 过去、那边 AI 接手」的交接形态。
+要点：分桶 npz（build_healpix_bucketed.py 产出）跨机直接用；hipsgen 须 JDK 11 + AladinBeta.jar
+（在 outputs/tmp_reference_hips/，sync 时按需带上或目标机另放）；hips_order=8 别漏（防过采样）；
+长任务 zellij/tmux 持久 pane 或 nohup。这就是「换台机器渲染 = sync repo」的通用形态，不需专用包。
 
 ### 3.5 用样式化落地页覆盖默认 index.html（我做）
 
