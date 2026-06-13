@@ -25,3 +25,6 @@ tmp/
 .DS_Store
 
 .claude/
+
+# hipsgen 交接包的大 jar（打包时从 outputs/tmp_reference_hips/ 拷，不进 git）
+tools/hipsgen_linux_pkg/bin/*.jar
