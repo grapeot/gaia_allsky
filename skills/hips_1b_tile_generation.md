@@ -115,48 +115,75 @@ div，再逐步加回，定位哪个元素/样式破坏加载）。
 
 ## 三步流程
 
-### 1. 渲带 WCS 的 TAN 瓦片（我做）
+### 1. 全天 tone 标定 + 渲带 WCS 的 TAN 瓦片（我做）
+
+**先标定、再渲染。** 标定算出全天固定的 (sky_anchor, star_contrast, stretch) 冻结成 JSON，
+渲染时所有 tile 用同一组 → 复刻 hero 单图的对比观感（暗压亮提）且块间一致（无接缝）。
 
 ```bash
 source .venv/bin/activate
+# [0] 全天 tone 标定（与全量渲染用相同 tile-fov/tile-size！sky_anchor 依赖归一化 norm）
+python src/calibrate_alltile_tone.py --data data/raw/fov_g20_bsc5.npz \
+  --tile-fov 6 --tile-size 2048 --value 6 --target-sky 0.020 \
+  --star-contrast 4 --target-white 2.6 --out outputs/alltile_calib.json
+# [1] 渲 tile（用 calib，floor/对比/白点全用冻结值）
 python src/render_tan_wcs.py \
   --data data/raw/fov_g20_bsc5.npz --out outputs/hips1b_tiles_hero --tiles \
   --l-range=-41,79 --b-range=-31,43 \
   --tile-fov 6 --tile-step 5 --tile-size 2048 --workers 8 \
-  --value 6 --target-sky 0.038 --target-white 2.6 --star-contrast 1.0 --chroma 1.8
+  --value 6 --calib outputs/alltile_calib.json
 ```
 
-- **`--value 6 --target-sky 0.038 --target-white 2.6` = hero/主图同款**。不加这些时 tiles
-  用 +0mag/target_sky 0.012（裸眼亮度），HiPS 会比实际暗一大截（中位 82 vs hero 同款 166，
-  暗星增益差 ~250×）。hero 同款放大看单星不过曝（饱和像素 0.02%）、暗星涌现、乳光饱满。
-- **`--star-contrast 1.0` 必须显式传**（CLI 默认 6.0 会让银带过曝冲白！）。这是固定 tone
-  标定（消接缝）后**必须配套**调的：旧路径 star_contrast=6.0 靠 per-tile 白点自适应拉伸
-  补偿才不过曝，固定标定移除了 per-tile 补偿，6.0 就把银带信号放大 6× 冲到中位 255。实测
-  sc=1.0 银带中位 ~152（hero 观感）、暗区 ~83、无接缝；sc≥3 银带冲白。`chroma 1.8` 保金色
-  饱和度（CLI 默认就是 1.8）。
-- 网格 25×15=375 格，约 338 张非空（落在广州 FOV 内的）。
-- 每格一张 2048² PNG + 同名 `.hhh`（FITS WCS header），多进程并行，
-  worker 数与 tile-size 不变则内存恒定（与瓦片总数无关），凑更高分辨率只需更多格。
-- `fov=6/step=5` ≈ 十亿像素等效。放大就调小 tile-fov/step。
+**为什么要标定（接缝 vs 对比的矛盾，踩了一整轮才理清）：**
+- hero 单图（render_fov）好看，是因为 tone_adapted 在**整幅图上算一次** floor/white-point。
+  瓦片若让每张各自 percentile 估，含银带多的 tile 标定不同 → 沿银河方向接缝。
+- 解法：全天用一组固定 (sky_anchor, star_contrast, stretch)。这三个值就是 calib JSON。
+- **真根因细节**：hero 用 render_fov（**无**立体角归一化），tile 用 render_tan_wcs（**有**，
+  ×REF_OMEGA/cdelt²≈×50）。两边喂进 tone 的 canvas 量级差 ~50 倍，所以 **hero 的 stretch
+  数值不能直接搬到 tile**（搬了银带爆 50 倍）。必须用 tile 自己的归一化 canvas 实测 anchor。
+
+**标定产出的三个值（hero 同款观感）：**
+- `sky_anchor`：用相同 fov/size 在高纬暗空点实测的 canvas sum p25（**依赖 fov/size！**
+  fov6/512→3.8, fov20/650→4.1, fov6/2048→2.7。calibrate 和 render 的 fov/size 不一致会
+  报错拒跑）。它把黑场锚到 target_sky，复刻 hero 暗空（PNG 暗 p5≈26）。
+- `star_contrast=4`：暗压亮提的主旋钮。sc=6 银心略过曝、sc=1 太平，**sc=4** 银心亮 p99≈214
+  不爆、暗空 p5≈26——最贴 hero。
+- `stretch=1.0`：归一化后亮部已足，白点拉伸退到下限即可。
+
+**其它要点：**
+- `--value 6`（敏感度 +6mag，暗星增益 ~250×）和 `--target-sky 0.020` 是 hero 同款，不要漏。
+  无标定时（不传 --calib）退回保守路径：物理天光底×3 作 floor + TILE_STRETCH=1.0，无接缝
+  但对比平、不复刻 hero。**正式渲染务必走标定路径。**
+- 网格 25×15=375 格，约 338 张非空。每格 2048² PNG + `.hhh`(WCS header)，多进程并行，
+  内存随 worker 和 tile-size 恒定（与瓦片总数无关）。`fov=6/step=5` ≈ 十亿像素等效。
 
 **坑（务必读）：**
+- **sky_anchor 依赖 fov/size**：统计量对 size 「不敏感」只对**分布形状**成立；anchor 是
+  canvas **绝对量级**，含立体角归一化 norm=REF_OMEGA/cdelt²，随 fov/size 变。所以标定必须
+  用与全量渲染相同的 tile-fov/tile-size（render 会校验，不一致直接报错）。
 - **后台启动必须在 wrapper 脚本里 `source .venv/bin/activate`**。`nohup python ...`
   不继承当前 shell 的 venv，会 `python: No such file or directory` 静默失败。
-- **立体角归一化**是关键：星光是 flux 语义，每像素亮度随像素角面积变化，不同投影/
-  分辨率下同一颗星每像素亮度不同（这是 TAN 图看着比广州地平图暗的真因）。
-  `render_tan_wcs.py` 在累积后每像素除以像素立体角转面亮度，一套 tone 通用。
-- **手性**：像素映射 `+xi`（东向）配 WCS `CDELT1<0` 表达"经度向左增"，只处理一次。
-  两处都加负号 → Aladin 里左右镜像。
-- **tone 亮度**：用上面的 hero 同款参数（`--value 6 --target-sky 0.038`）后，tiles 亮度
-  已接近主图，不再需要靠 PixInsight 大幅提亮。star_contrast 对 TAN 路径几乎无效、
-  target_white 影响弱——主要的亮度旋钮是 `--value`（敏感度 +mag，暗星增益）和
-  `--target-sky`（天光底/整体亮度）。PixInsight 这步留作色温/去绿等精修，不是救亮度。
+- **手性**：像素映射 `+xi`（东向）配 WCS `CDELT1<0`，只处理一次。两处都加负号 → 左右镜像。
+- PixInsight 这步（下一步）留作色温/去绿精修，**不是救对比**——对比由标定的 star_contrast 定。
 
-### 2. PixInsight 批处理调色（用户做）
+### 2. PixInsight 批处理调色（agent 自动跑，用 tools/pixinsight_batch.py）
 
-见 [zoom15_video_workflow.md](zoom15_video_workflow.md) 的 PixInsight 一节——
-同一个 `batch_process_frames.xpsm` process icon（CurvesTransformation×2 + SCNR）
-也可批量过 tile，统一提亮/调色/去绿。
+```bash
+python tools/pixinsight_batch.py --xpsm skills/batch_process_frames.xpsm \
+  --in outputs/hips1b_tiles_hero --in-place --workers 8 --slot-base 200
+```
+
+并行 headless PixInsight 批处理（`batch_process_frames.xpsm` = CurvesTransformation×2 + SCNR），
+**色温/去绿精修，不救对比**（对比由上一步标定的 star_contrast 定）。详见
+[bestpractice_pixinsight_batch.md](bestpractice_pixinsight_batch.md)。
+
+**⚠️ shm 段耗尽坑（batch「卡死一半 worker」的真根因）**：每个 PixInsight 实例占 1 个 SysV
+共享内存段，macOS 系统全局上限 `kern.sysv.shmmni=32`。崩溃/被 kill 的实例**泄漏僵尸段不释
+放**，反复跑后累积占满 32 → 新实例 `QSharedMemory::create: out of resources` 启动即崩、无
+done 标记 = 表现为「卡死」（误判过 slot/WebEngine，都不是）。`pixinsight_batch.py` 已内置：
+跑前清无附着的 PI shm 段 + 余量不足自动降并发 + 收尾清理。若仍触顶，手动清
+`ipcs -m | awk '$1=="m"&&$5=="<user>"{print $2}' | xargs -n1 ipcrm -m`（确认 PI 全退后），
+或 `sudo sysctl -w kern.sysv.shmmni=128` 抬上限。
 
 ### 3. hipsgen 拼金字塔（用户做）
 
