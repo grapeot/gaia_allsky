@@ -979,6 +979,41 @@ def test_bright_wing_sigma_scales_with_magnitude():
     assert bright > faint, f"亮星翼应更大: G_bright RMS={bright:.1f} G_faint RMS={faint:.1f}"
 
 
+def test_bright_wing_cost_scales_with_star_count_not_canvas():
+    """wing 耗时应正比于亮星数，与画布大小近似无关——守"局部窗口、不全画布卷积"的实现。
+
+    回归之前的性能 bug：旧实现对每个 σ 档在整张画布卷积，空 tile 几颗星也空转全套，耗时被
+    画布尺寸主导（空旷比密集还慢）。局部窗口下，0 颗亮星几乎零成本、画布翻倍耗时不应跟着翻倍。
+    用 perf_counter 测结构性关系（不卡绝对耗时，避免机器差异 flaky）。
+    """
+    import time
+    cdelt = 0.64 / 1536.0
+    rng = np.random.default_rng(0)
+
+    def t_wings(S, nstar):
+        if nstar:
+            px = rng.integers(0, S, nstar); py = rng.integers(0, S, nstar)
+            Lb = np.full(nstar, 1e3); gb = np.full(nstar, 5.0)
+            cols = np.tile([1.0, 0.85, 0.6], (nstar, 1))
+        else:
+            px = py = np.array([], int); Lb = gb = np.array([])
+            cols = np.empty((0, 3))
+        t0 = time.perf_counter()
+        for _ in range(3):
+            tw._bright_star_wings(S, px, py, Lb, cols, gb, cdelt, margin=0)
+        return (time.perf_counter() - t0) / 3
+
+    # 0 颗亮星：必须近乎瞬时（旧全画布实现这里仍会建 layer/卷积）
+    t_empty = t_wings(1536, 0)
+    assert t_empty < 0.02, f"空亮星 wing 应近乎零成本，实测 {t_empty*1000:.1f}ms"
+    # 画布翻倍（同样几颗星）：局部窗口下耗时不应随画布面积(4×)线性涨
+    t_small = t_wings(768, 5)
+    t_large = t_wings(1536, 5)
+    assert t_large < t_small * 2.5, (
+        f"画布 768→1536(面积4×) wing 耗时不应近线性涨："
+        f"{t_small*1000:.1f}→{t_large*1000:.1f}ms（局部窗口应近似持平）")
+
+
 def test_solid_angle_normalization_is_resolution_invariant():
     """立体角归一化把 flux 转成面亮度：同一颗星在两种 cdelt 下归一后每像素相等。
 
