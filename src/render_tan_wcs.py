@@ -48,12 +48,19 @@ REF_OMEGA = 0.083 ** 2
 # 符合"接受 +6mag 的满"的观感。如需更亮白点可整体调高，但必须所有 tile 一致。
 TILE_STRETCH = 1.0
 
-# bloom 翼 σ 的【角尺寸】基准（arcsec），渲染时按 arcsec/px 反算像素 σ——让亮星光晕角尺寸
-# 与分辨率无关（按像素写死会让高分辨率亮星没气场，见 render_tile_canvas 注释）。
-# (小翼, 大翼)。大翼 240arcsec：让亮星在 zoom-out 到 ~60°FOV（Aladin 取 Norder1-2、屏幕每
-# 像素 ~200arcsec）降采样后仍占几像素、明确跳出星海。实测 40arcsec 在低层被抹平、240 是
-# 「大 FOV 可认出 vs 小 FOV 不糊大饼」的甜点。1:3 比例承自旧 (3,9)px。
-BLOOM_SIGMAS_ARCSEC = (80.0, 240.0)
+# —— 亮星散射翼（bloom）：光晕大小随星等 G 连续变化 ——
+# 物理：恒星都是点源，"显大"来自饱和外溢 + 散射翼，两者强度 ∝ 通量、可见半径 ∝ log(通量)
+# ∝ (m_lim - G)。所以光晕大小**连续**随亮度：越亮越大，从最暗的亚像素点到最亮的大盘平滑渐变
+# （这才是星图"疏密有致、有大有小"的来源）。
+# 实现分两层（10.6 亿星不可能逐颗卷）：
+#   - 暗星（G≥BLOOM_G_FAINT，十亿颗）：accumulate 统一小 PSF（它们光晕都接近下限、差异肉眼无所谓）。
+#   - 亮+中亮星（G<BLOOM_G_FAINT，全天 ~6.3 万颗、单 tile 个位~几十颗）：每颗按 σ(G) 渲翼，
+#     σ 连续随 G（G≤BLOOM_G_BRIGHT 满 σ、到 BLOOM_G_FAINT 收到核尺度）。按 σ 分细档（每档一次
+#     卷积，省时）逼近连续。这给出连续渐变 + 亮星气场，且密集暗星不进、银带不糊。
+BLOOM_G_BRIGHT = 2.0          # 此星等及以下：满 σ 大翼（全天 65 颗）
+BLOOM_G_FAINT = 8.0           # 此星等以上：不单独渲翼（走 accumulate 小 PSF）。G<8 全天 ~6.3 万颗
+BLOOM_WING_ARCSEC = 80.0      # G≤BLOOM_G_BRIGHT 的散射翼大翼 σ（角尺寸，与分辨率无关；240→80 缩 3×）
+BLOOM_CORE_FRAC = 1.0 / 3.0   # 小翼 = 大翼 × 此比例（承自旧 (3,9)px 的 1:3）
 
 
 def gnomonic(l, b, lc, bc):
@@ -108,11 +115,90 @@ def write_fits_tile(out_prefix, rgb, S, lc, bc, cdelt):
     hdu.writeto(out_prefix + ".fits", overwrite=True)
 
 
-def render_tile_canvas(l, b, cols, L, lc, bc, fov_deg, S, psf_core_px, bortle, buckets=None):
-    """渲一块 TAN 瓦片的 raw canvas（tone 之前）：候选星筛选 → gnomonic 投影 → accumulate →
-    立体角归一化 → saturate_and_bloom → add_skyglow。返回 HxWx3 float canvas，或 None（无星）。
-    render_tile 和 calibrate_alltile_tone 共用——保证标定的 anchor 和实际渲染的 canvas 同源。
-    buckets=None 全表角距粗筛；buckets={...} 分桶模式只读邻桶（memory-aware，见 render_tile docstring）。"""
+def _fast_saturate_and_bloom(canvas, sat_level, wing_sigmas, wing_weights, ds_thresh=40.0):
+    """与 beg.saturate_and_bloom 等价，但大 σ 翼用降采样卷积——大 σ 高斯天然低频，在低分辨率
+    做再上采样，视觉无损（实测差 0.24%）却快 ~36×。bloom 是渲染最大瓶颈（6× bloom 的 σ=160px
+    高斯在 1536² 上单 tile 7.2s，占 96% 时间；降采样后 0.2s，全天 61h→~7h）。"""
+    from scipy.ndimage import gaussian_filter, zoom
+    H, W = canvas.shape[:2]
+    y = canvas.sum(-1)
+    over = y > sat_level
+    if not np.any(over):
+        return canvas
+    scale = np.ones_like(y)
+    scale[over] = sat_level / y[over]
+    core = canvas * scale[:, :, None]
+    excess = canvas - core
+    wings = np.zeros_like(canvas)
+    for sig, w in zip(wing_sigmas, wing_weights):
+        for c in range(3):
+            if sig > ds_thresh:
+                f = max(2, int(sig / 12))             # 降采样因子（保 ~12px σ 精度）
+                sm = gaussian_filter(zoom(excess[..., c], 1.0 / f, order=1), sig / f)
+                up = zoom(sm, f, order=1)
+                if up.shape[0] < H or up.shape[1] < W:
+                    up = np.pad(up, ((0, max(0, H - up.shape[0])),
+                                     (0, max(0, W - up.shape[1]))), mode="edge")
+                wings[..., c] += up[:H, :W] * w
+            else:
+                wings[..., c] += gaussian_filter(excess[..., c], sig) * w
+    return core + wings
+
+
+def _bright_star_wings(S, pxi_b, pyi_b, Lb, colsb, gb, cdelt, margin=0):
+    """对亮星（G≤BLOOM_G_FAINT）按 G 分级画散射翼，返回 wings 层 (S,S,3)。
+    σ 随 G 线性：G≤BLOOM_G_BRIGHT 用大翼 BLOOM_WING_ARCSEC、到 BLOOM_G_FAINT 收到 0。
+    每颗星的翼是它通量的一部分铺成高斯——暗星（已被 G 排除）不进来，不糊密集星场。
+    亮星少（全天 ~700 颗、单 tile 通常个位数），直接高斯卷积（不降采样）——降采样的 zoom
+    双线性上采样在大 σ 会把圆高斯采成方格 artifact（亮星核出现方块）。
+
+    margin>0：在 (S+2margin)² 的扩边画布上画翼再裁回中心 S×S。pxi/pyi 已是相对扩边
+    画布的坐标（含 margin 偏移），可落在 [0,S+2margin)。这样**中心落在 tile 外、但翼伸
+    进 tile** 的亮星也能贡献（修 tile 边缘亮星被截断）——卷积在扩边画布上做，翼跨过原
+    tile 边界连续，裁剪只丢真正在视野外的部分，相邻 tile 各算各的扩边、重叠区一致。"""
+    from scipy.ndimage import gaussian_filter
+    arcsec_px = cdelt * 3600.0
+    Sp = S + 2 * margin
+    wings = np.zeros((Sp, Sp, 3), np.float64)
+    if len(gb) == 0:
+        return wings[margin:margin + S, margin:margin + S]
+    # 光晕大小连续随 G：sig_frac∈[~0.06,1]，G≤BRIGHT→1（满 σ），G≥FAINT→核尺度（最小）。
+    # 线性插（log 通量近似线性于 G）。每颗星的翼 σ = BLOOM_WING_ARCSEC × sig_frac(G)。
+    sig_frac = np.clip((BLOOM_G_FAINT - gb) / (BLOOM_G_FAINT - BLOOM_G_BRIGHT), 0.0, 1.0)
+    sig_frac = np.maximum(sig_frac, BLOOM_CORE_FRAC * 0.2)   # 下限：最暗有翼星也比纯点略大
+    # 翼能量 ∝ 通量。按 sig_frac 分细档（0.08 一档 ~13 档）逼近连续 σ，每档一次卷积。
+    edges = np.linspace(sig_frac.min(), sig_frac.max() + 1e-6, 14)
+    for k in range(len(edges) - 1):
+        m = (sig_frac >= edges[k]) & (sig_frac < edges[k + 1])
+        if not np.any(m):
+            continue
+        sf = 0.5 * (edges[k] + edges[k + 1])         # 该档代表 σ_frac
+        layer = np.zeros((Sp, Sp, 3), np.float64)
+        we = Lb[m] * 0.5                              # 翼分走一半通量（核留一半，连续显大）
+        for c in range(3):
+            np.add.at(layer[..., c], (pyi_b[m], pxi_b[m]), we * colsb[m, c])
+        big = max((BLOOM_WING_ARCSEC * sf) / arcsec_px, 4.0)
+        # 核心小翼 σ 不能太小：太小则亮星中心是个尖峰、tone clip 成方形平顶。≥3px 保证中心
+        # 是平滑圆顶过渡（星是圆的）。
+        sml = max(big * BLOOM_CORE_FRAC, 3.0)
+        # truncate 必须大：scipy 的高斯核截断是**方形**支撑（半宽 truncate×σ），核外硬归零。
+        # 普通星在 3σ 处已 ~0、方边看不见；但极亮星（如 Antares，L 是中位 2900 万倍）在 3σ
+        # 的残值（峰值 ×e^-4.5≈0.011）仍高于天光底，于是方形支撑的边缘 + 对角伸更远 → 渲成
+        # 一个方块（用户报的 "方形 mask"）。truncate=5.0 让 5σ 处残值 ~e^-12.5≈4e-6，任何亮度
+        # 都已远低于可见阈值，方边平滑没入背景。代价是核面积 ∝truncate²，但亮星单 tile 个位数，
+        # 可忽略。
+        for sig, w in [(sml, 0.65), (big, 0.35)]:
+            for c in range(3):
+                wings[..., c] += gaussian_filter(layer[..., c], sig, truncate=5.0) * w
+    return wings[margin:margin + S, margin:margin + S]
+
+
+def render_tile_canvas(l, b, cols, L, lc, bc, fov_deg, S, psf_core_px, bortle,
+                       buckets=None, g=None):
+    """渲一块 TAN 瓦片的 raw canvas（tone 之前）：候选星筛选 → gnomonic 投影 → accumulate
+    （暗星，psf_core_px 锐点）→ 亮星散射翼（按 G 分级，g 提供时）→ 立体角归一化 → add_skyglow。
+    返回 HxWx3 float canvas，或 None（无星）。render_tile 和 calibrate 共用。
+    g=None 时退回旧的整图 saturate_and_bloom（标定调它、不需亮星分级）。"""
     scale_rad = np.radians(fov_deg) / S
     cdelt = fov_deg / S
     rad_deg = fov_deg * 0.7071 * 1.3  # 半对角线 + 30% 余量（粗筛半径，宁松勿紧）
@@ -124,13 +210,16 @@ def render_tile_canvas(l, b, cols, L, lc, bc, fov_deg, S, psf_core_px, bortle, b
         pix = pix[count[pix] > 0]
         if len(pix) == 0:
             return None
-        segs_l, segs_b, segs_L, segs_c = [], [], [], []
+        segs = ([], [], [], [], [])
         for p in pix:
             s = int(start[p]); c = int(count[p])
-            segs_l.append(l[s:s + c]); segs_b.append(b[s:s + c])
-            segs_L.append(L[s:s + c]); segs_c.append(cols[s:s + c])
-        ls = np.concatenate(segs_l); bs = np.concatenate(segs_b)
-        Ls = np.concatenate(segs_L); colss = np.concatenate(segs_c)
+            segs[0].append(l[s:s + c]); segs[1].append(b[s:s + c])
+            segs[2].append(L[s:s + c]); segs[3].append(cols[s:s + c])
+            if g is not None:
+                segs[4].append(g[s:s + c])
+        ls = np.concatenate(segs[0]); bs = np.concatenate(segs[1])
+        Ls = np.concatenate(segs[2]); colss = np.concatenate(segs[3])
+        gs = np.concatenate(segs[4]) if g is not None else None
     else:
         cos_rad = np.cos(np.radians(min(rad_deg, 180.0)))
         lr, br = np.radians(l), np.radians(b)
@@ -140,6 +229,7 @@ def render_tile_canvas(l, b, cols, L, lc, bc, fov_deg, S, psf_core_px, bortle, b
         if not np.any(near):
             return None
         ls, bs, Ls, colss = l[near], b[near], L[near], cols[near]
+        gs = g[near] if g is not None else None
     xi, eta, vis = gnomonic(ls, bs, lc, bc)
     px = S / 2.0 + xi / scale_rad
     py = S / 2.0 - eta / scale_rad
@@ -148,22 +238,39 @@ def render_tile_canvas(l, b, cols, L, lc, bc, fov_deg, S, psf_core_px, bortle, b
         return None
     pxi = np.clip(px.astype(int), 0, S - 1)
     pyi = np.clip(py.astype(int), 0, S - 1)
+    # 暗星 + 全部星正常 accumulate（锐点）——这是图的主体，银带保持锐利。
     canvas = rs.accumulate_stars(S, S, pxi, pyi, inside, Ls, colss, psf_px=psf_core_px)
     canvas = canvas * (REF_OMEGA / cdelt ** 2)
-    sat = 6.0 * beg.rh.skyglow_level(bortle) * beg.gain_for_mag_delta(0.0)
-    # bloom 翼 σ 按【角尺寸】固定，不按像素——否则高分辨率下亮星光晕角尺寸缩小（1B 的
-    # 9px@10.5arcsec≈95arcsec 霸气，高分 9px@1.5arcsec 只 13arcsec、亮星没气场，溢出成方块）。
-    # 基准 BLOOM_SIGMAS_ARCSEC 在任意 arcsec/px 下反算像素 σ，亮星气场与分辨率无关。
-    arcsec_px = cdelt * 3600.0
-    wing_sigmas = tuple(s / arcsec_px for s in BLOOM_SIGMAS_ARCSEC)
-    canvas = beg.saturate_and_bloom(canvas, sat, wing_sigmas, (0.65, 0.35))
+
+    if gs is not None:
+        # 亮星散射翼（按 G 分级）：只 G≤BLOOM_G_FAINT 的星给翼，暗星不给（不糊密集星场）。
+        # 扩边渲翼：中心落在 tile 外 margin 内、但翼伸进 tile 的亮星也要算（否则 tile 边缘
+        # 的亮星翼被硬截、相邻 tile 拼起来有断口）。margin = 最大翼 5σ（truncate=5）的像素半径。
+        arcsec_px = cdelt * 3600.0
+        margin = int(np.ceil(5.0 * BLOOM_WING_ARCSEC / arcsec_px))
+        # 扩边画布坐标：中心可落在 [-margin, S+margin) → 加 margin 偏移到 [0, S+2margin)。
+        pxm = px + margin
+        pym = py + margin
+        bright = (vis & (gs <= BLOOM_G_FAINT)
+                  & (pxm >= 0) & (pxm < S + 2 * margin)
+                  & (pym >= 0) & (pym < S + 2 * margin))
+        if np.any(bright):
+            pxmi = np.clip(pxm.astype(int), 0, S + 2 * margin - 1)
+            pymi = np.clip(pym.astype(int), 0, S + 2 * margin - 1)
+            wings = _bright_star_wings(S, pxmi[bright], pymi[bright], Ls[bright],
+                                       colss[bright], gs[bright], cdelt, margin=margin)
+            canvas = canvas + wings * (REF_OMEGA / cdelt ** 2)
+    else:
+        # 标定路径（g=None）：用旧整图 saturate_and_bloom（小 σ，不影响 anchor 统计）。
+        sat = 6.0 * beg.rh.skyglow_level(bortle) * beg.gain_for_mag_delta(0.0)
+        canvas = _fast_saturate_and_bloom(canvas, sat, (3.0, 9.0), (0.65, 0.35))
     canvas = beg.add_skyglow(canvas, bortle)
     return canvas
 
 
 def render_tile(l, b, cols, L, out_prefix, lc, bc, fov_deg, S, psf_core_px,
                 bortle, target_sky, star_contrast, chroma, target_white, out_fits=False,
-                calib=None, buckets=None):
+                calib=None, buckets=None, color_procs=None, g=None):
     """渲一块 TAN 瓦片（切点 lc,bc）。out_fits=False 出 PNG+.hhh；True 出 float FITS。
     返回画面内星数（0 不输出）。
 
@@ -180,7 +287,7 @@ def render_tile(l, b, cols, L, out_prefix, lc, bc, fov_deg, S, psf_core_px,
     # raw canvas（候选星筛选→投影→accumulate→立体角归一化→saturate→skyglow）抽成共用函数，
     # calibrate_alltile_tone 也调它——保证标定 anchor 与实际渲染 canvas 同源。
     canvas = render_tile_canvas(l, b, cols, L, lc, bc, fov_deg, S, psf_core_px, bortle,
-                                buckets=buckets)
+                                buckets=buckets, g=g)
     if canvas is None:
         return 0
     n_in = 1  # 有星（render_tile_canvas 非 None 即画面内有星）
@@ -208,6 +315,11 @@ def render_tile(l, b, cols, L, out_prefix, lc, bc, fov_deg, S, psf_core_px,
                                   sky_anchor=sky_anchor)
     rgb = beg.finish_sky_adapted(adapted, target_sky, 2.2, target_white,
                                  tile_stretch, chroma)
+    # Python 版 PixInsight 调色（色温/去绿微调）——渲完直接在 worker 里做，免 PI 依赖、
+    # 天然随渲染多进程并行、省一次读写。与真 PI 逐像素 eval mean≈3.6/255 等价（见 pi_curves_scnr）。
+    if color_procs is not None:
+        import pi_curves_scnr as pcs
+        rgb = pcs.apply_xpsm(np.clip(rgb, 0.0, 1.0), color_procs)
     if out_fits:
         # FITS 域金字塔：存 tone 后、8-bit clip 前的 float rgb 为 R/G/B 三套单通道
         # FITS（hipsgen 对多面 FITS 当灰度，须分通道）。各通道 float 域逐层池化保住
@@ -229,7 +341,8 @@ def _tile_worker(job):
     s = _SHARED
     return render_tile(s["l"], s["b"], s["cols"], s["L"], prefix, lc, bc,
                        s["tile_fov"], s["tile_size"], **s["tile_kw"],
-                       out_fits=s.get("out_fits", False), buckets=s.get("buckets"))
+                       out_fits=s.get("out_fits", False), buckets=s.get("buckets"),
+                       color_procs=s.get("color_procs"), g=s.get("g"))
 
 
 def main():
@@ -267,11 +380,31 @@ def main():
     ap.add_argument("--fits", action="store_true",
                     help="出 float FITS 瓦片（tone 后、未 8-bit clip）而非 PNG。供 hipsgen "
                          "TILES 在真值域逐层池化、JPEG 从 float 导显示层，改善 zoom-out 质量。")
+    ap.add_argument("--resume", action="store_true",
+                    help="断点续传：跳过已渲出（.png/.fits 已存在）的 tile，只补未渲的。"
+                         "大全天 job 中断后重跑加这个。")
+    ap.add_argument("--color-xpsm", default=None,
+                    help="PixInsight process icon (.xpsm)，渲完在 worker 里用 Python 复现做色温/"
+                         "去绿调色（pi_curves_scnr，免 PI 依赖、随渲染并行）。默认 skills/"
+                         "batch_process_frames.xpsm；传 'none' 跳过调色。")
     ap.add_argument("--calib", default=None,
                     help="全天 tone 标定 JSON（calibrate_alltile_tone.py 产出）。提供则用其冻结的"
                          " sky_anchor/star_contrast/stretch 复刻 hero 对比且块间一致。标定的"
                          " tile_fov/tile_size 必须与本次渲染一致。")
     args = ap.parse_args()
+
+    # Python 版 PixInsight 调色：默认用 batch_process_frames.xpsm（渲完在 worker 里做，免 PI
+    # 依赖、随渲染并行）。--color-xpsm none 跳过、给别的 xpsm 路径则用那个。
+    color_procs = None
+    cx = args.color_xpsm if args.color_xpsm is not None else os.path.join(
+        ROOT, "skills", "batch_process_frames.xpsm")
+    if str(cx).lower() != "none" and os.path.isfile(cx):
+        sys.path.insert(0, os.path.join(ROOT, "tools"))
+        import pixinsight_batch as _pb
+        color_procs = _pb.parse_xpsm(cx)
+        print(f"Python 调色（pi_curves_scnr）: {cx} → {len(color_procs)} process", flush=True)
+    elif str(cx).lower() != "none":
+        print(f"⚠ color-xpsm 不存在，跳过调色: {cx}", flush=True)
 
     calib = None
     if args.calib:
@@ -308,7 +441,7 @@ def main():
     if not args.tiles:
         n = render_tile(l, b, cols, L, args.out, args.lc, args.bc,
                         args.fov_deg, args.size, **tile_kw, out_fits=args.fits,
-                        buckets=buckets)
+                        buckets=buckets, color_procs=color_procs, g=g)
         print(f"单图 切点({args.lc},{args.bc}) fov={args.fov_deg}° size={args.size} "
               f"画面内星 {n:,} -> {args.out}.png", flush=True)
         return
@@ -326,13 +459,22 @@ def main():
             # 度数，所以索引命名安全。度数附在名里仅供人读/调试。
             tag = f"tile_i{i:04d}_j{j:04d}_l{lc % 360:.2f}_b{bc:.2f}".replace("-", "m")
             jobs.append((os.path.join(args.out, tag), float(lc % 360), float(bc)))
+    # 断点续传：跳过已渲出（.png 已存在）的 tile。大全天 job 中断后重跑只补未渲的。
+    if args.resume:
+        ext = ".fits" if args.fits else ".png"
+        before = len(jobs)
+        jobs = [j for j in jobs if not os.path.exists(j[0] + ext)]
+        print(f"--resume：已渲 {before - len(jobs)}/{before} 跳过，本次渲 {len(jobs)}", flush=True)
+        if not jobs:
+            print("全部已渲，无需续跑。", flush=True)
+            return
     print(f"瓦片网格 {len(lcs)}×{len(bcs)}={len(jobs)} 格，{args.workers} 进程并行，"
           f"每格 fov={args.tile_fov}° size={args.tile_size}", flush=True)
 
     global _SHARED
     _SHARED = dict(l=l, b=b, cols=cols, L=L, tile_fov=args.tile_fov,
                    tile_size=args.tile_size, tile_kw=tile_kw, out_fits=args.fits,
-                   buckets=buckets)
+                   buckets=buckets, color_procs=color_procs, g=g)
     from concurrent.futures import ProcessPoolExecutor, as_completed
     import multiprocessing as mp
     # macOS 默认 spawn，worker 不继承 _SHARED；用 fork 让 worker 继承 + numpy

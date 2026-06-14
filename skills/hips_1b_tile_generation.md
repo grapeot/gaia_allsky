@@ -172,16 +172,22 @@ python src/render_tan_wcs.py \
 - **手性**：像素映射 `+xi`（东向）配 WCS `CDELT1<0`，只处理一次。两处都加负号 → 左右镜像。
 - PixInsight 这步（下一步）留作色温/去绿精修，**不是救对比**——对比由标定的 star_contrast 定。
 
-### 2. PixInsight 批处理调色（agent 自动跑，用 tools/pixinsight_batch.py）
+### 2. 调色（色温/去绿精修）——默认 Python 复现，免 PixInsight
 
+**默认走 Python**（`src/pi_curves_scnr.py`）：render_tan_wcs 渲完直接在 worker 里用 numpy 复现
+`batch_process_frames.xpsm`（CurvesTransformation B/K/b* + SCNR），**无需 PixInsight、随渲染
+多进程并行、省一次读写**。render_pipeline.sh / render_tan_wcs 默认就做（`--color-xpsm` 指定
+xpsm，`--color-xpsm none` 跳过）。所以**这步通常不用单独跑**——渲出来的 tile 已调好色。
+与真 PI 逐像素 eval：mean≈3.6/255、p99≈11，视觉等价（见 pi_curves_scnr 注释 + test_pi_curves_scnr）。
+没装 PixInsight 的机器（如渲染用的 Linux）走这条，整条 pipeline 纯 Python。
+
+**可选：真 PixInsight 批处理**（要逐像素和 GUI 一致、或调更复杂的 xpsm 时）：
 ```bash
 python tools/pixinsight_batch.py --xpsm skills/batch_process_frames.xpsm \
-  --in outputs/hips1b_tiles_hero --in-place --workers 8 --slot-base 200
+  --in outputs/hips1b_tiles_hero --in-place --workers 8 --slot-base 200 --resume
 ```
-
-并行 headless PixInsight 批处理（`batch_process_frames.xpsm` = CurvesTransformation×2 + SCNR），
 **色温/去绿精修，不救对比**（对比由上一步标定的 star_contrast 定）。详见
-[bestpractice_pixinsight_batch.md](bestpractice_pixinsight_batch.md)。
+[bestpractice_pixinsight_batch.md](bestpractice_pixinsight_batch.md)。注意 shm 坑（下）。
 
 **⚠️ shm 段耗尽坑（batch「卡死一半 worker」的真根因）**：每个 PixInsight 实例占 1 个 SysV
 共享内存段，macOS 系统全局上限 `kern.sysv.shmmni=32`。崩溃/被 kill 的实例**泄漏僵尸段不释
