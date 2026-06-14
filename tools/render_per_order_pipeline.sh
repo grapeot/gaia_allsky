@@ -189,6 +189,14 @@ if [ "$DO_HIPSGEN" = 1 ]; then
   LO=$(echo $ORDERS | tr ' ' '\n' | sort -n | head -1)
   cp "$OUT/o$HI/hips/properties" "$HIPS/properties" 2>/dev/null || true
   cp "$OUT/o$HI/hips/Moc.fits" "$HIPS/Moc.fits" 2>/dev/null || true
+  # 修 minOrder=order 单层 hipsgen 的副作用：每个 order 的 properties 写 hips_order_min=该order，
+  # 拷最高 order 的会得 min=HI，导致 Aladin 以为没有低 order、zoom-out 一片空白。组装后的金字塔
+  # 实含 LO..HI 全层，必须把 order_min 改回最低 order（没有则补一行）。
+  if grep -q "^hips_order_min" "$HIPS/properties" 2>/dev/null; then
+    sed -i.bak "s/^hips_order_min.*/hips_order_min       = $LO/" "$HIPS/properties" && rm -f "$HIPS/properties.bak"
+  else
+    echo "hips_order_min       = $LO" >> "$HIPS/properties"
+  fi
   python src/rebuild_allsky_hires.py --hips "$HIPS" --order "$LO" >&2 || true
   cp skills/hips_landing_page.html "$HIPS/index.html" 2>/dev/null || true
   echo "PER_ORDER_DONE → $HIPS （orders: $ORDERS）"
