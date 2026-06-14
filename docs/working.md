@@ -2,6 +2,75 @@
 
 ## Changelog
 
+### 2026-06-14（zoom-out 结构丢失的最终诊断 + per-order 渲染落地）
+
+承接 2026-06-10「两个致命 bug」那段（见下文「超大图 / Aladin HiPS 金字塔的两个致命 bug」）——
+那次已诊断出"点源 flux 语义 + mean 池化稀释"，并写下正确架构「渲最高分辨率 float → sum 池化逐层
+→ tone 每层独立」，但标注**待实现**，之后的 PR 一路仍走 hipsgen 的 mean/median 池化。这次把它真正
+落地，并补上那段没有的一个新洞察。
+
+**现象（用户报，三张图共诊）**：新版 bloom（只亮星给翼、暗星锐点）渲的全天图，zoom-out 看
+一片黑 + 零散亮星，参考效果（老版大 PSF 高分辨率，糊但结构在）里那种"几亿暗星织成的发光底 +
+尘埃暗带"完全消失。放大 native 看暗星全都在（满屏锐点），所以**不是丢星、不是丢能量、不是 tone**。
+
+**根因 = 采样定理（delta 场不抗混叠）**，这是对 06-10「flux/mean」诊断的补充而非重复：
+- 06-10 已对的部分：点源是 flux 语义，mean 池化按 1/N² 稀释星光。正确降采样是 **sum（保光通量）
+  不是 mean（保面亮度）**；sum 池化数学上等价于"该分辨率直接从星表 binning = 原生重渲"。
+- 这次补的新洞察：**即使 sum，锐点暗星在低 order 仍是孤立 delta 尖峰**。高分辨率 canvas 是一片
+  delta 函数（暗星亚像素锐点、点间为零）。对 delta 场降采样是**抽样而非积分**——落在采样点上的星
+  留、落在缝里的丢，密集区与暗带区都塌成噪点。要让密集处的暗星**重叠累加成连续底**、稀疏处（暗带）
+  自然浮现，每颗暗星必须有**横跨 ~1 个目标像素的宽度**。这就是抗混叠预滤波 / mipmap 铁律：
+  **不能对 delta 场做 mipmap，必须在生成每一级时用匹配该级像素尺度的低通（PSF）。**
+
+**解法 = per-order 渲染，暗星 PSF 匹配该层像素**。不靠最高层往下池化；每个 Norder 用对应的
+(tile_size, psf_core_px≈1px) 各从星表渲一次。低 order tile 数指数级少（N3 全天 768 个），渲得飞快。
+等价于 06-10 写的"每层从星表 binning = 原生重渲"，外加"暗星给该层 PSF"这一步。
+
+**验证（看图，非数字——本轮教训：均亮/对比度 CV 都会误导，必须肉眼看暗带可见性）**：
+银道面 l20 b0 与心宿二 l352 b15 两块，同片天对比 (1) native 锐点→area 降采样 vs (2) 低 order
+直接渲+暗星 PSF=1px。(1) 噪点状、暗带不可见、背景塌黑；(2) 连续发光底 + 暗带清晰浮现 + 亮星不糊。
+均亮 37→52（心宿二）、64→90（银道面），但关键是**结构**：(2) 出现 (1) 完全没有的暗带河道。
+
+**hipsgen / Aladin 能力调研（2026-06-14，本地 jar -h + 网络双查，确认无现成开关可救）**：
+- **Aladin Lite v3 救不了**：major overhaul（Rust/WASM/WebGL）但仍是显示端，按 HEALPix cell 取
+  预生成瓦片纹理像素（v3 论文 aspbooks.org/publications/532/007.pdf 逐字），瓦片生成时丢的结构
+  恢复不了。（注：Tavily LLM 摘要曾幻觉"v3 直接从最高分辨率重采样"，论文无此说法，未采信。）
+- **hipsgen 无可救开关**：池化仅 4 种 2×2 变体 `method/mode=MEAN|MEDIAN|FIRST|MIDDLE`，无 PSF、
+  无抗混叠核。float 域池化有（FITS bitpix=-32），但**对 delta 场做浮点平均仍是抽样**，不解决采样
+  定理问题。手册写 `treeFirst` "emphasises point sources"——保尖峰让结构更碎，反方向。彩色 JPEG
+  路的 `method` 明确"for aggregating colored compressed tiles"——即 8bit 压缩域 mean/median。
+- **业界（CDS Gaia DR3）就是 per-order**：存 progressive catalogue（按 order partition 源）+
+  density maps（每层独立计数=该尺度天然积分），不是池化图像。旁证 per-order PSF 渲染是标准做法。
+- **可省事的官方工作流（hipsgen 手册「注入外部瓦片」）**：① `minOrder=N order=N INDEX TILES`
+  让 hipsgen 只建第 N 层；② 用我们自己的 per-order PSF 渲染器**替换该层瓦片**；③ 各层都这么做后
+  hipsgen 只做 Allsky/properties/MOC/index.html 封装，`minOrder=order` 阻止它做会塌结构的 TREE
+  池化。这样不必自造金字塔目录脚手架，且官方支持。出处：aladin.cds.unistra.fr/hips/HipsgenManual.pdf
+
+**渲染加速：局部窗口卷积（同轮，profile 驱动，60×）**：
+- 用户痛点"渲一轮 6h"。cProfile 单 tile 定位：`_bright_star_wings` 占 81%，全在 gaussian_filter
+  的 correlate1d。反直觉地**空旷 tile（174ms）比银道面密集（106ms）还慢**——瓶颈不是星数，是
+  per-tile 固定开销：之前对每个 σ 档（~13 档）都在整张 (S+2margin)²（如 2070²）扩边画布做
+  truncate=5 的大核高斯卷积，空旷 tile 几颗星也空转全套。
+- 修法：wing 是局部的（5σ 半径），改成**每颗亮星只在它的 5σ 局部窗口贴一个预计算归一化高斯核
+  ×通量**（同档星共用核），不再全画布卷。物理等价：conv(Σδ·flux)==Σ(核·flux)，远离边界逐像素
+  一致（测试 `test_bright_wing_local_window_matches_full_conv` 守，内部差 ~3e-6 浮点级）；贴边
+  星的越界翼直接裁掉=物理正确"翼落视野外丢弃"，比 gaussian_filter 默认 reflect 边界更对。
+- 实测单 tile：空旷 174→7.5ms（23×）、密集 106→42ms（2.5×，accumulate 成主导=真计算）。
+- **全天 N8 runtime 重估：6h → 3–6 分钟（96 进程，按银纬加权均 17ms/tile）**。结论：6h 不是真实
+  计算量，是实现低效；**不需要 GPU / 量化 / float cache（1.5TB 写盘慢）**——重渲只要几分钟，比
+  写 cache 还快。GPU 的工程复杂度（CuPy/Linux/scatter-add 移植）对 3-6 分钟的任务不值，此判断
+  有 profile 数据支撑非拍脑袋。
+
+**方法论教训（本轮踩坑沉淀）**：
+- 推理对≠测得对。我先后用 8bit-vs-float 池化、tone 在哪层 两个合成实验，都没复现出问题——因为
+  它们假设 canvas 已积分对、问题在后面；而真因是 canvas 在高分辨率下根本没积分（delta 场）。
+- 性能问题先 profile 再优化：6h 的"瓶颈"不是直觉的星数/accumulate，是空旷 tile 的 wing 卷积空转；
+  反直觉信号（空旷比密集慢）是定位线索。优化前若先上 GPU 会优化错地方。
+- 均亮/对比度 CV 会骗人（合成实验里 8bit 池化的结构相关甚至 0.998）。暗带可见性是肉眼判断，
+  定位这类问题必须看图，不能只看标量 metric。
+- 同一个根因 06-10 就诊断过且写下架构，但"待实现"拖了 4 天没落地、期间继续在错的池化链上调参。
+  教训：working.md 里标"待实现"的正确架构，要么排期落地、要么显式记为已知债，别让它沉底。
+
 ### 2026-06-10
 
 - **核心 PSF 收窄 0.6（去糊）+ 文案合并颜色坑、裂隙转 open question。** 裂隙 PSF 诊断图（现状/无增益/窄psf0.6/无增益+窄psf）四格副产物：用户观察到窄 PSF 整体更锐不糊。A/B 三联（`outputs/_b1_clarity_compare.png`，gain3.8/psf1.1 vs gain3.8/psf0.6 vs gain1/psf0.6）确认：好看来自**窄 PSF（锐化）**而非无增益——去增益会抽掉乳光厚度（右图银河明显单薄），窄 PSF 保留增益则两头都对（暗星颗粒锐、银河厚度在、亮星靠饱和溢出照样显大）。决策：CLI `--psf-core-px` 默认 1.1→0.6（仅静态图 renderer；视频管线按用户决定保持 1.1，窄核收益在可放大细看的静态图，重渲视频极贵）。底层函数 default 保留 1.1（中性默认，测试直接调）。测试 `args.psf_core_px==0.6`，68 passed。消融阶梯 STEP 2/3/4 的 psf 同步 1.1→0.6 保持自洽（full 步用默认 0.6，避免"PSF 步 1.1、全开变 0.6"的不一致）。全套 docs/assets（hero/bortle_1-9/两 grid/消融7张）重渲转 jpg。文案：①公众号文章（`tmp/gaia_starmap_article_20260608/`）颜色去黄添为**翻车七**、标题改"七次"、裂隙**翻车六改成诚实 open question**（列消光只黑一档、深度判决实验证明加深无用、缝对比被 Gaia DR3 深度锁死）；②原理页"五个决策"→"六个"，新增决策六（白点锚定）、决策二 PSF 改 0.6 并说明为何收窄、决策四裂隙改 open question、消融代码块 1.1→0.6；③README/rfc 同步 psf 0.6。待办：chroma 仍 1.8（白点修对后建议 1.4-1.5，仍未定）；hero 图带烧入标签（既有状态，未在本轮改裁切）；裂隙配图 figure_rift_fix_pair 语义从"修复前后"变"渲染 vs 照片对比"，文件可能需重做。
