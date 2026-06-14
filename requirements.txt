@@ -2,6 +2,7 @@ numpy
 scipy
 Pillow
 astropy
+astropy-healpix
 astroquery
 tifffile
 pytest

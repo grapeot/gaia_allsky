@@ -2,6 +2,73 @@
 
 ## Changelog
 
+### 2026-06-14（直渲剪切修复实验：local shear v2，低 order 暗星层也要补偿）
+
+在 `fix-hips-local-shear` 分支做了两轮实验，测试路径按 `docs/tmp_debug.md` 的四层流程走。
+
+**实现变化**：
+- `src/render_hips_direct_pipeline.py` 改用 `cdshealpix.lonlat_to_healpix(..., return_offsets=True)`
+  取 order-K cell 内连续 `dx/dy`，替代旧的 Norder(K+9) 离散 sub-cell 近似。
+- 亮星 `_bright_star_wings` 支持 per-star shear：每颗亮星按自身 `dx/dy` 算局部 HEALPix 雅可比
+  `J/sqrt(det)`，再画 `J^-1` 椭圆核。旧 TAN 路径 `shear=None` 不变。
+- 第一版 `outputs/direct_local_shear/hips` 只修亮星核。结果：N3-N5 相对 `direct_v3` 平均差只有
+  0.03-0.33/255，肉眼级底部 tile 形变不可能靠它解决。
+- 第二版 `outputs/direct_local_shear2/hips` 进一步让 N3-N5 的暗星/乳光层走 block-local inverse-shear
+  PSF（64px block，每块用局部 shear 椭圆高斯核）。N6-N8 保持原快路径，因为单 tile 内剪切梯度小。
+
+**验证**：
+- 单星 probe（Norder3 npix669）：无 shear 球面轴比 1.225/1.059；旧中心 shear 残余 1.082/1.068；
+  local shear 亮度加权轴比 **1.000/1.000**。说明核方向和量是对的。
+- `pytest tests/ -q`：**93 passed**。
+- 同区重渲（l=351.95 b=10 half=5）：`direct_local_shear2` 的 N3-N5 相对 `direct_v3` 平均差约
+  2.7-2.9/255，diff 图见 `outputs/_scratch/direct_local_shear2_order{3,4,5}_old_new1_new2_diff.png`。
+- 可视化输出：`outputs/direct_local_shear2/hips` 已补 `index.html/properties`，本地预览 server
+  `http://localhost:8780/`（日志 `outputs/_scratch/direct_local_shear2_http_8780.log`）。
+- 用户肉眼反馈：`local_shear2` **扭曲好不少了**。说明主因确实在低 order 暗星/乳光层的 HEALPix
+  局部剪切，而不是只在亮星 bloom 核。
+- 按用户要求，以问题 tile 自身为中心重渲 ±5°：锁定为 **Norder3 Npix669**，中心
+  `l=352.494, b=8.875`（ICRS `ra=253.125207, dec=-30.000473`）。输出
+  `outputs/direct_tile669_center_shear2/hips`，已补 `index.html/properties/Norder3/Allsky.jpg`，预览
+  `http://localhost:8781/`。
+
+**性能观察**：N3-N5 小样 102 tile，8 workers 19.0s，32 workers 19.4s。CPU 低不是 workers 参数问题，
+而是 block-local shear 路径每 tile 内部 Python 小块卷积/进程启动开销主导。若视觉确认有效，下一步应把
+暗星 sheared PSF 做成更高效的分桶/预计算卷积，或者只对低 order 的问题 tile 启用。
+
+**当前判断**：截图底部 tile 的肉眼形变更像低 order zoom-out 层的暗星/乳光纹理也被 HEALPix shear 拉斜，
+不只是亮星 bloom 核。`local_shear2` 是更可能有效的修法；是否最终解决需要 Aladin 肉眼验收。
+
+**新残留**：用户观察 `direct_local_shear2` 左右反且开始黑屏。黑屏是缺 `Norder3/Allsky.jpg`，已用
+`rebuild_allsky_hires.py --order 3 --per 256` 补上。左右反暂不支持是 Norder tile 本身反了：同 npix
+比较 `direct_v3` vs `local_shear2`，原图相关性约 0.99，水平/垂直翻转相关性接近 0 或负数。更可能是
+手工重建 Allsky 的布局/方向与 Aladin v2 对 Allsky 的预期不完全一致；下一步查 `Allsky.jpg` 预览层。
+
+**shear3/shear4 进展**：`outputs/direct_ra17_dec-45_shear3/hips`（`http://localhost:8783/`）把普通星
+sheared PSF 扩展到 N6-N8，用户确认 zoom-in 星点椭圆问题解决。`outputs/direct_ra17_dec-45_shear4/hips`
+（`http://localhost:8784/`）进一步修亮星 bloom 跨 tile 截断：亮星不再只限中心落在本 tile，而是用
+high-order nested face 坐标落到当前 tile 的扩边画布，让相邻 tile 中心的亮星光晕也能贡献。用户给的
+两个扇形截断坐标中，一个对应相邻 tile G=3.15 亮星，shear4 文件级变化明显；另一个对应本 tile 近底边
+G=5.74 亮星，缺失主要应在下方邻 tile。邻域 QA 图见 `outputs/_scratch/cut*_n8_shear3_vs_shear4_neighbors.png`。
+
+**shear5/shear6 收口**：shear5（`http://localhost:8785/`）修普通星亚像素中心：本 tile 内星用
+`cdshealpix` 连续 `dx/dy`，普通星 accumulation 用 bilinear splat，避免 0.6px 椭圆核被整数格点采成
+块状/梳状 PSF。新增 `test_bilinear_splat_preserves_subpixel_position`。shear6（`http://localhost:8786/`）
+修 zoom-out 接缝：低 order tile 选择半径从固定 `half*1.5` 改为 `max(half*1.5, half + tile_fov)`，补齐
+N3/N4 视野边缘粗 tile 邻居。新增 `test_low_order_tile_search_has_guard_band`，全量测试 **95 passed**。
+用户给的 `17:35:44.273 -44:56:12.50` 在 shear5 时 N3/N4 邻居缺失，shear6 后 N3/N4/N5 8 邻居齐全；
+`17:25:23.191 -43:27:34.45` 在 shear6 后 N4/N5 邻居齐全，N3 仅余一个远角邻居缺失。
+
+**half12 覆盖验证**：为区分算法接缝和 half=5 测试区域边界，按同一中心 `l=341.643613 b=-1.624362`
+重渲 `half=12`，命令为 `python src/render_hips_direct_pipeline.py data/raw/gaia_allsky_g20_bsc5_hpx6.npz 341.643613 -1.624362 12 "3 4 5 6 7 8" outputs/direct_ra17_dec-45_half12_shear6/hips 32`，产出
+26259 tile，耗时 378.5s（69.4 tile/s）。已补 `properties`、`index.html` 和 `Norder3/Allsky.jpg`，预览
+`http://localhost:8787/`。用户新给的 `17:25:21.134 -43:27:49.31` 距 RA=255 Dec=-45 中心 4.793°，确实不是
+half=5 边界；在 shear6 小区里 N4-N8 自身和 8 邻域全齐，N3 只缺远角邻居 `738`；在 half12 输出里 N3-N8
+自身和 8 邻域全齐。因此这个点若仍有异常，剩余问题更可能在 PSF/重采样几何，而不是缺 tile 覆盖。
+
+**下一步判断**：当前 heuristic 已修了低阶 guard band、连续亚像素和 local shear，但用户仍观察到 PSF 奇怪。
+继续堆参数收益有限，下一步应对照 hipsgen 官方实现核对 tile pixel orientation、边界采样和 backward bilinear
+重投影细节，再决定 direct forward splat 是否要改成更接近 hipsgen 的采样模型。
+
 ### 2026-06-14（直渲剪切修复进展：椭圆核 work，饱和大星核残留待解）
 
 承接「直渲剪切 bug」诊断（下一段）。调研确认 + 实现进展：

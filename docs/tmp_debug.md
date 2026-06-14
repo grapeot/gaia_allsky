@@ -10,9 +10,126 @@
 2. **剪切是 cell 内连续场、非每瓦片常数**——下半/跨 face 瓦片单中心 J 修不全、形状错位。
    修向：逐点 J 场 / cdshealpix `hash_with_dxdy` 连续亚像素 forward map。
 
+### 2026-06-14 更新：local shear v2 进展
+
+当前实验分支：`fix-hips-local-shear`。
+
+**代码变化**：
+- `render_hips_direct_pipeline.py` 改用 `cdshealpix.lonlat_to_healpix(..., return_offsets=True)` 获取
+  order-K cell 内连续 `dx/dy`，不再用 Norder(K+9) 离散 sub-cell 近似做 forward map。
+- 亮星 bloom 支持 per-star shear：每颗亮星按自身位置算局部 HEALPix 雅可比 `J/sqrt(det)`，用
+  `J^-1` 椭圆核补偿显示端剪切。
+- `local_shear` 第一版只修亮星核，低 order 变化太小（N3 平均差 0.33/255），肉眼形变基本不会靠它变好。
+- `local_shear2` 第二版对 N3-N5 的暗星/乳光层也做 block-local inverse-shear PSF（64px block，
+  每块一个局部椭圆高斯核）。用户反馈：**扭曲好不少了**。这说明截图里的主要问题不只是亮星，而是
+  zoom-out 低 order 的暗星/乳光纹理也需要按 HEALPix 局部剪切预补偿。
+
+**当前可看产物**：
+- `outputs/direct_local_shear2/hips/`：同区 `l=351.95 b=10 half=5`，N3-N5 为 local shear v2，N6-N8
+  复用 local_shear 第一版（这些层 cell 内剪切梯度小）。已补 `index.html`、`properties`、
+  `Norder3/Allsky.jpg`。预览：`http://localhost:8780/`。
+- `outputs/direct_tile669_center_shear2/hips/`：以问题 tile 自身为中心的 ±5° 小样。tile 识别为
+  **Norder3 Npix669**，中心 `l=352.494, b=8.875`，ICRS `ra=253.125207 dec=-30.000473`。
+  已补 `index.html`、`properties`、`Norder3/Allsky.jpg`。预览：`http://localhost:8781/`。
+- diff 图：`outputs/_scratch/direct_local_shear2_order{3,4,5}_old_new1_new2_diff.png`。四排依次是
+  old/direct_v3、new1/只亮星 local shear、new2/暗星也 local shear、old-vs-new2 diff×4。
+
+**验证结果**：
+- 单星 probe（Norder3 npix669）：无 shear 球面轴比 1.225/1.059；旧中心 shear 残余 1.082/1.068；
+  local shear 亮度加权轴比 **1.000/1.000**。说明局部核补偿方向和量是对的。
+- `python -m pytest tests/ -q`：**93 passed**。
+- 与 `direct_v3` 同区比较：`local_shear2` 在 N3-N5 平均绝对差约 2.7-2.9/255，明显大于只修亮星
+  的第一版；N8 与 `south_gold` 的相关性基本不变，说明位置/朝向没有被改坏。
+- tile 内容翻转检查：同 npix 比较 `direct_v3` vs `local_shear2`，原图相关性约 0.99，水平/垂直翻转
+  相关性接近 0 或负数，说明 **Norder tile 文件本身没有左右反**。若 Aladin 初始大 FOV 看起来左右反，
+  更可能是 `Allsky.jpg` 重建方向/布局的问题，而不是 Norder tile 的 dx/dy 映射。
+
+**性能观察**：
+- N3-N5 单独 102 tile：8 workers 19.0s，32 workers 19.4s，worker 数没帮助，瓶颈是每 tile 内部
+  Python block 卷积/进程启动开销。
+- 完整 N3-N8 tile669 小样 4762 tile：32 workers 39.2s（121 tile/s），并行效率正常很多。
+  后续若确认 local_shear2 视觉正确，再优化 N3-N5 sheared PSF 的实现。
+
+**仍待查**：
+- `Allsky.jpg` 方向：`rebuild_allsky_hires.py` 目前简单按 `row=npix//27, col=npix%27` 贴 tile，未验证
+  HiPS Allsky 预览是否需要 tile 内翻转/旋转。用户观察到 `direct_local_shear2` 左右反，优先怀疑 Allsky
+  预览层；Norder tile 级相关性不支持 tile 文件整体左右反。
+- 饱和大星盘：local shear 修了核/暗星层，但极亮星 tone clip 后的饱和平台是否完全圆，还需继续量。
+
+### 2026-06-14 更新：shear3/shear4
+
+**shear3（`outputs/direct_ra17_dec-45_shear3/hips`，预览 `http://localhost:8783/`）**：把普通暗星的
+sheared PSF 从 N3-N5 扩展到 N6-N8。用户确认：**zoom-in 星点椭圆问题解决**。代价是 N8 也要椭圆
+卷积，RA17/-45 小样速度从 shear2 的 ~118 tile/s 降到 ~72 tile/s。
+
+**shear4（`outputs/direct_ra17_dec-45_shear4/hips`，预览 `http://localhost:8784/`）**：修亮星 bloom
+跨 tile 截断。根因是旧逻辑只画中心在本 tile 的亮星，中心在相邻 tile 的大光晕不会贡献到当前 tile，
+Aladin 里就显示成沿 HEALPix 边界硬切的三角/扇形。新逻辑对亮星额外用 high-order nested face 坐标
+落到当前 tile 的扩边画布，允许 `[-margin, TILE+margin)` 内的邻 tile 亮星贡献 wing；tile 外亮星的
+局部 shear 取当前 tile 最近边界位置。
+
+用户给的亮星截断坐标：
+- `16:54:16.892 -42:24:38.42`：附近有 G=3.15 亮星中心在相邻 N8 tile。shear4 对当前 tile N8
+  变化明显（mean abs 4.31/255，max diff 231）。
+- `17:18:49.704 -44:07:35.19`：最近 G=5.74 亮星中心在本 tile 且靠近底边，缺失主要发生在下方邻 tile，
+  当前 tile 自身变化小。邻域对比图已生成。
+
+QA 图：
+- `outputs/_scratch/cut1_n8_shear3_vs_shear4_neighbors.png`
+- `outputs/_scratch/cut2_n8_shear3_vs_shear4_neighbors.png`
+- `outputs/_scratch/seam_n8_shear3_vs_shear4_neighbors.png`
+
+注意：shear4 是当前亮星截断修复候选，还需用户在 Aladin 肉眼确认。
+
+**shear5（`outputs/direct_ra17_dec-45_shear5/hips`，预览 `http://localhost:8785/`）**：修普通星
+PSF 的块状/梳状问题。shear3/4 虽然有椭圆核，但普通星坐标仍通过 high-order `healpy.pix2xyf`
+变成整数子格，0.6px 小核被采样成奇怪的斜块。shear5 改为：本 tile 内星用 `cdshealpix` 连续
+`dx/dy`，只对邻 tile 跨界贡献退回 high-order face 坐标；普通星 accumulation 用 bilinear splat
+保留亚像素中心。新增测试 `test_bilinear_splat_preserves_subpixel_position`，全量 `pytest`：**94 passed**。
+
+用户给的 PSF/接缝坐标在 shear5 相对 shear4 的高阶 tile 变化明显：
+- `17:08:03.290 -50:19:03.89`：N8 mean abs 20.35/255，max 235。
+- `17:35:41.095 -44:54:29.47`：N8 mean abs 23.34/255，max 236。
+- `16:53:55.165 -41:48:34.84`：N8 mean abs 10.78/255，max 233。
+
+下一步看用户肉眼验收：如果 shear5 仍有接缝，问题就不是普通星中心量化，而是跨 face / Allsky /
+亮星超大光晕覆盖半径不足。
+
+**shear6（`outputs/direct_ra17_dec-45_shear6/hips`，预览 `http://localhost:8786/`）**：修 zoom-out
+接缝的另一层根因：低 order tile 选择半径太小。旧 main 用 `half*1.5` 选每层 jobs；对 N3/N4 这种
+单 tile 很大的层，视野边缘附近的粗 tile 邻居会漏掉。Aladin zoom-out 取 N3/N4 或 Allsky 时就看到
+黑缝，即使 N5-N8 高阶 tile 都存在。
+
+修法：新增 `_tile_search_radius(half, korder)=max(half*1.5, half + tile_fov)`，其中
+`tile_fov=58.6323/2^korder`。也就是低 order 加一整个 tile-width guard band，高 order 仍保持原半径。
+新增测试 `test_low_order_tile_search_has_guard_band`，全量 `pytest`：**95 passed**。
+
+验证点：
+- `17:35:44.273 -44:56:12.50`：shear5 时 N3 缺 4 个邻居、N4 缺 2 个邻居；shear6 后 N3/N4/N5
+  周围 8 邻居全存在。
+- `17:25:23.191 -43:27:34.45`：shear6 后 N4/N5 周围 8 邻居全存在，N3 仅剩一个远角邻居缺失；
+  直接上下/左右邻居已补齐。
+- Norder3 Allsky 覆盖从 9 tile 增加到 16 tile。
+
+当前推荐验收版本：`http://localhost:8786/`。
+
+**half12 大区验证（`outputs/direct_ra17_dec-45_half12_shear6/hips`，预览 `http://localhost:8787/`）**：
+同中心 RA17/Dec-45 重渲 half=12、N3-N8，26259 tile，378.5s（69.4 tile/s）。已补 `properties`、
+`index.html`、`Norder3/Allsky.jpg`。用户新增检查点 `17:25:21.134 -43:27:49.31` 的 ICRS 坐标为
+RA=261.338058、Dec=-43.463697，距中心 4.793°，不是 half=5 外边界。在 shear6 half=5 小区里：N4-N8
+自 tile 和 8 邻域全存在，N3 自 tile 存在、8 邻域缺远角 `738`；在 half12 输出里：N3-N8 自 tile 和 8
+邻域全存在。结论：该点的覆盖/低阶邻居问题在 half12 里已排除；若 Aladin 里仍有 PSF 异常，应转向
+hipsgen 官方 backward sampling / tile orientation / border handling 的实现细节，而不是继续只查缺 tile。
+
+**下一步**：clone/read hipsgen 官方实现，重点看 `ThreadBuilderTile` 一类 tile 反向采样代码：每个输出像素如何
+取 HEALPix center、如何 bilinear、边界如何处理、Allsky 如何布局。当前 direct renderer 是 forward splat +
+局部剪切补偿，和 hipsgen 的 backward resample 语义仍不同，这可能是剩余 PSF 观感差异的根因。
+
 产物目录（都在 outputs/，未进 git）：
 - `direct_south/` 直渲圆核（变形基线，中心 l351.95 b10 ±5°）
 - `direct_v3/` 直渲椭圆核（无缝、上半对下半错位）
+- `direct_local_shear2/` 直渲 local shear v2（同区，可看当前最佳修复）
+- `direct_tile669_center_shear2/` 以问题 Norder3 Npix669 tile 中心重渲 ±5°
 - `south_gold/` hipsgen 同区金标（**只渲了 N8**，orders="8"）
 - `ant2048/` hipsgen 完整（心宿二 l351.95 b15.06 ±3°，N3-8 全）
 

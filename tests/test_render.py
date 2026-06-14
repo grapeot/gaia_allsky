@@ -16,6 +16,7 @@ import render_big_dipper_video as bdv
 import render_vr_video as rvv
 import render_bortle_eye_grid as beg
 import render_tan_wcs as tw
+import render_hips_direct_pipeline as hdp
 import video_common as vc
 import motion
 import fetch_gaia_allsky as fga
@@ -1012,6 +1013,61 @@ def test_bright_wing_cost_scales_with_star_count_not_canvas():
     assert t_large < t_small * 2.5, (
         f"画布 768→1536(面积4×) wing 耗时不应近线性涨："
         f"{t_small*1000:.1f}→{t_large*1000:.1f}ms（局部窗口应近似持平）")
+
+
+def test_bright_wing_accepts_per_star_shear():
+    """直渲 HiPS 需要每颗亮星用自己的局部 HEALPix shear，而不是整 tile 共用一个矩阵。"""
+    S = 128
+    cdelt = 0.64 / 512.0
+    px = np.array([40, 90])
+    py = np.array([55, 80])
+    Lb = np.array([1e4, 8e3])
+    gb = np.array([2.0, 3.0])
+    cols = np.tile(np.array([1.0, 0.85, 0.6]), (2, 1))
+    shear = np.array([
+        [[1.10, -0.25], [0.0, 0.91]],
+        [[0.95, 0.18], [0.0, 1.05]],
+    ])
+    wings = tw._bright_star_wings(S, px, py, Lb, cols, gb, cdelt, shear=shear)
+    assert wings.shape == (S, S, 3)
+    assert np.isfinite(wings).all()
+    assert wings.sum() > 0
+
+
+def test_hips_local_shear_varies_within_tile():
+    """HEALPix cell 内剪切不是常数；这是 direct HiPS 不能只用 tile 中心 J 的回归保护。"""
+    shear = hdp._local_shear_matrices(
+        npix=685094,
+        korder=8,
+        dx=np.array([0.5, 0.5]),
+        dy=np.array([0.25, 0.85]),
+    )
+    assert shear.shape == (2, 2, 2)
+    assert np.isfinite(shear).all()
+    assert np.allclose(np.linalg.det(shear), 1.0, rtol=1e-6, atol=1e-6)
+    assert np.linalg.norm(shear[0] - shear[1]) > 1e-3
+
+
+def test_bilinear_splat_preserves_subpixel_position():
+    """HiPS 直渲普通星必须保留亚像素中心；整数化会把小椭圆 PSF 采成块状/梳状。"""
+    img = hdp._bincount_bilinear(
+        8, 8,
+        col=np.array([2.25]),
+        row=np.array([3.75]),
+        luminance=np.array([1.0]),
+        rgb=np.array([[1.0, 1.0, 1.0]]),
+    )[..., 0]
+    assert np.isclose(img.sum(), 1.0)
+    yy, xx = np.mgrid[0:8, 0:8]
+    assert np.isclose((img * xx).sum(), 2.25)
+    assert np.isclose((img * yy).sum(), 3.75)
+
+
+def test_low_order_tile_search_has_guard_band():
+    """低 order tile 很大；选取半径必须包含 tile-width guard band，避免 zoom-out 黑缝。"""
+    half = 5.0
+    assert hdp._tile_search_radius(half, 3) > half * 2.0
+    assert hdp._tile_search_radius(half, 8) == half * 1.5
 
 
 def test_solid_angle_normalization_is_resolution_invariant():

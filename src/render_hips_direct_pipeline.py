@@ -1,7 +1,7 @@
 """直渲 HiPS pipeline——点源直接 splat 到 HEALPix 瓦片，绕过 hipsgen 重投影。多 order 并行。
 
 每个 order 各渲：cone_search 出该 order 的 HEALPix cell 列表 → 每个 cell 直渲一个 512² 瓦片
-（星→sub-healpix→瓦片像素 (x,y) 经 healpy.pix2xyf，col/row 转置对齐 HiPS 写盘约定）→
+（星→HEALPix cell 内连续 dx/dy→瓦片像素 (x,y)，col/row 转置对齐 HiPS 写盘约定）→
 复用 bloom/立体角归一化/calib tone → 写 NorderK/DirD/NpixN.jpg。最后补 properties+Allsky+
 index.html。无 TAN 中间产物、无 hipsgen 重投影。
 
@@ -12,16 +12,156 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "src"))
 import render_starmap as rs, render_bortle_eye_grid as beg, render_tan_wcs as tw
 import healpy as hp
+import cdshealpix as cds
 from astropy_healpix import HEALPix
 from astropy.coordinates import Galactic, ICRS, SkyCoord
 import astropy.units as u
 from PIL import Image
 import multiprocessing as mp
 
-TILE, SUBBITS = 512, 9
+TILE = 512
 
 # worker 共享只读（fork）
 _S = None
+
+
+def _lonlat_to_vec(lon_deg, lat_deg):
+    """ICRS lon/lat degrees -> unit vectors, vectorized."""
+    lon = np.radians(lon_deg)
+    lat = np.radians(lat_deg)
+    clat = np.cos(lat)
+    return np.stack([clat * np.cos(lon), clat * np.sin(lon), np.sin(lat)], axis=-1)
+
+
+def _local_shear_matrices(npix, korder, dx, dy):
+    """Per-position HEALPix parameter-plane shear for one HiPS tile.
+
+    dx/dy are continuous offsets inside the order-k HEALPix cell.  The returned
+    matrices map tile pixel (row=dx, col=dy) deltas to a local tangent plane,
+    normalized to remove scale and keep only rotation+shear.
+    """
+    dx = np.asarray(dx, dtype=float)
+    dy = np.asarray(dy, dtype=float)
+    if dx.size == 0:
+        return np.empty((0, 2, 2), dtype=float)
+
+    eps = 10.0 / TILE
+    one = np.nextafter(1.0, 0.0)
+    dx0 = np.maximum(dx - eps, 0.0)
+    dx1 = np.minimum(dx + eps, one)
+    dy0 = np.maximum(dy - eps, 0.0)
+    dy1 = np.minimum(dy + eps, one)
+    # Avoid zero denominators at pathological exact boundaries.
+    dx1 = np.where(dx1 <= dx0, np.minimum(dx0 + eps, one), dx1)
+    dy1 = np.where(dy1 <= dy0, np.minimum(dy0 + eps, one), dy1)
+
+    ip = np.array([int(npix)], dtype=np.uint64)
+    depth = np.array([int(korder)], dtype=np.uint8)
+
+    erow = np.empty((dx.size, 3), dtype=float)
+    ecol = np.empty((dx.size, 3), dtype=float)
+    for i in range(dx.size):
+        lon_x1, lat_x1 = cds.healpix_to_lonlat(ip, depth, dx=float(dx1[i]), dy=float(dy[i]))
+        lon_x0, lat_x0 = cds.healpix_to_lonlat(ip, depth, dx=float(dx0[i]), dy=float(dy[i]))
+        lon_y1, lat_y1 = cds.healpix_to_lonlat(ip, depth, dx=float(dx[i]), dy=float(dy1[i]))
+        lon_y0, lat_y0 = cds.healpix_to_lonlat(ip, depth, dx=float(dx[i]), dy=float(dy0[i]))
+        erow[i] = (_lonlat_to_vec(lon_x1.deg, lat_x1.deg) - _lonlat_to_vec(lon_x0.deg, lat_x0.deg))[0] \
+            / max((dx1[i] - dx0[i]) * TILE, 1e-12)
+        ecol[i] = (_lonlat_to_vec(lon_y1.deg, lat_y1.deg) - _lonlat_to_vec(lon_y0.deg, lat_y0.deg))[0] \
+            / max((dy1[i] - dy0[i]) * TILE, 1e-12)
+
+    uu = erow / np.maximum(np.linalg.norm(erow, axis=1, keepdims=True), 1e-30)
+    ecol_u = np.sum(ecol * uu, axis=1)
+    vv = ecol - ecol_u[:, None] * uu
+    vv = vv / np.maximum(np.linalg.norm(vv, axis=1, keepdims=True), 1e-30)
+
+    J = np.empty((dx.size, 2, 2), dtype=float)
+    J[:, 0, 0] = np.sum(erow * uu, axis=1)
+    J[:, 0, 1] = np.sum(ecol * uu, axis=1)
+    J[:, 1, 0] = np.sum(erow * vv, axis=1)
+    J[:, 1, 1] = np.sum(ecol * vv, axis=1)
+    det = np.linalg.det(J)
+    return J / np.sqrt(np.maximum(np.abs(det), 1e-30))[:, None, None]
+
+
+def _elliptical_gaussian_kernel(sig, shear, truncate=5.0):
+    """Unit-sum Gaussian kernel whose pixel-space ellipse maps to a sky-circle."""
+    sinv = np.linalg.inv(shear)
+    cov = (sinv @ sinv.T) * (sig * sig)
+    cinv = np.linalg.inv(cov)
+    r = int(np.ceil(truncate * sig * np.sqrt(np.linalg.eigvalsh(sinv @ sinv.T).max())))
+    ax = np.arange(-r, r + 1)
+    yy, xx = np.meshgrid(ax, ax, indexing="ij")
+    q = cinv[0, 0] * yy * yy + 2 * cinv[0, 1] * yy * xx + cinv[1, 1] * xx * xx
+    k = np.exp(-0.5 * q)
+    return k / np.maximum(k.sum(), 1e-30), r
+
+
+def _bincount_bilinear(h, w, col, row, luminance, rgb):
+    """Bilinear splat RGB flux at continuous pixel coordinates into an HxW image."""
+    col = np.asarray(col, dtype=float)
+    row = np.asarray(row, dtype=float)
+    x0 = np.floor(col).astype(np.int64)
+    y0 = np.floor(row).astype(np.int64)
+    fx = col - x0
+    fy = row - y0
+    acc = np.zeros((h * w, 3), dtype=np.float64)
+    weights_rgb = np.asarray(luminance)[:, None] * np.asarray(rgb)
+    for dx, dy, wt in ((0, 0, (1 - fx) * (1 - fy)),
+                       (1, 0, fx * (1 - fy)),
+                       (0, 1, (1 - fx) * fy),
+                       (1, 1, fx * fy)):
+        xx = x0 + dx
+        yy = y0 + dy
+        m = (xx >= 0) & (xx < w) & (yy >= 0) & (yy < h) & (wt > 0)
+        if not np.any(m):
+            continue
+        flat = yy[m] * w + xx[m]
+        vals = weights_rgb[m] * wt[m, None]
+        for c in range(3):
+            acc[:, c] += np.bincount(flat, weights=vals[:, c], minlength=h * w)
+    return acc.reshape(h, w, 3)
+
+
+def _accumulate_faint_sheared(korder, npix, col, row, inside, luminance, rgb,
+                              dx, dy, psf_px=0.6, block=64):
+    """Accumulate faint stars with a block-local HEALPix shear-compensated PSF.
+
+    Low-order HiPS tiles cover large sky areas, so HEALPix shear changes across one
+    tile.  A single circular gaussian_filter draws the unresolved star field in
+    pixel space, which Aladin then displays as a sheared sky texture.  This helper
+    keeps the fast binning path, but splits the tile into small blocks and filters
+    each block with the local inverse-shear Gaussian.
+    """
+    from scipy.ndimage import convolve
+
+    col = np.asarray(col)[inside].astype(float)
+    row = np.asarray(row)[inside].astype(float)
+    lum = np.asarray(luminance)[inside]
+    cols = np.asarray(rgb)[inside]
+    if col.size == 0:
+        return np.zeros((TILE, TILE, 3), dtype=np.float32)
+
+    canvas = np.zeros((TILE, TILE, 3), dtype=np.float64)
+    for y0 in range(0, TILE, block):
+        y1 = min(TILE, y0 + block)
+        for x0 in range(0, TILE, block):
+            x1 = min(TILE, x0 + block)
+            m = (row >= y0) & (row < y1) & (col >= x0) & (col < x1)
+            if not np.any(m):
+                continue
+            cy = (y0 + y1) * 0.5 / TILE
+            cx = (x0 + x1) * 0.5 / TILE
+            shear = _local_shear_matrices(npix, korder, np.array([cy]), np.array([cx]))[0]
+            ker, r = _elliptical_gaussian_kernel(psf_px, shear)
+
+            yy0 = max(0, y0 - r); yy1 = min(TILE, y1 + r)
+            xx0 = max(0, x0 - r); xx1 = min(TILE, x1 + r)
+            h = yy1 - yy0; w = xx1 - xx0
+            layer = _bincount_bilinear(h, w, col[m] - xx0, row[m] - yy0, lum[m], cols[m])
+            for c in range(3):
+                canvas[yy0:yy1, xx0:xx1, c] += convolve(layer[..., c], ker, mode="constant", cval=0.0)
+    return canvas.astype(np.float32)
 
 
 def _tone(canvas, calib):
@@ -40,11 +180,16 @@ def _tone(canvas, calib):
     return rgb
 
 
+def _tile_search_radius(half, korder):
+    """Cone radius for selecting HiPS tiles at one order, including a low-order guard band."""
+    tile_fov = 58.6323 / 2 ** korder
+    return max(half * 1.5, half + tile_fov)
+
+
 def _render_tile(job):
     """直渲一个 (korder, npix) 瓦片，写盘，返回 1/0。"""
     korder, npix = job
     s = _S
-    nside_sub = 2 ** (korder + SUBBITS)
     cdelt = (58.6323 / 2 ** korder) / TILE
     psf = 0.6
     hp8 = HEALPix(nside=2 ** korder, order='nested', frame=ICRS())
@@ -71,55 +216,63 @@ def _render_tile(job):
     colss = np.concatenate(cseg)
     sc = SkyCoord(l=ls * u.deg, b=bs * u.deg, frame=Galactic()).icrs
     rra = sc.ra.deg; rdec = sc.dec.deg
-    # 所有 cone 内星映到本瓦片局部坐标 (lx,ly)（相对本 cell；邻瓦片的星会落在 [0,512) 外）。
-    # 用 sub-healpix 的 face 坐标减本 cell 偏移——同 face 才有意义；不同 face 的星 lx/ly 会很大，
-    # 自然被各自的范围判定排除。
-    nside_sub = 2 ** (korder + SUBBITS)
+    # 所有 cone 内星映到本瓦片局部连续坐标 (lx,ly)。cdshealpix 给的是 owning order-k cell 内
+    # dx/dy∈[0,1)，用于本 tile 内星；high-order face 坐标用于跨 tile 边界的 PSF 贡献。
+    depth = np.full(rra.shape, int(korder), dtype=np.uint8)
+    ip_all, dx_all, dy_all = cds.lonlat_to_healpix(rra * u.deg, rdec * u.deg, depth,
+                                                   return_offsets=True)
+    in_cell = (ip_all == int(npix))
+    lx_all = dx_all * TILE
+    ly_all = dy_all * TILE
+
+    nside_sub = 2 ** (korder + 9)
     ssub_all = hp.ang2pix(nside_sub, rra, rdec, nest=True, lonlat=True)
     sx_all, sy_all, sf_all = hp.pix2xyf(nside_sub, ssub_all, nest=True)
-    x8, y8, f8 = hp.pix2xyf(2 ** korder, npix, nest=True)
-    lx_all = sx_all - x8 * TILE; ly_all = sy_all - y8 * TILE
-    same_face = (sf_all == f8)
-    # 暗星 + 主体：严格落本瓦片内（中心在 [0,512)）才 accumulate 锐点。
-    inside = same_face & (lx_all >= 0) & (lx_all < TILE) & (ly_all >= 0) & (ly_all < TILE)
-    if not np.any(inside):
+    xk, yk, fk = hp.pix2xyf(2 ** korder, npix, nest=True)
+    lx_face = sx_all - xk * TILE
+    ly_face = sy_all - yk * TILE
+    same_face = sf_all == fk
+    lx_psf = np.where(in_cell, lx_all, lx_face)
+    ly_psf = np.where(in_cell, ly_all, ly_face)
+
+    if not np.any(in_cell):
         return 0
-    # —— 逆剪切矩阵 A（不动 canvas 几何，把剪切吸进每颗星的核——无 affine、无接缝）——
-    # HEALPix 瓦片像素网格球面非正交（x/y 夹角随位置~78°，等面积不保角，见 docs/Primer §3）。
-    # 星 splat 斜网格 + 画圆核 = 球面斜椭圆。算瓦片像素(row=x,col=y)→切平面雅可比 J，所有点源
-    # 的核都画 A=J/√det 的逆椭圆 → 球面恢复正圆。每颗星画在真实位置 + 椭圆核，邻瓦片各画各的、
-    # 重叠区一致（同 bloom 跨瓦片那套），无 affine 整图重采样、无黑缝/接缝。
-    def _vec(gx, gy):
-        p = hp.xyf2pix(nside_sub, int(gx), int(gy), int(f8), nest=True)
-        return np.array(hp.pix2vec(nside_sub, p, nest=True))
-    o0 = _vec(x8*TILE + 256, y8*TILE + 256)
-    erow = _vec(x8*TILE + 266, y8*TILE + 256) - o0   # +row(=+x=lx)
-    ecol = _vec(x8*TILE + 256, y8*TILE + 266) - o0   # +col(=+y=ly)
-    uu = erow / np.linalg.norm(erow)
-    vv = ecol - np.dot(ecol, uu) * uu; vv = vv / np.linalg.norm(vv)
-    J = np.array([[np.dot(erow, uu), np.dot(ecol, uu)],
-                  [np.dot(erow, vv), np.dot(ecol, vv)]]) / 10   # 列序 (row,col)
-    A = J / np.sqrt(abs(np.linalg.det(J)))                       # 去缩放、只剪切+旋转
 
     arcsec_px = cdelt * 3600.0
     margin = int(np.ceil(5.0 * tw.BLOOM_WING_ARCSEC / arcsec_px))
-    # 暗星（G>FAINT，十亿颗）：锐点 psf 0.6，0.6px 椭圆肉眼无差异，仍走 accumulate（快）。
-    coli = np.clip(ly_all, 0, TILE-1).astype(int)
-    rowi = np.clip(lx_all, 0, TILE-1).astype(int)
-    faint = inside & (gs > tw.BLOOM_G_FAINT)
-    canvas = rs.accumulate_stars(TILE, TILE, coli, rowi, faint, Ls, colss, psf_px=psf)
+    # 普通星使用连续亚像素坐标，并允许中心在邻 tile 的星贡献进当前 tile 的 PSF 尾部。
+    # 整数化会把 0.6px 的椭圆核采成块状/梳状 PSF。
+    faint_margin = int(np.ceil(5.0 * psf * 1.5))
+    faint = (same_face & (gs > tw.BLOOM_G_FAINT)
+             & (lx_psf >= -faint_margin) & (lx_psf < TILE + faint_margin)
+             & (ly_psf >= -faint_margin) & (ly_psf < TILE + faint_margin))
+    coli = ly_psf
+    rowi = lx_psf
+    # 普通星也必须按 HEALPix 局部剪切预补偿。否则 zoom-in 时像素圆 PSF 会被 Aladin 显示成
+    # 球面椭圆。低 order 剪切梯度大，用 64px block；高 order 梯度小，用整 tile 中心 shear，
+    # 避免把 N8 性能打穿。
+    block = 64 if korder <= 5 else TILE
+    canvas = _accumulate_faint_sheared(korder, npix, coli, rowi, faint, Ls, colss,
+                                       dx_all, dy_all, psf_px=psf, block=block)
     canvas = canvas * (tw.REF_OMEGA / cdelt ** 2)
     # 亮星（G≤FAINT）：核 + 翼都走 _bright_star_wings 的椭圆核（shear=A）——这样饱和大盘也是
     # 球面圆（之前 accumulate 圆盘 + 圆核翼，饱和中心还椭）。纳入邻区修跨瓦片截断。
-    bright = (same_face & (gs <= tw.BLOOM_G_FAINT)
-              & (lx_all >= -margin) & (lx_all < TILE + margin)
-              & (ly_all >= -margin) & (ly_all < TILE + margin))
+    # 亮星光晕必须跨 tile：星中心在邻 tile 时，它的 wing 仍可能落进当前 tile。
+    bright_seed = gs <= tw.BLOOM_G_FAINT
+    bright = (bright_seed & same_face
+              & (lx_face >= -margin) & (lx_face < TILE + margin)
+              & (ly_face >= -margin) & (ly_face < TILE + margin))
     if np.any(bright):
-        bcol = np.clip(ly_all + margin, 0, TILE + 2*margin - 1).astype(int)
-        brow = np.clip(lx_all + margin, 0, TILE + 2*margin - 1).astype(int)
-        wings = tw._bright_star_wings(TILE, bcol[bright], brow[bright],
+        bcol = (ly_face[bright] + margin).astype(int)
+        brow = (lx_face[bright] + margin).astype(int)
+        # 对 tile 外亮星，局部剪切取最近的 tile 边界位置。光晕落进当前 tile 的部分由当前
+        # tile 的 HEALPix 局部几何决定；这样可避免中心在邻 tile 的亮星被整块裁掉。
+        sdx = np.clip(lx_face[bright] / TILE, 0.0, np.nextafter(1.0, 0.0))
+        sdy = np.clip(ly_face[bright] / TILE, 0.0, np.nextafter(1.0, 0.0))
+        shear = _local_shear_matrices(npix, korder, sdx, sdy)
+        wings = tw._bright_star_wings(TILE, bcol, brow,
                                       Ls[bright], colss[bright], gs[bright], cdelt,
-                                      margin=margin, shear=A)
+                                      margin=margin, shear=shear)
         canvas = canvas + wings * (tw.REF_OMEGA / cdelt ** 2)
     canvas = beg.add_skyglow(canvas, 1)
     rgb = _tone(canvas, s['calib'])
@@ -159,7 +312,11 @@ def main():
     jobs = []
     for k in orders:
         hpk = HEALPix(nside=2**k, order='nested', frame=ICRS())
-        cells = hpk.cone_search_lonlat(cgal.ra, cgal.dec, half*1.5*u.deg)
+        # Select every tile that can overlap the requested cone, plus one tile-width guard band.
+        # The old half*1.5 missed coarse N3/N4 neighbours near the view boundary; Aladin then
+        # displayed black seams in zoom-out even though high-order tiles existed.
+        search_radius = _tile_search_radius(half, k)
+        cells = hpk.cone_search_lonlat(cgal.ra, cgal.dec, search_radius*u.deg)
         jobs += [(k, int(n)) for n in cells]
     print(f"直渲 {len(jobs)} 瓦片（orders {orders}），{W} 进程", flush=True)
     ctx = mp.get_context('fork')
