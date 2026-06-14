@@ -404,6 +404,9 @@ def main():
     ap.add_argument("--resume", action="store_true",
                     help="断点续传：跳过已渲出（.png/.fits 已存在）的 tile，只补未渲的。"
                          "大全天 job 中断后重跑加这个。")
+    ap.add_argument("--progress", action="store_true",
+                    help="单行 tqdm 进度条（人在前台跑用，好看）。不加则逐瓦片逐行打印"
+                         "（默认，AI/日志/重定向友好，计数单调可追）。")
     ap.add_argument("--color-xpsm", default=None,
                     help="PixInsight process icon (.xpsm)，渲完在 worker 里用 Python 复现做色温/"
                          "去绿调色（pi_curves_scnr，免 PI 依赖、随渲染并行）。默认 skills/"
@@ -504,6 +507,15 @@ def main():
     # 每张瓦片 worker 自己即时写盘（崩了只丢未渲的，已渲留盘）。进度逐瓦片打印
     # （含空瓦片，计数真实单调到 total），方便实时看进度、定位卡在哪格。
     done, nonempty, total_in = 0, 0, 0
+    # --progress：单行 tqdm（带 ETA/速率，人前台跑好看）。否则逐瓦片逐行打印（默认，
+    # AI/日志/重定向友好——tqdm 的 \r 刷新在重定向到文件里会变成一坨乱码）。
+    bar = None
+    if args.progress:
+        try:
+            from tqdm import tqdm
+            bar = tqdm(total=len(jobs), unit="tile", dynamic_ncols=True)
+        except ImportError:
+            print("⚠ 未装 tqdm（uv pip install tqdm），回退逐行打印", flush=True)
     with ProcessPoolExecutor(max_workers=args.workers, mp_context=ctx) as ex:
         futs = {ex.submit(_tile_worker, j): j for j in jobs}
         for fut in as_completed(futs):
@@ -513,8 +525,14 @@ def main():
             if n > 0:
                 nonempty += 1
                 total_in += n
-            print(f"  [{done}/{len(jobs)}] l={lc:.0f} b={bc:.0f}: {n:,} 星"
-                  f"{'（空，跳过）' if n == 0 else ''}", flush=True)
+            if bar is not None:
+                bar.update(1)
+                bar.set_postfix(nonempty=nonempty, stars=f"{total_in:,}", refresh=False)
+            else:
+                print(f"  [{done}/{len(jobs)}] l={lc:.0f} b={bc:.0f}: {n:,} 星"
+                      f"{'（空，跳过）' if n == 0 else ''}", flush=True)
+    if bar is not None:
+        bar.close()
     print(f"瓦片完成：{nonempty} 张非空 / {len(jobs)} 总格（累计落点 {total_in:,}）-> {args.out}/", flush=True)
 
 
