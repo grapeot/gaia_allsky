@@ -67,10 +67,11 @@ fi
 # 缓存它们，8g（旧写死值）会 GC 抖死（实测 N8 6.6万源 tile，8g 32min 才 2.7%；256g 顺畅 600 tile/s）。
 _memg=$(python3 -c "import os;print(int(os.sysconf('SC_PAGE_SIZE')*os.sysconf('SC_PHYS_PAGES')/1024**3))" 2>/dev/null || echo 16)
 XMX="${XMX:-$(python3 -c "print(min(max($_memg//2,8),256))")g}"
-W=8; HPAR=3; HTH=8; DO_RENDER=1; DO_HIPSGEN=1; RESUME="--resume"; DARK_PSF="0.6"; STEPFRAC=1.0
+W=8; HPAR=3; HTH=8; DO_RENDER=1; DO_HIPSGEN=1; RESUME="--resume"; DARK_PSF="0.6"; STEPFRAC=1.0; TSIZE=2048
 while [ $# -gt 0 ]; do
   case "$1" in
     --workers) W="$2"; shift 2;;
+    --tile-size) TSIZE="$2"; shift 2;;   # TAN 方图边长（默认 2048，sweep 实测 N8 端到端最优）
     --hipsgen-par) HPAR="$2"; shift 2;;
     --hipsgen-th) HTH="$2"; shift 2;;
     --xmx) XMX="$2"; shift 2;;              # hipsgen JVM 堆（如 256g）；默认机器内存一半封顶 256g
@@ -98,16 +99,27 @@ _dur() { python3 -c "print(f'{$2-$1:.1f}')"; }   # _dur start end -> 秒
 
 # 各 order 的渲染参数（cell/分辨率推导）
 order_params() {  # $1=order -> echo "TFOV TSIZE TSTEP PSF"
-  python3 - "$1" "$HALF" "$DARK_PSF" "$STEPFRAC" <<'PY'
+  python3 - "$1" "$HALF" "$DARK_PSF" "$STEPFRAC" "$TSIZE" <<'PY'
 import sys
 k=int(sys.argv[1]); half=float(sys.argv[2])
 override=sys.argv[3] if len(sys.argv)>3 else ""
 stepfrac=float(sys.argv[4]) if len(sys.argv)>4 and sys.argv[4] else 0.8
+tsize=int(sys.argv[5]) if len(sys.argv)>5 and sys.argv[5] else 2048
 cell=58.6323/2**k; cdelt=cell/512.0       # 该层瓦片像素分辨率
-fov = 1.5*cell if half<=0 else min(1.5*cell, 2*half+1.0)
-size=int(round(fov/cdelt))
-while size>4096: fov/=2; size=int(round(fov/cdelt))
-size=max(size,256); step=fov*stepfrac
+# 方图尺寸策略（不能一刀切 size=2048——低 order cell 大，size2048→fov 爆炸：N3 cell7.3°→
+# fov29° gnomonic 严重畸变）。sweep 只在 N8 验证 size=2048 最优（fov0.92°、源 tile 少 hipsgen
+# 快）。所以：
+#   - 高 order（k>=6，源 tile 多、hipsgen 瓶颈层、cell 小→2048 的 fov 安全 ≤3.7°）：用 tsize。
+#   - 低 order（k<6，cell 大、源 tile 本就少 hipsgen 不慢）：维持 fov=1.5×cell（size 恒 768），
+#     fov 随 cell 大但 tile 数少、网格粗，是该这样；2048 会让 fov 到 7-29° 畸变。
+if k >= 6:
+    size = tsize; fov = size * cdelt
+else:
+    fov = 1.5 * cell; size = int(round(fov / cdelt))   # =768
+# 天区比单方图还小时（小测试），方图别超过天区+余量，免得渲一堆空格
+if half > 0 and fov > 2*half + 1.0:
+    fov = 2*half + 1.0; size = max(int(round(fov/cdelt)), 256)
+step = fov * stepfrac
 # 默认：N8 锐点 0.6、低层 1.0 织底。--dark-psf 覆盖所有层（实测 0.6 各层更锐且不丢底）。
 psf = float(override) if override else (0.6 if k>=8 else 1.0)
 print(f"{fov:.4f} {size} {step:.4f} {psf}")

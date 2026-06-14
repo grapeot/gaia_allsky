@@ -9,7 +9,7 @@ JAVA="${JAVA:-/opt/homebrew/opt/openjdk@11/bin/java}"
 JAR="${JAR:-outputs/tmp_reference_hips/AladinBeta_v12.jar}"
 NPZ="${NPZ:-data/raw/fov_g20_bsc5_hpx6.npz}"
 W="${W:-30}"; HTH="${HTH:-30}"; XMX="${XMX:-256g}"
-LC=351.95; BC=15.06; LLO=341.95; LHI=361.95; BLO=5.06; BHI=25.06
+LC=351.95; BC=15.06; LLO=346.95; LHI=356.95; BLO=10.06; BHI=20.06   # 心宿二 ±5°
 CDELT=0.000447139  # N8: 1.6097"/px in deg
 
 echo "PROFILE sweep machine cpu=$(python3 -c 'import os;print(os.cpu_count())') workers=$W xmx=$XMX npz=$(basename $NPZ)"

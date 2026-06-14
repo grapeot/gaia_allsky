@@ -2,6 +2,32 @@
 
 ## Changelog
 
+### 2026-06-14（hipsgen 瓶颈：tile-size sweep + Xmx + 算法调研）
+
+**问题**：per-order pipeline 端到端真大头是 **hipsgen 重投影**（非 render）。广州 N8 hipsgen
+比 render 慢 ~14×；全广州 N8 用 size=768 要 ~5.5h。
+
+**修 1：hipsgen 堆 `-Xmx8g` 写死 → N8 GC 抖死**。N8 几万源 tile，8g 缓存不下直接抖死（6.6万
+源 tile 跑 32min 才 2.7%、freeRAM 67MB、CPU 0.2% 全 GC）。改 `--xmx` 默认机器内存半封顶 256g。
+
+**修 2：TAN 方图 size sweep → 默认 768→2048（端到端省 40%）**。size 是凹旋钮：小则源 tile
+多 hipsgen 慢、大则单张 render 重。心宿二 ±5° N8 end-to-end（render+hipsgen，秒）：
+| size | 源tile | render | hipsgen | end2end |
+| 768  | 900 | 24.6 | 209 | 234 |
+| 1536 | 225 | 25.5 | 153 | 179 |
+| **2048** | 121 | 26.0 | **115** | **141 ← 最优** |
+| 3072 | 64 | 28.9 | 117 | 146 |
+| 4096 | 36 | 32.6 | 122 | 155 |
+2048 触底两侧回升，验证用户经验。pipeline 默认 TSIZE=2048（--tile-size 可调）。
+
+**算法调研（hipsgen TILES）**：反向映射+双线性重采样（写死、无替代）。开源 GPL v3
+（github.com/cds-astro/aladin，cds/allsky/）。progress dot 内置诊断：`-`最优/`^`I-O/`_`高重叠/`!`OOM。
+我们是 `-`/`.`=CPU-bound。现成更快替代：reproject.hips+Dask（~3-4×）。
+- **杀手锏（点源专属，待攻）**：我们渲染即投影，可**直接把星投到 HiPS 瓦片的 HEALPix 像素**
+  （healpix_to_lonlat 给每像素坐标，13ms/瓦片），**绕过 TAN 中间产物 + 整个 hipsgen 重投影**，
+  render 直出 HEALPix 瓦片、128 核线性并行。风险：瓦片内像素是 nested z-order+旋转排布，需先
+  最小验证（直渲一瓦片 vs hipsgen 逐像素对比）攻克 z-order 再铺开。潜在 5.5h→分钟级。
+
 ### 2026-06-14（跨机 benchmark：EPYC 128核 为何不比 M3 Ultra 32核 快）
 
 **问题**：同一 per-order pipeline，EPYC 7763（128 逻辑核/64 物理/768G DDR4）感觉比 M3 Ultra
