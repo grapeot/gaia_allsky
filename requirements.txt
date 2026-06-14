@@ -6,3 +6,4 @@ astroquery
 tifffile
 pytest
 tqdm
+healpy

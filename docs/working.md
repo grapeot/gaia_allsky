@@ -2,6 +2,34 @@
 
 ## Changelog
 
+### 2026-06-14（直渲 HEALPix 瓦片：绕过 hipsgen 重投影，验证成功）
+
+**突破**：我们是点源，渲染过程本身就是投影——把每颗星直接 splat 到它所在的 HiPS 瓦片
+HEALPix 像素，**绕过 TAN 中间产物 + 整个 hipsgen 重投影**（hipsgen 是为"已有像素图反向映射
++双线性 rasterize"设计的，源 tile 多时慢，全广州 N8 5.5h）。render 直出最终 HiPS 瓦片。
+`src/render_hips_direct.py`。
+
+**实现**：星 (l,b)gal→ICRS→`healpy.ang2pix`(nside=2^(K+9),nested) 得 sub pixel→落本瓦片的
+（sub//4^9==npix）→`healpy.pix2xyf` 得瓦片内 (x,y)→accumulate+亮星翼（复用 render_tan_wcs
+的 bloom/立体角归一化/calib tone，只把投影从 gnomonic 换成 HEALPix）。
+
+**攻克的两个关键难点**：
+1. **z-order 映射**：512² 瓦片像素 ↔ Norder(K+9) 子 cell（nested 连续）。用 healpy `pix2xyf`
+   （HEALPix 权威，实测 = 手搓 nested bit 解交织，互验一致）。
+2. **朝向转置（最隐蔽的坑）**：healpy 的 (x,y) 与 HiPS 瓦片**写盘的 (col,row) 差一个转置**。
+   星场密集对称看不出，靠**大亮星质心对比**定位：直渲 (117,408) 转置成 (408,117)≈hipsgen
+   (416,110)。修法：accumulate 的 col←healpy y、row←healpy x（即 (ly,lx) 而非 (lx,ly)）。
+   不转置则 Aladin 显示对角镜像。
+
+**验证**（vs hipsgen 同 npix，都带 bloom+tone）：朝向一致（大亮星位置对上、镜像消失）、163
+瓦片整体均亮差中位 **7.6/255**（视觉等价，与 PixInsight 复现 3.6/255 同量级）。
+
+**速度**：单进程 **35 tile/s vs hipsgen 7 tile/s = 快 5×**，且无并行（render 已验证线性并行
+扩展，128 核可用）。全广州 N8 5.5h → 潜在分钟级。
+
+**待落地**：多 order + 完整 HiPS 目录（properties/Allsky/MOC，hipsgen 只剩封装零头）+ Aladin
+端到端验收（金字塔内跨瓦片接缝/朝向）。SkyCoord galactic→icrs 转换每瓦片重做，可批量预转省时。
+
 ### 2026-06-14（hipsgen 瓶颈：tile-size sweep + Xmx + 算法调研）
 
 **问题**：per-order pipeline 端到端真大头是 **hipsgen 重投影**（非 render）。广州 N8 hipsgen
