@@ -2,6 +2,41 @@
 
 ## Changelog
 
+### 2026-06-14（直渲剪切修复进展：椭圆核 work，饱和大星核残留待解）
+
+承接「直渲剪切 bug」诊断（下一段）。调研确认 + 实现进展：
+
+**调研结论（sub-agent，primary source）**：
+- 剪切是 HEALPix **固有、well-documented**（Primer §3 Fig.3：cell 是斜 45° 菱形，等面积参数化
+  保面积/步长但**不保角**——所以 scale 各向同性=1.0 但轴夹角 77.7°）。非 bug。
+- **hipsgen 不主动逆剪切**——它反向 pull-resample：从源图（星真圆 PSF）按瓦片像素中心坐标
+  （`ThreadBuilderTile.java` 的 `hn.center` + bilinear）采样。圆 PSF 采样到斜网格→文件里自动
+  变斜→显示又圆。我和它同几何、相反方向（我 forward splat、它 backward sample）。
+- **正解（推荐 a）**：连续亚像素位置（cdshealpix `hash_with_dxdy`，healpy 没有 forward 连续映射）
+  + bloom 画局部雅可比 **J⁻¹ 椭圆核**（per-tile 算，剪切随位置变、不能硬编码全局值）。
+
+**已实现（src/render_hips_direct_pipeline.py + render_tan_wcs._bright_star_wings 加 shear 参数）**：
+- per-tile 算 A=J/√det（瓦片像素→切平面雅可比，去缩放只留剪切+旋转，有限差分 healpy 正向 map）。
+- `_bright_star_wings(shear=A)`：核协方差 (A⁻¹)(A⁻¹)ᵀσ²，画椭圆核。亮星（核+翼）都走它（tone
+  clip 前卷积，符合"先卷积再 clip"）；暗星 0.6px 锐点椭圆无差异仍走 accumulate。
+- **验证 OK 的**：单星椭圆核 像素轴比 1.24@135°（=probe 预期），映射球面轴比 **1.003（圆）**——
+  核方向/量都对。**无黑缝（0/30）**——椭圆核不动 canvas 几何，邻瓦片各画各的、重叠区一致
+  （比整图 affine 优；affine 会在固定 512 边界内拧内容→边缘黑缝/接缝，已弃）。
+
+**待解（下一步，两层）**：
+1. **饱和大星核** 球面轴比仍 1.143（单星椭圆核映射是圆 1.003，矛盾）——指向**饱和盘**：极亮星
+   tone clip 成饱和平台，边缘形状由"哪些像素超 clip 阈值"定；核小翼 `sml=max(big/3,3px)` 对极亮
+   星太小，饱和盘由核中心圆形溢出撑起，椭圆没传到盘边缘。修向：饱和盘需更大椭圆核 / clip 前
+   更大尺度施椭圆。
+2. **剪切是 cell 内连续场、非每瓦片常数（更深）**：实测 ±5° 起 server（8778）看，上半瓦片星形/
+   剪切修对了，但**下半瓦片整体形状/朝向不一样、左下接缝错位**。根因：我的逆剪切 per-tile 只
+   在瓦片**中心**取一个 J，但调研明说剪切**在 cell 内随位置变**（strongest near interruption
+   lines / base-cell diagonals），跨 face 边界 / 近极区的瓦片 cell 内剪切梯度大，单中心 J 修不
+   全，拼起来形状错位。修向：J 要按像素位置逐点算（连续雅可比场），或用 cdshealpix 连续亚像素
+   坐标直接把星放对位置（forward 连续 map），而非"整瓦片一个 J + 椭圆核"近似。
+
+服务器：8775(圆核基线) / 8777(affine整图,有黑缝,弃) / 8778(椭圆核,无缝,上半对下半错位)。
+
 ### 2026-06-14（直渲的剪切 bug：HEALPix 瓦片像素网格在球面非正交）
 
 **现象**：直渲 ±10° zoom-out 在 Aladin 里"下面鼓出变形"。逐步逼近根因（用户多次 push back

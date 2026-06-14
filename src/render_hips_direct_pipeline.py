@@ -84,23 +84,42 @@ def _render_tile(job):
     inside = same_face & (lx_all >= 0) & (lx_all < TILE) & (ly_all >= 0) & (ly_all < TILE)
     if not np.any(inside):
         return 0
-    coli = np.clip(ly_all, 0, TILE-1).astype(int)   # col←y, row←x（转置对齐 HiPS 写盘）
-    rowi = np.clip(lx_all, 0, TILE-1).astype(int)
-    canvas = rs.accumulate_stars(TILE, TILE, coli, rowi, inside, Ls, colss, psf_px=psf)
-    canvas = canvas * (tw.REF_OMEGA / cdelt ** 2)
-    # 亮星翼：纳入本瓦片 + 邻区（中心在 [-margin, 512+margin) 的亮星，翼会伸进本瓦片）。
-    # 不限 in_tile——这是修 bloom 翼跨瓦片边界被截断（中心在邻瓦片的亮星翼之前漏画）。
+    # —— 逆剪切矩阵 A（不动 canvas 几何，把剪切吸进每颗星的核——无 affine、无接缝）——
+    # HEALPix 瓦片像素网格球面非正交（x/y 夹角随位置~78°，等面积不保角，见 docs/Primer §3）。
+    # 星 splat 斜网格 + 画圆核 = 球面斜椭圆。算瓦片像素(row=x,col=y)→切平面雅可比 J，所有点源
+    # 的核都画 A=J/√det 的逆椭圆 → 球面恢复正圆。每颗星画在真实位置 + 椭圆核，邻瓦片各画各的、
+    # 重叠区一致（同 bloom 跨瓦片那套），无 affine 整图重采样、无黑缝/接缝。
+    def _vec(gx, gy):
+        p = hp.xyf2pix(nside_sub, int(gx), int(gy), int(f8), nest=True)
+        return np.array(hp.pix2vec(nside_sub, p, nest=True))
+    o0 = _vec(x8*TILE + 256, y8*TILE + 256)
+    erow = _vec(x8*TILE + 266, y8*TILE + 256) - o0   # +row(=+x=lx)
+    ecol = _vec(x8*TILE + 256, y8*TILE + 266) - o0   # +col(=+y=ly)
+    uu = erow / np.linalg.norm(erow)
+    vv = ecol - np.dot(ecol, uu) * uu; vv = vv / np.linalg.norm(vv)
+    J = np.array([[np.dot(erow, uu), np.dot(ecol, uu)],
+                  [np.dot(erow, vv), np.dot(ecol, vv)]]) / 10   # 列序 (row,col)
+    A = J / np.sqrt(abs(np.linalg.det(J)))                       # 去缩放、只剪切+旋转
+
     arcsec_px = cdelt * 3600.0
     margin = int(np.ceil(5.0 * tw.BLOOM_WING_ARCSEC / arcsec_px))
+    # 暗星（G>FAINT，十亿颗）：锐点 psf 0.6，0.6px 椭圆肉眼无差异，仍走 accumulate（快）。
+    coli = np.clip(ly_all, 0, TILE-1).astype(int)
+    rowi = np.clip(lx_all, 0, TILE-1).astype(int)
+    faint = inside & (gs > tw.BLOOM_G_FAINT)
+    canvas = rs.accumulate_stars(TILE, TILE, coli, rowi, faint, Ls, colss, psf_px=psf)
+    canvas = canvas * (tw.REF_OMEGA / cdelt ** 2)
+    # 亮星（G≤FAINT）：核 + 翼都走 _bright_star_wings 的椭圆核（shear=A）——这样饱和大盘也是
+    # 球面圆（之前 accumulate 圆盘 + 圆核翼，饱和中心还椭）。纳入邻区修跨瓦片截断。
     bright = (same_face & (gs <= tw.BLOOM_G_FAINT)
               & (lx_all >= -margin) & (lx_all < TILE + margin)
               & (ly_all >= -margin) & (ly_all < TILE + margin))
     if np.any(bright):
-        # 扩边画布坐标：+margin 偏移到 [0, TILE+2margin)
         bcol = np.clip(ly_all + margin, 0, TILE + 2*margin - 1).astype(int)
         brow = np.clip(lx_all + margin, 0, TILE + 2*margin - 1).astype(int)
         wings = tw._bright_star_wings(TILE, bcol[bright], brow[bright],
-                                      Ls[bright], colss[bright], gs[bright], cdelt, margin=margin)
+                                      Ls[bright], colss[bright], gs[bright], cdelt,
+                                      margin=margin, shear=A)
         canvas = canvas + wings * (tw.REF_OMEGA / cdelt ** 2)
     canvas = beg.add_skyglow(canvas, 1)
     rgb = _tone(canvas, s['calib'])
