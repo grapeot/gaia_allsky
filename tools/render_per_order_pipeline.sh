@@ -58,7 +58,7 @@ else
 fi
 
 # 默认值 + 解析 opts
-W=8; HPAR=3; HTH=8; DO_RENDER=1; DO_HIPSGEN=1; RESUME="--resume"
+W=8; HPAR=3; HTH=8; DO_RENDER=1; DO_HIPSGEN=1; RESUME="--resume"; DARK_PSF=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --workers) W="$2"; shift 2;;
@@ -67,6 +67,7 @@ while [ $# -gt 0 ]; do
     --tiles-only) DO_HIPSGEN=0; shift;;
     --hipsgen-only) DO_RENDER=0; shift;;
     --no-resume) RESUME=""; shift;;
+    --dark-psf) DARK_PSF="$2"; shift 2;;   # 覆盖所有 order 的暗星 PSF（默认低层1.0/N8 0.6）
     *) echo "未知参数: $1"; exit 1;;
   esac
 done
@@ -75,15 +76,17 @@ OUT="outputs/$TAG"; HIPS="$OUT/hips"; mkdir -p "$OUT"
 
 # 各 order 的渲染参数（cell/分辨率推导）
 order_params() {  # $1=order -> echo "TFOV TSIZE TSTEP PSF"
-  python3 - "$1" "$HALF" <<'PY'
+  python3 - "$1" "$HALF" "$DARK_PSF" <<'PY'
 import sys
 k=int(sys.argv[1]); half=float(sys.argv[2])
+override=sys.argv[3] if len(sys.argv)>3 else ""
 cell=58.6323/2**k; cdelt=cell/512.0       # 该层瓦片像素分辨率
 fov = 1.5*cell if half<=0 else min(1.5*cell, 2*half+1.0)
 size=int(round(fov/cdelt))
 while size>4096: fov/=2; size=int(round(fov/cdelt))
 size=max(size,256); step=fov*0.8
-psf=0.6 if k>=8 else 1.0                   # 最高层锐点保单星；低层 1px 织底
+# 默认：N8 锐点 0.6、低层 1.0 织底。--dark-psf 覆盖所有层（实测 0.6 各层更锐且不丢底）。
+psf = float(override) if override else (0.6 if k>=8 else 1.0)
 print(f"{fov:.4f} {size} {step:.4f} {psf}")
 PY
 }

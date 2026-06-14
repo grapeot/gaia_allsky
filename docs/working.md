@@ -46,6 +46,14 @@
   hipsgen 只做 Allsky/properties/MOC/index.html 封装，`minOrder=order` 阻止它做会塌结构的 TREE
   池化。这样不必自造金字塔目录脚手架，且官方支持。出处：aladin.cds.unistra.fr/hips/HipsgenManual.pdf
 
+**暗星 PSF：全层 0.6 优于"低层 1.0"（实测推翻保守估计）**：
+- 当初定"暗星 PSF 匹配该层像素≈1px、N8 用 0.6"是基于"PSF 要够宽才织底"的理论。实测（心宿二
+  ±3° 全 order，psf 1.0 vs 0.6 单 tile + end-to-end HiPS 在 Aladin zoom 对比）：**0.6 各层都更锐、
+  星点分明，且发光底没丢**（均亮 N6 34.9 vs 32.0 几乎不变，1:1 局部密集暗星仍连成连续底）。1.0
+  反而把相邻暗星胖点糊在一起（用户报"高层有点糊"）。
+- 原因：Gaia 暗星位置本有亚像素抖动 + 密集区天然重叠，0.6 已足够抗混叠织底，1.0 是过度模糊。
+  理论估偏保守，实测说话。结论：`--dark-psf 0.6` 全层用 0.6（pipeline 加了该参数覆盖默认）。
+
 **渲染加速：局部窗口卷积（同轮，profile 驱动，60×）**：
 - 用户痛点"渲一轮 6h"。cProfile 单 tile 定位：`_bright_star_wings` 占 81%，全在 gaussian_filter
   的 correlate1d。反直觉地**空旷 tile（174ms）比银道面密集（106ms）还慢**——瓶颈不是星数，是
