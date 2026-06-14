@@ -852,6 +852,88 @@ def test_gnomonic_small_angle_matches_radians():
     assert np.isclose(xi[0], np.radians(1.0), rtol=2e-4)
 
 
+# ---------- 亮星散射翼 bloom: 圆形(无方块) + tile 边缘不截断 ----------
+
+
+def _wing_single_star(S, px, py, L, cdelt, g=0.3, margin=0):
+    """在 S×S(或扩边 margin)画布的 (px,py) 放一颗 G=g、通量 L 的亮星，返回其翼层(裁回 S×S)。"""
+    pxi = np.array([int(px + margin)])
+    pyi = np.array([int(py + margin)])
+    cols = np.array([[1.0, 0.85, 0.6]])           # 暖白(Antares 色)
+    return tw._bright_star_wings(S, pxi, pyi, np.array([L]), cols,
+                                 np.array([g]), cdelt, margin=margin)
+
+
+def test_bright_wing_is_circular_not_square():
+    """极亮星的翼必须圆对称——同半径下水平/对角亮度相近，且无 truncate 方框硬边。
+
+    回归 truncate=3.0 的 bug：scipy 高斯核截断是方形支撑，极亮星(Antares L≈中位 2900 万倍)
+    在 3σ 处残值仍高于天光底 → 渲成方块。truncate=5.0 后残值 e^-12.5≈4e-6，方边没入背景。
+    """
+    S = 512
+    cdelt = 0.64 / 1536.0                          # 1.5 arcsec/px(正式分辨率)
+    wings = _wing_single_star(S, S // 2, S // 2, L=1e5, cdelt=cdelt, g=0.3)
+    y = wings.sum(-1)
+    c = S // 2
+    # 同一半径 r 处：水平方向 vs 对角方向亮度应接近(圆对称)。方块 artifact 会让对角伸更远。
+    for r in (40, 80, 120):
+        horiz = y[c, c + r]
+        d = int(r / np.sqrt(2))
+        diag = y[c + d, c + d]
+        ref = max(horiz, diag, 1e-12)
+        assert abs(horiz - diag) / ref < 0.15, f"r={r} 圆对称破缺 horiz={horiz:.3e} diag={diag:.3e}"
+    # 无方框硬边：沿水平扫描，相邻像素的相对跳变处处平滑(无某处突然归零的方边)。
+    line = y[c, c:]
+    line = line[line > line.max() * 1e-6]          # 取翼实际覆盖段
+    rel_jump = np.abs(np.diff(line)) / (line[:-1] + 1e-12)
+    assert rel_jump.max() < 0.5, f"存在硬边(最大相对跳变 {rel_jump.max():.2f})"
+
+
+def test_bright_wing_edge_star_bleeds_into_tile():
+    """中心落在 tile 外、但翼伸进 tile 的亮星，必须贡献翼到 tile 内(修边缘截断)。
+
+    回归"tile 边缘亮星被硬截"的 bug：旧版 inside 只留中心在 [0,S) 的星，边外亮星的翼丢失,
+    相邻 tile 拼起来有断口。扩边 margin 渲翼后，中心在 [-margin,S) 的星也贡献。
+    """
+    S = 512
+    cdelt = 0.64 / 1536.0
+    margin = int(np.ceil(5.0 * tw.BLOOM_WING_ARCSEC / (cdelt * 3600.0)))
+    # 星中心放在 tile 左外 30px(px=-30)，翼半径(5σ)远大于 30 → 翼应进入 tile。
+    wings = _wing_single_star(S, -30, S // 2, L=1e5, cdelt=cdelt, g=0.3, margin=margin)
+    left_edge = wings.sum(-1)[S // 2, 0]
+    assert left_edge > 0, "tile 外亮星的翼没有进入 tile(边缘截断未修)"
+
+
+def test_bright_wing_margin_continuity_across_tiles():
+    """同一颗边缘星在相邻两 tile 的重叠列上亮度连续——扩边渲翼保证拼接无断口。"""
+    S = 256
+    cdelt = 0.64 / 1536.0
+    margin = int(np.ceil(5.0 * tw.BLOOM_WING_ARCSEC / (cdelt * 3600.0)))
+    # tileA: 星在右边界外一点(px=S+5)；tileB(=A 右移 S): 同一星变成 px=5。
+    # A 的右边界列 == B 的左边界列(同一片天)，亮度应连续。
+    wA = _wing_single_star(S, S + 5, S // 2, L=1e5, cdelt=cdelt, g=0.3, margin=margin)
+    wB = _wing_single_star(S, 5, S // 2, L=1e5, cdelt=cdelt, g=0.3, margin=margin)
+    a_right = wA.sum(-1)[S // 2, S - 1]
+    b_left = wB.sum(-1)[S // 2, 0]
+    ref = max(a_right, b_left, 1e-12)
+    assert abs(a_right - b_left) / ref < 0.05, f"拼接不连续 A={a_right:.3e} B={b_left:.3e}"
+
+
+def test_bright_wing_sigma_scales_with_magnitude():
+    """翼大小随星等连续：更亮的星(小 G)翼更大(更弥散)，暗的(大 G)翼更紧。"""
+    S = 512
+    cdelt = 0.64 / 1536.0
+    def spread(g):
+        w = _wing_single_star(S, S // 2, S // 2, L=1e4, cdelt=cdelt, g=g).sum(-1)
+        yy, xx = np.mgrid[0:S, 0:S]
+        c = S / 2.0
+        r2 = (xx - c) ** 2 + (yy - c) ** 2
+        return np.sqrt((w * r2).sum() / max(w.sum(), 1e-12))   # 亮度加权 RMS 半径
+    bright = spread(tw.BLOOM_G_BRIGHT)        # 满 σ
+    faint = spread(tw.BLOOM_G_FAINT - 0.1)    # 收到核尺度
+    assert bright > faint, f"亮星翼应更大: G_bright RMS={bright:.1f} G_faint RMS={faint:.1f}"
+
+
 def test_solid_angle_normalization_is_resolution_invariant():
     """立体角归一化把 flux 转成面亮度：同一颗星在两种 cdelt 下归一后每像素相等。
 
