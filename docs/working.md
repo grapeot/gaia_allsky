@@ -2,6 +2,53 @@
 
 ## Changelog
 
+### 2026-06-14（跨机 benchmark：EPYC 128核 为何不比 M3 Ultra 32核 快）
+
+**问题**：同一 per-order pipeline，EPYC 7763（128 逻辑核/64 物理/768G DDR4）感觉比 M3 Ultra
+（32 核/512G 统一内存）慢，最初印象「慢 10×」，诧异 128 核反而输。
+
+**最终结论（被所有数据支持、解释了最强约束）**：**EPYC 单核整体比 M3 Ultra 慢 ~2-2.6×，
+就是代际+架构差异，没有隐藏的并行 bug。** 最强证据是 **Java(hipsgen) 和 Python(render) 两个
+无关运行时都慢 ~2×**——这排除了任何 numpy/fork/Python 特有原因，只能是机器层面单核+内存
+延迟整体慢 ~2×（M3 Ultra 2024/3nm/800GB·s vs EPYC 7763 2021/Zen3/DDR4）。最初的「10×」是
+早期测量被多重干扰污染的假象（126 worker 严重过度订阅 + 噪声）；修干净后真实差距 ~2.6×。
+128 核拉不回是因为：render 并行有调度退化、hipsgen 重投影本就单核 bound。
+
+**硬数据**（心宿二/广州 tile，单 tile l=19 b=6 fov=5.4968 size=768）：
+- 单 tile 单进程：EPYC ~870ms（稳态，连渲 8 次 922/875/864/872…）vs Mac ~330ms。慢 2.6×。
+- hipsgen 重投影：EPYC ~Mac 的 1/2（用户实测）。← 与 render 同趋势、不同运行时。
+- fork worker vs 主进程连渲：**完全一样**（922/875/864 vs 1047/869/866）→ 无 COW 缺页税。
+- hipsgen 是端到端大头：Mac render_total 1132s，但 hipsgen N3-N7 已 1457s（N8 未计）。
+
+**先后否决的 6 个错误假设（别再走的弯路，每个都被一条数据干净反驳）**：
+1. **过度订阅（126w 抢 64 物理核）**：是早期噪声主因之一，但非根本——降到 64/32/16 端到端
+   只从 73→68s 几乎不变。
+2. **NUMA 跨 node**：EPYC 配成单 NUMA node（lscpu NUMA=1），不存在跨 node。
+3. **HT 伪并行**：若是 HT 该到 ~64 物理核才崩；实测 W=16 就饱和，矛盾。用户反驳正确。
+4. **内存带宽**：若带宽 bound，核应 stall→CPU idle；但 worker 实测 80% busy。用户反驳正确。
+5. **并发写盘（目录锁）**：save vs nosave throughput 几乎一样（1.6 vs 1.5）→ 写盘无关。
+   outputs 在 NVMe（nvme0n1p1 28T），单张 PNG 172ms。
+6. **fork COW 缺页 / 页表锁争用**：最顽固的假设，但 fork worker 连渲 = 主进程连渲（无额外
+   缺页税）干净否决。
+   另外「主进程预处理 bv_to_rgb+visual_luminance 17s×6 层」是真实存在的串行成本，但它在
+   tqdm 计时**之前**、不影响 render throughput（用户正确指出）；它影响端到端 wall-clock。
+
+**方法论教训（这一轮踩坑最多）**：
+- 反复用**不可比的基线**自我误导：拿「星少区 42ms tile」当基线推出假的「慢 20×」，换可比的
+  同坐标 tile 后真相是「慢 2.6×」。跨机/跨配置比较，必须逐字相同的 tile/参数。
+- tqdm 量的是 render 段、不含预处理——把预处理当 throughput 元凶错了好几次。分清「端到端
+  wall-clock」vs「tqdm render throughput」，它们的瓶颈不同（前者 hipsgen+预处理大，后者纯计算）。
+- 「CPU 占用率」是区分 compute-bound vs memory/IO-bound 的关键信号：busy→在算、idle→在等。
+- 多假设要逐个用一条决定性数据**否决或确认**，不要堆叠未验证的假设。本轮 6 个假设全错，
+  最后剩下最朴素的「单核代际差」反而对——奥卡姆。
+
+**实操结论（写进 benchmark 工具默认）**：
+- EPYC worker 用 ~物理核数（64），不要 126（HT 区过度订阅退化）。
+- pipeline 已加 PROFILE 行（每层 render tiles/elapsed/throughput + hipsgen cells/elapsed +
+  各 total），stdout/stderr 分流（tqdm 走 stderr、PROFILE 走 stdout），两机 tee 存 log 可比。
+- 真要 EPYC 追上 Mac：单核代际差无解（换机器）；可减每 tile 内存搬运（float32 代 float64、
+  gnomonic 先粗筛再投影）压常数，但拉不平 2× 代际差。
+
 ### 2026-06-14（zoom-out 结构丢失的最终诊断 + per-order 渲染落地）
 
 承接 2026-06-10「两个致命 bug」那段（见下文「超大图 / Aladin HiPS 金字塔的两个致命 bug」）——
