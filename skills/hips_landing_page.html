@@ -134,15 +134,15 @@
 
     <div class="viewer-panel">
       <div class="viewer-bar">
-        <span class="vb-left"><span class="vb-led" aria-hidden="true"></span><span class="vb-id">GaiaMW1B</span> · ICRS / J2000 · ORDER 6</span>
+        <span class="vb-left"><span class="vb-led" aria-hidden="true"></span><span class="vb-id">GaiaMW1B</span> · ICRS / J2000 · ORDER 8</span>
         <span class="vb-hint">拖动平移 · 滚轮缩放 · 越放大暗星越多</span>
       </div>
       <div id="aladin-lite-div"></div>
     </div>
 
     <div class="stats" aria-label="巡天参数">
-      <div class="stat"><strong>6.442″</strong><span>最佳像素角分辨率</span></div>
-      <div class="stat"><strong>Order 6 · NSIDE 64</strong><span>最高瓦片阶数 · JPEG 512×512</span></div>
+      <div class="stat"><strong>1.61″</strong><span>最佳像素角分辨率</span></div>
+      <div class="stat"><strong>Order 8 · NSIDE 256</strong><span>最高瓦片阶数 · JPEG 512×512</span></div>
       <div class="stat"><strong>8286 deg² ≈ 20%</strong><span>赤道坐标系 · 覆盖约两成天区</span></div>
     </div>
 
@@ -171,7 +171,7 @@
       fov: 90
     });
     aladin.setImageSurvey(aladin.createImageSurvey('GaiaMW1B', 'GaiaMW1B',
-      hipsDir, 'equatorial', 6, { imgFormat: 'jpg' }));
+      hipsDir, 'equatorial', 8, { imgFormat: 'jpg' }));
     // 用裸坐标定位（避开字符串 target 走 Sesame 名字解析的歧义），再设广角 fov。
     aladin.gotoRaDec(270, -22);
     aladin.setFov(90);
