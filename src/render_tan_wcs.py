@@ -145,7 +145,7 @@ def _fast_saturate_and_bloom(canvas, sat_level, wing_sigmas, wing_weights, ds_th
     return core + wings
 
 
-def _bright_star_wings(S, pxi_b, pyi_b, Lb, colsb, gb, cdelt, margin=0):
+def _bright_star_wings(S, pxi_b, pyi_b, Lb, colsb, gb, cdelt, margin=0, shear=None):
     """对亮星（G≤BLOOM_G_FAINT）按 G 分级画散射翼，返回 wings 层 (S,S,3)。
     σ 随 G 线性：G≤BLOOM_G_BRIGHT 用大翼 BLOOM_WING_ARCSEC、到 BLOOM_G_FAINT 收到 0。
     每颗星的翼是它通量的一部分铺成高斯——暗星（已被 G 排除）不进来，不糊密集星场。
@@ -176,12 +176,26 @@ def _bright_star_wings(S, pxi_b, pyi_b, Lb, colsb, gb, cdelt, margin=0):
     # 残值仍高于天光底会渲成方块；5σ 处残值 e^-12.5≈4e-6 没入背景。窗口取 ±5σ 即此截断。
     TRUNC = 5.0
 
+    # shear（直渲 HiPS 用）：A 是像素(row,col)→切平面的归一化雅可比（去缩放、只剪切+旋转）。
+    # 球面圆 = 像素空间 A^-1 椭圆。核协方差 = (A^-1)(A^-1)^T σ²，使球面上恢复正圆。
+    Sinv = np.linalg.inv(shear) if shear is not None else None
+
     def _kernel(sig):
-        """归一化 2D 高斯核（峰值=1，非积分归一——我们要的是"通量铺成的亮度分布"），半径 5σ。"""
-        r = int(np.ceil(TRUNC * sig))
+        """归一化 2D 高斯核（峰值归 sum=1）。shear=None 圆核；否则按 A^-1 协方差画椭圆核
+        （球面成圆）。半径取覆盖椭圆的 5σ 外接。"""
+        if Sinv is None:
+            r = int(np.ceil(TRUNC * sig))
+            ax = np.arange(-r, r + 1)
+            g1 = np.exp(-(ax ** 2) / (2.0 * sig * sig))
+            k = np.outer(g1, g1)
+            return k / k.sum(), r
+        cov = (Sinv @ Sinv.T) * (sig * sig)          # 像素空间椭圆协方差
+        cinv = np.linalg.inv(cov)
+        r = int(np.ceil(TRUNC * sig * np.sqrt(np.linalg.eigvalsh(Sinv @ Sinv.T).max())))
         ax = np.arange(-r, r + 1)
-        g1 = np.exp(-(ax ** 2) / (2.0 * sig * sig))
-        k = np.outer(g1, g1)
+        yy, xx = np.meshgrid(ax, ax, indexing='ij')   # yy=row, xx=col
+        q = cinv[0, 0]*yy*yy + 2*cinv[0, 1]*yy*xx + cinv[1, 1]*xx*xx
+        k = np.exp(-0.5 * q)
         return k / k.sum(), r
 
     def _stamp(cy, cx, amp_rgb, ker, r):

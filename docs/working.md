@@ -2,6 +2,89 @@
 
 ## Changelog
 
+### 2026-06-14（直渲剪切修复进展：椭圆核 work，饱和大星核残留待解）
+
+承接「直渲剪切 bug」诊断（下一段）。调研确认 + 实现进展：
+
+**调研结论（sub-agent，primary source）**：
+- 剪切是 HEALPix **固有、well-documented**（Primer §3 Fig.3：cell 是斜 45° 菱形，等面积参数化
+  保面积/步长但**不保角**——所以 scale 各向同性=1.0 但轴夹角 77.7°）。非 bug。
+- **hipsgen 不主动逆剪切**——它反向 pull-resample：从源图（星真圆 PSF）按瓦片像素中心坐标
+  （`ThreadBuilderTile.java` 的 `hn.center` + bilinear）采样。圆 PSF 采样到斜网格→文件里自动
+  变斜→显示又圆。我和它同几何、相反方向（我 forward splat、它 backward sample）。
+- **正解（推荐 a）**：连续亚像素位置（cdshealpix `hash_with_dxdy`，healpy 没有 forward 连续映射）
+  + bloom 画局部雅可比 **J⁻¹ 椭圆核**（per-tile 算，剪切随位置变、不能硬编码全局值）。
+
+**已实现（src/render_hips_direct_pipeline.py + render_tan_wcs._bright_star_wings 加 shear 参数）**：
+- per-tile 算 A=J/√det（瓦片像素→切平面雅可比，去缩放只留剪切+旋转，有限差分 healpy 正向 map）。
+- `_bright_star_wings(shear=A)`：核协方差 (A⁻¹)(A⁻¹)ᵀσ²，画椭圆核。亮星（核+翼）都走它（tone
+  clip 前卷积，符合"先卷积再 clip"）；暗星 0.6px 锐点椭圆无差异仍走 accumulate。
+- **验证 OK 的**：单星椭圆核 像素轴比 1.24@135°（=probe 预期），映射球面轴比 **1.003（圆）**——
+  核方向/量都对。**无黑缝（0/30）**——椭圆核不动 canvas 几何，邻瓦片各画各的、重叠区一致
+  （比整图 affine 优；affine 会在固定 512 边界内拧内容→边缘黑缝/接缝，已弃）。
+
+**待解（下一步，两层）**：
+1. **饱和大星核** 球面轴比仍 1.143（单星椭圆核映射是圆 1.003，矛盾）——指向**饱和盘**：极亮星
+   tone clip 成饱和平台，边缘形状由"哪些像素超 clip 阈值"定；核小翼 `sml=max(big/3,3px)` 对极亮
+   星太小，饱和盘由核中心圆形溢出撑起，椭圆没传到盘边缘。修向：饱和盘需更大椭圆核 / clip 前
+   更大尺度施椭圆。
+2. **剪切是 cell 内连续场、非每瓦片常数（更深）**：实测 ±5° 起 server（8778）看，上半瓦片星形/
+   剪切修对了，但**下半瓦片整体形状/朝向不一样、左下接缝错位**。根因：我的逆剪切 per-tile 只
+   在瓦片**中心**取一个 J，但调研明说剪切**在 cell 内随位置变**（strongest near interruption
+   lines / base-cell diagonals），跨 face 边界 / 近极区的瓦片 cell 内剪切梯度大，单中心 J 修不
+   全，拼起来形状错位。修向：J 要按像素位置逐点算（连续雅可比场），或用 cdshealpix 连续亚像素
+   坐标直接把星放对位置（forward 连续 map），而非"整瓦片一个 J + 椭圆核"近似。
+
+服务器：8775(圆核基线) / 8777(affine整图,有黑缝,弃) / 8778(椭圆核,无缝,上半对下半错位)。
+
+### 2026-06-14（直渲的剪切 bug：HEALPix 瓦片像素网格在球面非正交）
+
+**现象**：直渲 ±10° zoom-out 在 Aladin 里"下面鼓出变形"。逐步逼近根因（用户多次 push back
+纠偏，我先后误判 Aladin 固有/内存量化/整数 splat，全错）：
+- 单瓦片 jpg 对比（同区同 npix，direct_south vs hipsgen south_gold，N8 npix685094）：**直渲大星
+  轴比 1.011（圆），hipsgen 1.148（椭圆）**——文件里直渲反而更圆。
+- 但 Aladin 显示里**反过来**：hipsgen 正圆、直渲椭圆。显示翻转 → Aladin 瓦片→屏幕有几何变换。
+- **根因（实测铁证）**：HEALPix 瓦片的 (x,y) 像素网格在球面上**非正交——x 轴 y 轴夹角 77.7°
+  （剪切 shear）**，相邻像素角距 x=y（scale 各向同性=1.0，所以之前只测 scale 没发现）。
+  hipsgen 双线性重投影时把球面圆**逆剪切**烤进瓦片（文件椭圆、显示圆）；直渲把星 splat 到
+  斜网格整数格 + bloom 画"像素圆"= 球面斜椭圆（文件圆、显示椭圆）。
+
+**修法（probe 已验证）**：算瓦片像素→切平面雅可比 J（夹角 77.7°），bloom 应画 J^-1 的椭圆
+（实测该画轴比 1.242 主轴 135°，与 hipsgen 文件椭圆 1.148/151° 方向吻合）。probe：对 canvas
+做逆剪切 affine 后，大星球面轴比 1.240→1.073（拉回近圆）。正确实现待定（雅可比椭圆核 vs
+切平面渲染再映射 vs healpy 连续亚像素坐标——已派 sub-agent 查 well-documented 做法）。
+
+**关键认知翻转**：别再拿 hipsgen 当"正确金标"——对点源，hipsgen 双线性重投影本身把圆星拉椭圆
+（轴比 1.15），直渲若处理对剪切会更圆。直渲仍快 50×（388 vs 7 tile/s）。
+
+### 2026-06-14（直渲 HEALPix 瓦片：绕过 hipsgen 重投影，验证成功）
+
+**突破**：我们是点源，渲染过程本身就是投影——把每颗星直接 splat 到它所在的 HiPS 瓦片
+HEALPix 像素，**绕过 TAN 中间产物 + 整个 hipsgen 重投影**（hipsgen 是为"已有像素图反向映射
++双线性 rasterize"设计的，源 tile 多时慢，全广州 N8 5.5h）。render 直出最终 HiPS 瓦片。
+`src/render_hips_direct.py`。
+
+**实现**：星 (l,b)gal→ICRS→`healpy.ang2pix`(nside=2^(K+9),nested) 得 sub pixel→落本瓦片的
+（sub//4^9==npix）→`healpy.pix2xyf` 得瓦片内 (x,y)→accumulate+亮星翼（复用 render_tan_wcs
+的 bloom/立体角归一化/calib tone，只把投影从 gnomonic 换成 HEALPix）。
+
+**攻克的两个关键难点**：
+1. **z-order 映射**：512² 瓦片像素 ↔ Norder(K+9) 子 cell（nested 连续）。用 healpy `pix2xyf`
+   （HEALPix 权威，实测 = 手搓 nested bit 解交织，互验一致）。
+2. **朝向转置（最隐蔽的坑）**：healpy 的 (x,y) 与 HiPS 瓦片**写盘的 (col,row) 差一个转置**。
+   星场密集对称看不出，靠**大亮星质心对比**定位：直渲 (117,408) 转置成 (408,117)≈hipsgen
+   (416,110)。修法：accumulate 的 col←healpy y、row←healpy x（即 (ly,lx) 而非 (lx,ly)）。
+   不转置则 Aladin 显示对角镜像。
+
+**验证**（vs hipsgen 同 npix，都带 bloom+tone）：朝向一致（大亮星位置对上、镜像消失）、163
+瓦片整体均亮差中位 **7.6/255**（视觉等价，与 PixInsight 复现 3.6/255 同量级）。
+
+**速度**：单进程 **35 tile/s vs hipsgen 7 tile/s = 快 5×**，且无并行（render 已验证线性并行
+扩展，128 核可用）。全广州 N8 5.5h → 潜在分钟级。
+
+**待落地**：多 order + 完整 HiPS 目录（properties/Allsky/MOC，hipsgen 只剩封装零头）+ Aladin
+端到端验收（金字塔内跨瓦片接缝/朝向）。SkyCoord galactic→icrs 转换每瓦片重做，可批量预转省时。
+
 ### 2026-06-14（hipsgen 瓶颈：tile-size sweep + Xmx + 算法调研）
 
 **问题**：per-order pipeline 端到端真大头是 **hipsgen 重投影**（非 render）。广州 N8 hipsgen
