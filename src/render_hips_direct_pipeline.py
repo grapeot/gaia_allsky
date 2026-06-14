@@ -28,9 +28,16 @@ def _tone(canvas, calib):
     if calib:
         a = beg.adapt_sky_floor(canvas, calib['target_sky'], 25.0, calib['star_contrast'],
                                 sky_anchor=calib['sky_anchor'])
-        return np.clip(beg.finish_sky_adapted(a, calib['target_sky'], 2.2, calib['target_white'],
-                                              calib['stretch'], 1.8), 0, 1)
-    return np.clip(canvas, 0, 1)
+        rgb = np.clip(beg.finish_sky_adapted(a, calib['target_sky'], 2.2, calib['target_white'],
+                                             calib['stretch'], 1.8), 0, 1)
+    else:
+        rgb = np.clip(canvas, 0, 1)
+    # PI 调色（色温/去绿，pi_curves_scnr）——和 TAN 路径一致，直渲之前漏了这步
+    cp = _S.get('color_procs') if _S else None
+    if cp is not None:
+        import pi_curves_scnr as pcs
+        rgb = pcs.apply_xpsm(np.clip(rgb, 0.0, 1.0), cp)
+    return rgb
 
 
 def _render_tile(job):
@@ -116,8 +123,16 @@ def main():
     L = beg.visual_luminance_for_mags(g, 1, 6.0, 0.5)
     order = int(d['order'])
     calib = json.load(open('outputs/ant_po2/o8/calib.json')) if os.path.exists('outputs/ant_po2/o8/calib.json') else None
+    # PI 调色 procs（默认 batch_process_frames.xpsm，和 TAN 路径一致）
+    color_procs = None
+    cx = os.path.join(ROOT, 'skills', 'batch_process_frames.xpsm')
+    if os.path.isfile(cx):
+        sys.path.insert(0, os.path.join(ROOT, 'tools'))
+        import pixinsight_batch as _pb
+        color_procs = _pb.parse_xpsm(cx)
+        print(f"Python 调色（pi_curves_scnr）: {len(color_procs)} process", flush=True)
     global _S
-    _S = dict(l=l, b=b, g=g, L=L, cols=cols, out=out, calib=calib,
+    _S = dict(l=l, b=b, g=g, L=L, cols=cols, out=out, calib=calib, color_procs=color_procs,
               hpb=HEALPix(nside=2**order, order='nested', frame=Galactic()),
               start=d['bucket_start'][:], count=d['bucket_count'][:])
     cgal = SkyCoord(l=lc*u.deg, b=bc*u.deg, frame=Galactic()).icrs
