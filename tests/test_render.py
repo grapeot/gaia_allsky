@@ -864,6 +864,51 @@ def _wing_single_star(S, px, py, L, cdelt, g=0.3, margin=0):
                                  np.array([g]), cdelt, margin=margin)
 
 
+def test_bright_wing_local_window_matches_full_conv():
+    """局部窗口叠加（加速实现）与全画布 gaussian_filter 卷积逐像素等价（远离边界处）。
+
+    回归保护 60× 加速重构：wing 改成"每星只在 5σ 局部窗口贴预算高斯核"，不再对整张画布
+    卷积。物理上 conv(Σδ·flux) == Σ(核·flux)，远离画布边界处两者应逐像素一致。
+    （贴边星不比对：局部窗口直接裁掉越界的翼=物理正确"翼落视野外丢弃"，而 gaussian_filter
+    默认 reflect 边界会把翼能量反射回来，两者边界行为本就不同——这正是我们要的裁剪语义。）
+    """
+    from scipy.ndimage import gaussian_filter
+    S = 256
+    cdelt = 0.64 / 1536.0
+    # 全部放在画布中心区、彼此远离边界（5σ 最大约 80px，留足边距）
+    px = np.array([128, 100, 160])
+    py = np.array([128, 90, 170])
+    Lb = np.array([1e5, 3e3, 2e4])
+    gb = np.array([0.3, 4.0, 1.5])
+    cols = np.tile(np.array([1.0, 0.85, 0.6]), (3, 1))
+    got = tw._bright_star_wings(S, px, py, Lb, cols, gb, cdelt, margin=0)
+
+    arcsec_px = cdelt * 3600.0
+    sig_frac = np.clip((tw.BLOOM_G_FAINT - gb) / (tw.BLOOM_G_FAINT - tw.BLOOM_G_BRIGHT), 0.0, 1.0)
+    sig_frac = np.maximum(sig_frac, tw.BLOOM_CORE_FRAC * 0.2)
+    edges = np.linspace(sig_frac.min(), sig_frac.max() + 1e-6, 14)
+    ref = np.zeros((S, S, 3))
+    for k in range(len(edges) - 1):
+        m = (sig_frac >= edges[k]) & (sig_frac < edges[k + 1])
+        if not np.any(m):
+            continue
+        sf = 0.5 * (edges[k] + edges[k + 1])
+        big = max((tw.BLOOM_WING_ARCSEC * sf) / arcsec_px, 4.0)
+        sml = max(big * tw.BLOOM_CORE_FRAC, 3.0)
+        idx = np.nonzero(m)[0]
+        for sig, w in [(sml, 0.65), (big, 0.35)]:
+            for c in range(3):
+                layer = np.zeros((S, S))
+                for i in idx:
+                    layer[py[i], px[i]] += (Lb[i] * 0.5 * w) * cols[i, c]
+                ref[..., c] += gaussian_filter(layer, sig, truncate=5.0, mode="constant")
+    # 只比对内部区域（裁掉 8px 边框，排除画布边界效应）
+    inner = (slice(8, S - 8), slice(8, S - 8))
+    maxdiff = np.abs(got[inner] - ref[inner]).max()
+    # 容差是浮点累加顺序差（逐星 stamp vs 全画布卷积），相对 ref peak(~18) ~1e-7 量级。
+    assert maxdiff < 1e-4, f"局部窗口 vs 全画布卷积 内部最大差 {maxdiff:.2e}（应 ~0，仅浮点误差）"
+
+
 def test_bright_wing_is_circular_not_square():
     """极亮星的翼必须圆对称——同半径下水平/对角亮度相近，且无 truncate 方框硬边。
 

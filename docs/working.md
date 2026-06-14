@@ -46,9 +46,26 @@
   hipsgen 只做 Allsky/properties/MOC/index.html 封装，`minOrder=order` 阻止它做会塌结构的 TREE
   池化。这样不必自造金字塔目录脚手架，且官方支持。出处：aladin.cds.unistra.fr/hips/HipsgenManual.pdf
 
+**渲染加速：局部窗口卷积（同轮，profile 驱动，60×）**：
+- 用户痛点"渲一轮 6h"。cProfile 单 tile 定位：`_bright_star_wings` 占 81%，全在 gaussian_filter
+  的 correlate1d。反直觉地**空旷 tile（174ms）比银道面密集（106ms）还慢**——瓶颈不是星数，是
+  per-tile 固定开销：之前对每个 σ 档（~13 档）都在整张 (S+2margin)²（如 2070²）扩边画布做
+  truncate=5 的大核高斯卷积，空旷 tile 几颗星也空转全套。
+- 修法：wing 是局部的（5σ 半径），改成**每颗亮星只在它的 5σ 局部窗口贴一个预计算归一化高斯核
+  ×通量**（同档星共用核），不再全画布卷。物理等价：conv(Σδ·flux)==Σ(核·flux)，远离边界逐像素
+  一致（测试 `test_bright_wing_local_window_matches_full_conv` 守，内部差 ~3e-6 浮点级）；贴边
+  星的越界翼直接裁掉=物理正确"翼落视野外丢弃"，比 gaussian_filter 默认 reflect 边界更对。
+- 实测单 tile：空旷 174→7.5ms（23×）、密集 106→42ms（2.5×，accumulate 成主导=真计算）。
+- **全天 N8 runtime 重估：6h → 3–6 分钟（96 进程，按银纬加权均 17ms/tile）**。结论：6h 不是真实
+  计算量，是实现低效；**不需要 GPU / 量化 / float cache（1.5TB 写盘慢）**——重渲只要几分钟，比
+  写 cache 还快。GPU 的工程复杂度（CuPy/Linux/scatter-add 移植）对 3-6 分钟的任务不值，此判断
+  有 profile 数据支撑非拍脑袋。
+
 **方法论教训（本轮踩坑沉淀）**：
 - 推理对≠测得对。我先后用 8bit-vs-float 池化、tone 在哪层 两个合成实验，都没复现出问题——因为
   它们假设 canvas 已积分对、问题在后面；而真因是 canvas 在高分辨率下根本没积分（delta 场）。
+- 性能问题先 profile 再优化：6h 的"瓶颈"不是直觉的星数/accumulate，是空旷 tile 的 wing 卷积空转；
+  反直觉信号（空旷比密集慢）是定位线索。优化前若先上 GPU 会优化错地方。
 - 均亮/对比度 CV 会骗人（合成实验里 8bit 池化的结构相关甚至 0.998）。暗带可见性是肉眼判断，
   定位这类问题必须看图，不能只看标量 metric。
 - 同一个根因 06-10 就诊断过且写下架构，但"待实现"拖了 4 天没落地、期间继续在错的池化链上调参。
