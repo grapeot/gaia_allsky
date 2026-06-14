@@ -507,15 +507,20 @@ def main():
     # 每张瓦片 worker 自己即时写盘（崩了只丢未渲的，已渲留盘）。进度逐瓦片打印
     # （含空瓦片，计数真实单调到 total），方便实时看进度、定位卡在哪格。
     done, nonempty, total_in = 0, 0, 0
-    # --progress：单行 tqdm（带 ETA/速率，人前台跑好看）。否则逐瓦片逐行打印（默认，
-    # AI/日志/重定向友好——tqdm 的 \r 刷新在重定向到文件里会变成一坨乱码）。
+    # --progress：进度走 **stderr**（终端可见、不进 stdout/log；这样 `> log` 重定向后
+    #   终端仍能看到进度）。有 tqdm 用 tqdm（带 ETA/速率）；没装则用轻量单行 \r 回退，
+    #   同样走 stderr——绝不回退到 stdout 逐行（会被 `> log` 吞掉、终端空白，这正是之前
+    #   Linux 上"没有进度条"的真因：tqdm 没装 + 回退打 stdout 被重定向走）。
+    # 不加 --progress：逐瓦片逐行打 stdout（默认，AI/日志/重定向友好，计数单调可追）。
     bar = None
+    use_fallback = False
     if args.progress:
         try:
             from tqdm import tqdm
-            bar = tqdm(total=len(jobs), unit="tile", dynamic_ncols=True)
+            bar = tqdm(total=len(jobs), unit="tile", dynamic_ncols=True, file=sys.stderr)
         except ImportError:
-            print("⚠ 未装 tqdm（uv pip install tqdm），回退逐行打印", flush=True)
+            use_fallback = True
+            print("⚠ 未装 tqdm，用轻量进度（uv pip install tqdm 可得 ETA）", file=sys.stderr, flush=True)
     with ProcessPoolExecutor(max_workers=args.workers, mp_context=ctx) as ex:
         futs = {ex.submit(_tile_worker, j): j for j in jobs}
         for fut in as_completed(futs):
@@ -528,11 +533,19 @@ def main():
             if bar is not None:
                 bar.update(1)
                 bar.set_postfix(nonempty=nonempty, stars=f"{total_in:,}", refresh=False)
+            elif use_fallback:
+                # 无 tqdm：单行 \r 刷新到 stderr（每 50 张或最后一张更新一次，省 IO）
+                if done % 50 == 0 or done == len(jobs):
+                    pct = 100.0 * done / len(jobs)
+                    print(f"\r  进度 {done}/{len(jobs)} ({pct:.0f}%) 非空={nonempty} 星={total_in:,}   ",
+                          end="", file=sys.stderr, flush=True)
             else:
                 print(f"  [{done}/{len(jobs)}] l={lc:.0f} b={bc:.0f}: {n:,} 星"
                       f"{'（空，跳过）' if n == 0 else ''}", flush=True)
     if bar is not None:
         bar.close()
+    elif use_fallback:
+        print("", file=sys.stderr, flush=True)  # 收尾换行
     print(f"瓦片完成：{nonempty} 张非空 / {len(jobs)} 总格（累计落点 {total_in:,}）-> {args.out}/", flush=True)
 
 
