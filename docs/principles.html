@@ -224,8 +224,8 @@
           </div>
         </div>
         <figure class="mech-fig">
-          <img src="assets/ablation_1_naive.jpg" alt="STEP 1 · 一星一像素，银河密度起伏已在，但颜色需校准" loading="lazy" />
-          <figcaption>一星一像素，位置与亮度已在，颜色走 BP-RP→Teff→黑体标定</figcaption>
+          <img src="assets/article_ablation_1_g11_naive.jpg" alt="STEP 1 · 一星一像素，位置与亮度已在，但颜色仍未校准" loading="lazy" />
+          <figcaption>一星一像素，位置与亮度已在，但颜色仍未校准</figcaption>
         </figure>
       </div>
 
@@ -242,7 +242,7 @@
           </div>
         </div>
         <figure class="mech-fig">
-          <img src="assets/ablation_4_satbloom.jpg" alt="加PSF和饱和溢出后：亮星有了盘面和光晕，层次拉开" loading="lazy" />
+          <img src="assets/article_ablation_2_g11_bloom_legacy_color.jpg" alt="加 PSF 和饱和溢出后：亮星有了盘面和光晕，层次拉开" loading="lazy" />
           <figcaption>窄 PSF + 能量守恒饱和溢出 — 亮星有了盘面和光晕</figcaption>
         </figure>
       </div>
@@ -260,16 +260,14 @@
         </div>
         <figure class="mech-fig">
           <div class="switcher" id="scaleSwitcher">
-            <img id="scaleImg" src="assets/article_scale_g20_bsc5.jpg" alt="G<20 真星无增益，6.2 亿颗，银河细腻饱满、大裂隙显现" loading="lazy" />
+            <img id="scaleImg" src="assets/article_scale_g13.jpg" alt="G<13 真星，240 万颗；银河乳光已开始出现" loading="lazy" />
             <div class="switcher-controls" role="tablist" aria-label="星表深度切换">
-              <button type="button" class="switch-btn" data-img="assets/article_scale_g13gain.jpg" data-label="G<13 加增益（外推近似）">G&lt;13 增益</button>
-              <button type="button" class="switch-btn" data-img="assets/article_scale_g13.jpg" data-label="G<13 真星（240 万颗）">G&lt;13</button>
+              <button type="button" class="switch-btn active" data-img="assets/article_scale_g13.jpg" data-label="G<13 真星（240 万颗）">G&lt;13</button>
               <button type="button" class="switch-btn" data-img="assets/article_scale_g16.jpg" data-label="G<16 真星（3300 万颗）">G&lt;16</button>
-              <button type="button" class="switch-btn" data-img="assets/article_scale_g18.jpg" data-label="G<18 真星（1.5 亿颗）">G&lt;18</button>
-              <button type="button" class="switch-btn active" data-img="assets/article_scale_g20_bsc5.jpg" data-label="G<20 真星无增益（6.2 亿颗）">G&lt;20</button>
+              <button type="button" class="switch-btn" data-img="assets/article_scale_g20_bsc5.jpg" data-label="G<20 真星无增益（6.2 亿颗）">G&lt;20</button>
             </div>
           </div>
-          <figcaption id="scaleCaption">G&lt;20 真星无增益（6.2 亿颗）。同一视角、同一显示参数，只换星表深度。</figcaption>
+          <figcaption id="scaleCaption">G&lt;13 真星（240 万颗）。同一视角、同一显示参数，只换星表深度。</figcaption>
         </figure>
       </div>
 

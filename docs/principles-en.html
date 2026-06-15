@@ -224,8 +224,8 @@
           </div>
         </div>
         <figure class="mech-fig">
-          <img src="assets/ablation_1_naive.jpg" alt="STEP 1 · one star per pixel; Milky Way density variation is already present, but color still needs calibration" loading="lazy" />
-          <figcaption>One star per pixel: position and brightness are already present; color follows BP-RP→Teff→blackbody calibration</figcaption>
+          <img src="assets/article_ablation_1_g11_naive.jpg" alt="STEP 1 · one star per pixel; position and brightness are already present, but color still needs calibration" loading="lazy" />
+          <figcaption>One star per pixel: position and brightness are already present, but color still needs calibration</figcaption>
         </figure>
       </div>
 
@@ -242,7 +242,7 @@
           </div>
         </div>
         <figure class="mech-fig">
-          <img src="assets/ablation_4_satbloom.jpg" alt="After adding PSF and saturated spillover: bright stars gain disks and halos, opening up the image layers" loading="lazy" />
+          <img src="assets/article_ablation_2_g11_bloom_legacy_color.jpg" alt="After adding PSF and saturated spillover: bright stars gain disks and halos, opening up the image layers" loading="lazy" />
           <figcaption>Narrow PSF + energy-conserving saturated spillover — bright stars gain disks and halos</figcaption>
         </figure>
       </div>
@@ -260,16 +260,14 @@
         </div>
         <figure class="mech-fig">
           <div class="switcher" id="scaleSwitcher">
-            <img id="scaleImg" src="assets/article_scale_g20_bsc5.jpg" alt="G<20 real stars with no gain, 620 million stars; the Milky Way is fine-grained and full, and the Great Rift appears" loading="lazy" />
+            <img id="scaleImg" src="assets/article_scale_g13.jpg" alt="G<13 real stars, 2.4 million stars; the Milky Way glow starts to appear" loading="lazy" />
             <div class="switcher-controls" role="tablist" aria-label="Star catalog depth switcher">
-              <button type="button" class="switch-btn" data-img="assets/article_scale_g13gain.jpg" data-label="G<13 with gain (extrapolated approximation)">G&lt;13 gain</button>
-              <button type="button" class="switch-btn" data-img="assets/article_scale_g13.jpg" data-label="G<13 real stars (2.4 million)">G&lt;13</button>
+              <button type="button" class="switch-btn active" data-img="assets/article_scale_g13.jpg" data-label="G<13 real stars (2.4 million)">G&lt;13</button>
               <button type="button" class="switch-btn" data-img="assets/article_scale_g16.jpg" data-label="G<16 real stars (33 million)">G&lt;16</button>
-              <button type="button" class="switch-btn" data-img="assets/article_scale_g18.jpg" data-label="G<18 real stars (150 million)">G&lt;18</button>
-              <button type="button" class="switch-btn active" data-img="assets/article_scale_g20_bsc5.jpg" data-label="G<20 real stars with no gain (620 million)">G&lt;20</button>
+              <button type="button" class="switch-btn" data-img="assets/article_scale_g20_bsc5.jpg" data-label="G<20 real stars with no gain (620 million)">G&lt;20</button>
             </div>
           </div>
-          <figcaption id="scaleCaption">G&lt;20 real stars with no gain (620 million). Same viewpoint, same display parameters; only the catalog depth changes.</figcaption>
+          <figcaption id="scaleCaption">G&lt;13 real stars (2.4 million). Same viewpoint, same display parameters; only the catalog depth changes.</figcaption>
         </figure>
       </div>
 
