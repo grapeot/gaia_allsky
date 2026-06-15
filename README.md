@@ -4,6 +4,8 @@
 
 GitHub Pages 放了压缩后的结果图、九级光污染的交互对比、飞行视频和十亿像素高清预览。这个 README 解释模型、复现方法和二次开发接口。
 
+在线预览：https://grapeot.github.io/gaia_allsky/
+
 ## 可以看到什么
 
 三类输出，每类回答一个直觉问题。

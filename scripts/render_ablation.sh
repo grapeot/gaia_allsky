@@ -82,6 +82,9 @@ render_article() {
   # ---- 光污染：Bortle 7 下 Weber 阈值开关，必须走 sweep 路径 ----
   render_weber_sweep article_weber_off_b7 0
   render_weber_sweep article_weber_on_b7 0.04
+
+  # ---- 三维边界：非 VR 前向飞行视频最后一帧 ----
+  render_forward_final_frame
 }
 
 render_weber_sweep() {
@@ -104,6 +107,25 @@ render_weber_sweep() {
       --ext-threshold "$threshold" --ext-softness 0.5 \
       --sweep-bortles 7 --sweep-out-dir "$sweep_dir" 2>&1 | \
       grep -E "星，|wrote|signal_stretch|sweep|maximum resident|real " || true
+  fi
+  magick "$png" -quality 90 "$ASSETS/$name.jpg"
+  echo "--> $ASSETS/$name.jpg done"
+}
+
+render_forward_final_frame() {
+  local name="article_forward_final_frame"
+  local png="$ARTICLE_OUT/$name.png"
+  require_data data/raw/gaia_3d_deep_g13.npz
+  echo "=== RENDER $name ==="
+  if [ -f "$png" ]; then
+    echo "  PNG exists, skip render (reuse)"
+  else
+    /usr/bin/time -l python src/render_forward_final_frame.py \
+      --data data/raw/gaia_3d_deep_g13.npz \
+      --out "$png" \
+      --width 1080 --height 1080 --frames 300 --fps 60 \
+      --no-dipper-overlay 2>&1 | \
+      grep -E "wrote|maximum resident|real " || true
   fi
   magick "$png" -quality 90 "$ASSETS/$name.jpg"
   echo "--> $ASSETS/$name.jpg done"

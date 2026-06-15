@@ -2,6 +2,12 @@
 
 ## Changelog
 
+### 2026-06-14（Allsky 预览纯黑 cell 边界缝）
+
+Norder3 源 TAN tile 接缝通过 `STEPFRAC=0.8` 与 hipsgen `fading=true` 修掉后，用户继续在 zoom-out / Allsky 层看到大量细线。重新量化后区分了两类问题：第一类是 tile 边界附近亮度略低，不是主要观感问题；第二类是 `RGB=(0,0,0)` 的硬黑像素线，常沿 HEALPix cell / HiPS tile 边界走，Aladin 把 `Allsky.jpg` 投影到全天视图时会把 1px 黑缝插值成弯曲的 1-3px 黑线。`gz2_n3_overlap` 的高分辨率 Allsky 中仍有约 5,800 个被非黑像素夹住的 1px 纯黑像素，放宽到 2-4px 后是一万级。
+
+根因在 Allsky 预览层，不是正式 Norder tile 内容：`rebuild_allsky_hires.py` 把 Norder3 JPEG cell 直接缩放并拼成 Allsky，partial-sky 覆盖边缘和重投影无采样处会以纯黑哨兵色进入预览图；这些小型内部黑连通块和 cell 边界黑带在单 tile 视图里不一定显眼，但 Allsky zoom-out 会放大成明显黑缝。修复限定在 Allsky 重建：只补被有效像素左右或上下夹住的纯黑窄缝，并补掉不接触图像外边界的小型纯黑连通块；只有一侧有内容的覆盖边缘保持黑，不向覆盖范围外扩张。这样只影响 `Norder3/Allsky.jpg` 预览，不改正式 HiPS Norder tile。
+
 ### 2026-06-14（direct HiPS 实验归档）
 
 为了绕过 hipsgen 对 TAN 源图的 backward gather 重投影瓶颈，尝试过 direct HiPS：从点源星表直接 forward splat 到最终 HEALPix/HiPS tile。实验验证了若干有价值的不变量：HEALPix tile 参数平面等面积但不保角，文件内椭圆 PSF 在 Aladin 显示后可能是正确的；需要 `cdshealpix` 连续 `dx/dy`、局部 shear 补偿、subpixel bilinear splat、低 order tile guard band、以及 off-tile PSF wing/同 face 坐标一致性保护。

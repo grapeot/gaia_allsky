@@ -26,9 +26,43 @@ import re
 import shutil
 
 from PIL import Image
+import numpy as np
+from scipy import ndimage
 
 
-def rebuild(hips_dir, order=3, per=256, ncol_override=None):
+def fill_black_preview_holes(image, seam_gap=8, max_component_area=4096):
+    """补 Allsky 预览里的纯黑窄缝，避免 zoom-out 出现硬黑细线。"""
+    rgb = np.asarray(image.convert("RGB"))
+    black = np.all(rgb == 0, axis=2)
+    if not black.any():
+        return image
+
+    valid = ~black
+    fill = np.zeros_like(black)
+    for gap in range(1, seam_gap + 1):
+        fill[:, gap:-gap] |= black[:, gap:-gap] & valid[:, :-2 * gap] & valid[:, 2 * gap:]
+        fill[gap:-gap, :] |= black[gap:-gap, :] & valid[:-2 * gap, :] & valid[2 * gap:, :]
+
+    labels, _ = ndimage.label(black)
+    height, width = black.shape
+    for label, obj in enumerate(ndimage.find_objects(labels), start=1):
+        if obj is None:
+            continue
+        ys, xs = obj
+        touches_border = ys.start == 0 or xs.start == 0 or ys.stop == height or xs.stop == width
+        component = labels[obj] == label
+        if not touches_border and int(component.sum()) <= max_component_area:
+            fill[obj] |= component
+
+    if not fill.any():
+        return image
+    _, nearest = ndimage.distance_transform_edt(black, return_indices=True)
+    out = rgb.copy()
+    out[fill] = rgb[nearest[0][fill], nearest[1][fill]]
+    return Image.fromarray(out)
+
+
+def rebuild(hips_dir, order=3, per=256, ncol_override=None, fill_black_gap=8, fill_black_max_area=4096):
     nd = os.path.join(hips_dir, f"Norder{order}")
     if not os.path.isdir(nd):
         raise SystemExit(f"{nd} 不存在")
@@ -50,11 +84,13 @@ def rebuild(hips_dir, order=3, per=256, ncol_override=None):
         r, c = npix // ncol, npix % ncol
         t = Image.open(f).convert("RGB").resize((per, per), Image.LANCZOS)
         canvas.paste(t, (c * per, r * per))
+    if fill_black_gap > 0 or fill_black_max_area > 0:
+        canvas = fill_black_preview_holes(canvas, fill_black_gap, fill_black_max_area)
 
     allsky = os.path.join(nd, "Allsky.jpg")
     if os.path.isfile(allsky) and not os.path.isfile(allsky + ".orig64"):
         shutil.copy(allsky, allsky + ".orig64")  # 备份原 64px 版一次
-    canvas.save(allsky, quality=92)
+    canvas.save(allsky, quality=100, subsampling=0)
     print(f"重建 Allsky: {len(tiles)} tile 填入, {per}px/tile, "
           f"{ncol}×{nrow} 布局 → {allsky} ({canvas.size[0]}×{canvas.size[1]})", flush=True)
 
@@ -65,8 +101,12 @@ def main():
     ap.add_argument("--order", type=int, default=3, help="Allsky 基于哪个 Norder（默认 3）")
     ap.add_argument("--per", type=int, default=256, help="每 tile 像素（默认 256，原 64）")
     ap.add_argument("--ncol", type=int, default=None, help="覆盖列数（默认 floor(sqrt(Ntile))）")
+    ap.add_argument("--fill-black-gap", type=int, default=8,
+                    help="补 Allsky 中被有效像素夹住的纯黑窄缝宽度 px；0 表示关闭（默认 8）")
+    ap.add_argument("--fill-black-max-area", type=int, default=4096,
+                    help="补掉不接触图像外边界的小型纯黑连通块；0 表示关闭（默认 4096px）")
     args = ap.parse_args()
-    rebuild(args.hips, args.order, args.per, args.ncol)
+    rebuild(args.hips, args.order, args.per, args.ncol, args.fill_black_gap, args.fill_black_max_area)
 
 
 if __name__ == "__main__":
