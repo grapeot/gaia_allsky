@@ -178,20 +178,31 @@ def _bright_star_wings(S, pxi_b, pyi_b, Lb, colsb, gb, cdelt, margin=0, shear=No
 
     # shear（直渲 HiPS 用）：A 是像素(row,col)→切平面的归一化雅可比（去缩放、只剪切+旋转）。
     # 球面圆 = 像素空间 A^-1 椭圆。核协方差 = (A^-1)(A^-1)^T σ²，使球面上恢复正圆。
-    Sinv = np.linalg.inv(shear) if shear is not None else None
+    # shear 可为单个 2x2 矩阵（旧 per-tile 近似），也可为每颗亮星一个 (N,2,2) 矩阵。
+    if shear is None:
+        Sinv = None
+        Sinv_per_star = None
+    else:
+        shear = np.asarray(shear, dtype=float)
+        if shear.ndim == 2:
+            Sinv = np.linalg.inv(shear)
+            Sinv_per_star = None
+        else:
+            Sinv = None
+            Sinv_per_star = np.linalg.inv(shear)
 
-    def _kernel(sig):
+    def _kernel(sig, sinv=None):
         """归一化 2D 高斯核（峰值归 sum=1）。shear=None 圆核；否则按 A^-1 协方差画椭圆核
         （球面成圆）。半径取覆盖椭圆的 5σ 外接。"""
-        if Sinv is None:
+        if sinv is None:
             r = int(np.ceil(TRUNC * sig))
             ax = np.arange(-r, r + 1)
             g1 = np.exp(-(ax ** 2) / (2.0 * sig * sig))
             k = np.outer(g1, g1)
             return k / k.sum(), r
-        cov = (Sinv @ Sinv.T) * (sig * sig)          # 像素空间椭圆协方差
+        cov = (sinv @ sinv.T) * (sig * sig)          # 像素空间椭圆协方差
         cinv = np.linalg.inv(cov)
-        r = int(np.ceil(TRUNC * sig * np.sqrt(np.linalg.eigvalsh(Sinv @ Sinv.T).max())))
+        r = int(np.ceil(TRUNC * sig * np.sqrt(np.linalg.eigvalsh(sinv @ sinv.T).max())))
         ax = np.arange(-r, r + 1)
         yy, xx = np.meshgrid(ax, ax, indexing='ij')   # yy=row, xx=col
         q = cinv[0, 0]*yy*yy + 2*cinv[0, 1]*yy*xx + cinv[1, 1]*xx*xx
@@ -221,8 +232,12 @@ def _bright_star_wings(S, pxi_b, pyi_b, Lb, colsb, gb, cdelt, margin=0, shear=No
         idx = np.nonzero(m)[0]
         we = Lb[idx] * 0.5                            # 翼分走一半通量（核留一半，连续显大）
         for sig, w in [(sml, 0.65), (big, 0.35)]:
-            ker, r = _kernel(sig)
+            ker = r = None
+            if Sinv_per_star is None:
+                ker, r = _kernel(sig, Sinv)
             for j, i in enumerate(idx):
+                if Sinv_per_star is not None:
+                    ker, r = _kernel(sig, Sinv_per_star[i])
                 amp = (we[j] * w) * colsb[i]         # RGB 三通道幅度
                 _stamp(int(pyi_b[i]), int(pxi_b[i]), amp, ker, r)
     return wings[margin:margin + S, margin:margin + S]
