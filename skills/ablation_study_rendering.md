@@ -79,4 +79,4 @@ python src/render_fov.py $COMMON --ext-threshold 0 \
 
 - `src/render_fov.py` —— 渲染器
 - `docs/principles.html` —— 消融页（引用这 11 张图 + step4 切换器 JS）
-- `render_ablation.sh` —— 暗空阶梯 + 切换器的批渲脚本（weber 对单独走 sweep）
+- `scripts/render_ablation.sh` —— 暗空阶梯 + 切换器的批渲脚本（weber 对单独走 sweep）

@@ -2,7 +2,8 @@
 # Serial ablation renderer. Activates venv INSIDE (nohup drops it otherwise).
 # One python process at a time (OOM safety; --workers 16 max). 1080x1920 portrait.
 set -euo pipefail
-cd /Users/grapeot/co/knowledge_working/adhoc_jobs/gaia_allsky
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR/.."
 source .venv/bin/activate
 
 OUT=outputs/ablation
