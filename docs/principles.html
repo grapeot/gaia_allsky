@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="description" content="Gaia 全天星空实验的渲染原理深度解读：从每颗星一个像素出发，五步把真实星表画成一张银河，每一步都附可复现的命令。" />
-<title>渲染原理深度解读 · Gaia 全天星空实验</title>
+<meta name="description" content="Gaia 全天星空实验的渲染原理深度解读：从星表到屏幕，五个机制解释银河如何从真实恒星数据中自然涌现。" />
+<title>渲染原理 · Gaia 全天星空实验</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -65,8 +65,12 @@
     font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em;
   }
   .nav .repo-link:hover { background: rgba(201, 168, 106, 0.08); }
+  .lang-toggle {
+    border: 1px solid var(--gold-dim); color: var(--gold); padding: 6px 12px; border-radius: 4px;
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; background: transparent; cursor: pointer;
+  }
+  .lang-toggle:hover { background: rgba(201, 168, 106, 0.08); }
 
-  /* editorial bits */
   .kicker {
     display: inline-flex; align-items: center; gap: 12px; white-space: nowrap;
     font-family: var(--mono); font-size: 12px; letter-spacing: 0.16em; color: var(--gold); text-transform: uppercase;
@@ -79,7 +83,6 @@
   .chapter .ch-no { color: var(--gold); font-size: 13px; }
   .chapter .ch-rule { height: 1px; background: var(--line); }
 
-  /* article header */
   .article-head { padding: 72px 0 0; }
   .article-head h1 { font-size: clamp(40px, 5vw, 68px); font-weight: 900; margin-top: 22px; letter-spacing: -0.04em; }
   .article-head .lead { max-width: var(--measure); margin: 28px 0 0; color: var(--soft); font-size: clamp(17px, 1.8vw, 20px); line-height: 1.8; }
@@ -99,30 +102,25 @@
   .principle .pn { font-family: var(--mono); font-size: 12px; color: var(--gold); letter-spacing: 0.1em; }
   .principle h3 { font-size: 20px; font-weight: 700; margin-top: 12px; line-height: 1.35; }
   .principle p { color: var(--soft); font-size: 15.5px; margin: 14px 0 0; line-height: 1.8; }
-
-  /* ablation steps */
-  .ablation-step {
-    display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 48px; align-items: start;
-    margin-top: 40px; padding-top: 40px; border-top: 1px solid var(--line);
-  }
-  .step-no {
-    display: inline-flex; align-items: center; gap: 10px; white-space: nowrap;
-    font-family: var(--mono); font-size: 12px; color: var(--gold); letter-spacing: 0.1em;
-  }
-  .step-no::before { content: ""; width: 22px; height: 1px; background: var(--gold); }
-  .ablation-step h3 { font-size: 23px; font-weight: 700; margin: 14px 0 0; line-height: 1.3; }
-  .ablation-step .prose { max-width: none; }
-  pre {
-    margin: 22px 0 0; padding: 16px 18px; border: 1px solid var(--line); border-radius: 4px;
-    background: #0e0e11; overflow-x: auto; font-size: 12.5px; line-height: 1.7;
-  }
-  pre code { font-family: var(--mono); color: #d8d2c4; }
-  code {
+  .principle code {
     font-family: var(--mono); font-size: 0.9em; border: 1px solid var(--line); border-radius: 4px;
     padding: 1px 6px; background: rgba(255,255,255,0.05); color: #e2ddd2;
   }
+
+  /* mechanism steps */
+  .mechanism {
+    display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 48px; align-items: start;
+    margin-top: 40px; padding-top: 40px; border-top: 1px solid var(--line);
+  }
+  .mech-no {
+    display: inline-flex; align-items: center; gap: 10px; white-space: nowrap;
+    font-family: var(--mono); font-size: 12px; color: var(--gold); letter-spacing: 0.1em;
+  }
+  .mech-no::before { content: ""; width: 22px; height: 1px; background: var(--gold); }
+  .mechanism h3 { font-size: 23px; font-weight: 700; margin: 14px 0 0; line-height: 1.3; }
+  .mechanism .prose { max-width: none; }
   figure { margin: 0; }
-  .step-fig img, .pair figure img {
+  .mech-fig img, .pair figure img {
     width: 100%; aspect-ratio: 1080 / 1920; object-fit: cover;
     border: 1px solid var(--line); background: #02040a; display: block;
   }
@@ -137,8 +135,6 @@
   }
   .switch-btn:hover { color: var(--text); border-color: var(--gold-dim); }
   .switch-btn.active { color: #14110a; background: var(--gold); border-color: var(--gold); }
-
-  /* weber pair */
   .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; margin-top: 26px; }
 
   /* note */
@@ -155,9 +151,9 @@
   footer a { color: var(--gold); }
 
   @media (max-width: 820px) {
-    .nav a:not(.repo-link) { display: none; }
-    .ablation-step { grid-template-columns: 1fr; gap: 28px; }
-    .step-fig { max-width: 380px; }
+    .nav a:not(.repo-link):not(.lang-toggle) { display: none; }
+    .mechanism { grid-template-columns: 1fr; gap: 28px; }
+    .mech-fig { max-width: 380px; }
     .principles, .pair { grid-template-columns: 1fr; }
     .principle { border-right: 0; border-bottom: 1px solid var(--line); padding: 24px 0; }
     .principle:last-child { border-bottom: 0; padding-left: 0; }
@@ -173,115 +169,98 @@
         <span class="brand-name">GAIA 全天星空实验</span>
       </a>
       <nav class="nav" aria-label="页面导航">
-        <a href="#pipeline">五个坑</a>
-        <a href="#scaleup">加数据</a>
-        <a href="#boundary">一处边界</a>
+        <a href="#mechanisms">渲染机制</a>
+        <a href="#data-arch">数据架构</a>
+        <a href="#boundaries">边界</a>
         <a href="index.html">返回主页</a>
+        <a class="lang-toggle" href="principles-en.html" aria-label="Switch to English">EN</a>
         <a class="repo-link" href="https://github.com/grapeot/gaia_allsky">GITHUB ↗</a>
       </nav>
     </div>
   </header>
 
   <main>
-    <!-- ===================== ARTICLE HEAD ===================== -->
     <header class="article-head wrap">
       <p class="kicker"><span class="bar" aria-hidden="true"></span>渲染原理 / RENDERING PRINCIPLES</p>
-      <h1>渲染原理<br />深度解读</h1>
-      <p class="lead">主页上那些图没有用任何银河贴图、尘埃素材或手绘辉光。画面里每一个像素都能追溯到 Gaia 星表里某一批真实恒星，加上几条有物理依据的显示规则。这一页不是一份从头到尾顺利的流水线说明，而是把主图的来路如实讲一遍：从最朴素的"每颗星一个像素"出发，我们先后踩过五个坑，每加一步都发现画面还差点意思，再补上一条规则。五步走完，正好复现主图。每一步都配一张消融实验图和可复现的命令。</p>
-      <p class="meta-line">数据来源 · <b>ESA / Gaia 任务 DR3</b> · 五步消融实验 · 全部命令可复现</p>
+      <h1>这张图是怎么<br />画出来的</h1>
+      <p class="lead">这张图里没有银河贴图，没有手绘辉光，没有尘埃素材。每一个像素都能追溯到 Gaia 星表里某一批真实恒星。Gaia 给出的不是一张照片，而是一张极大的恒星清单：每颗星在哪里、亮多少、颜色指标是什么。渲染器做的事情，是把这张清单按物理关系投回天空，再把超出屏幕能力的亮度范围压缩到可观看的图像里。银河由此出现，是因为恒星在银道面附近本来就更密；暗带由此出现，是因为某些方向上可见恒星本来就少。画面可信的基础，不在于它像某张天文照片，而在于它的每一层处理都能说清楚来源。</p>
+      <p class="meta-line">数据来源 · <b>ESA / Gaia 任务 DR3</b> · 全部命令可复现</p>
     </header>
 
     <!-- ===================== 00 · 原则 ===================== -->
     <section class="section wrap" aria-labelledby="principles-title">
       <div class="chapter"><span class="ch-no">00</span><span class="ch-rule" aria-hidden="true"></span><span class="ch-title">两条原则 / TWO PRINCIPLES</span></div>
       <h2 id="principles-title">两条贯穿始终的原则。</h2>
+      <div class="prose"><p>下面五个机制，就是这两条原则的具体实现。</p></div>
       <div class="principles">
         <article class="principle">
           <div class="pn">原则 i</div>
           <h3>物理层和显示层严格分开</h3>
-          <p>恒星的位置、亮度、颜色由星表数据和坐标变换决定，这部分不为视觉效果让步；屏幕上最终的观感由显示参数控制，这部分明确承认自己是显示决策。两套体系各自独立，显示参数永远不伪装成天体物理常数。</p>
+          <p>恒星的位置、星等、颜色、天空背景和观测几何属于物理层；屏幕上的压缩、拉伸、饱和度和 gamma 属于显示层。物理层不为了好看而改恒星，显示层也不把自己的参数伪装成天体物理常数。换一种显示风格时，恒星本身没有变；换一种观测条件时，显示管线也不需要重新发明物理。</p>
         </article>
         <article class="principle">
           <div class="pn">原则 ii</div>
           <h3>每个显示参数都要有物理锚点</h3>
-          <p>连"暗星该补偿多少倍亮度"这样听起来像美学调参的数字，也能从星表自己的统计里推出来，并在命令行里显式暴露。星等到屏幕亮度的换算用一个"多亮算可见"的基准：每个 Bortle 等级对应一个裸眼极限星等（NELM），顶级暗空约 7.8 等、明亮郊区约 5.3 等、市中心约 4.0 等。恰好处在极限星等的恒星被画成天空背景的固定比例（默认 0.5 倍），更亮的星按 Pogson 公式往上走。什么星看得见，不是调出来的，是从观测经验表里读出来的。</p>
+          <p>星等转亮度用 Pogson 关系，颜色从 Gaia BP-RP 色指数经恒星温度进入黑体光谱，光污染用 Bortle 天空背景和裸眼极限星等约束，银河在城市里消失用 Weber 对比阈值约束。即使某个参数最终服务于屏幕观感，它也要挂在一个可解释的物理量或观测经验上。</p>
         </article>
       </div>
     </section>
 
-    <!-- ===================== 01 · 五个坑 ===================== -->
-    <section class="section wrap" id="pipeline" aria-labelledby="pipeline-title">
-      <div class="chapter"><span class="ch-no">01</span><span class="ch-rule" aria-hidden="true"></span><span class="ch-title">五个坑 / FIVE PITFALLS</span></div>
-      <h2 id="pipeline-title">从最朴素的画法，五步走到主图。</h2>
-      <div class="prose"><p>下面固定同一片天空（广州纬度、顶级暗空，主图的设定），从完全不真实的画法开始，每一步只动一处，终点正是主图。所有图都用仓库里的同一条命令渲染，只换参数开关。</p></div>
+    <!-- ===================== 01 · 五个机制 ===================== -->
+    <section class="section wrap" id="mechanisms" aria-labelledby="mech-title">
+      <div class="chapter"><span class="ch-no">01</span><span class="ch-rule" aria-hidden="true"></span><span class="ch-title">五个机制 / FIVE MECHANISMS</span></div>
+      <h2 id="mech-title">从星表到屏幕，按光子的旅程走一遍。</h2>
 
-      <div class="ablation-step">
+      <!-- M1: Magnitude & Color -->
+      <div class="mechanism">
         <div>
-          <span class="step-no">STEP 1 · 每颗星一个像素</span>
-          <h3>真实落点是诚实的地基，但颜色差点把它毁了</h3>
+          <span class="mech-no">机制一 · 星等与颜色</span>
+          <h3>星表给出比例，屏幕需要颜色</h3>
           <div class="prose">
-            <p>六亿颗星按真实位置和 Pogson 亮度直接落在单个像素上。银河的密度起伏此刻已经在了，数据本身就带着它，不需要任何后续技巧去"造"出银河。这一步是地基，位置和亮度都对。它的不足首先是视觉质感：所有星都是同样大小的硬颗粒，亮暗只有明度差没有大小差，画面像撒了一层盐，缩小一半就开始闪烁断裂。后面几步会补上成像物理和人眼感知。</p>
-            <p>但这一步藏着第一个坑，在颜色上。Gaia 给了每颗星的色指数（BP-RP），直觉是亮的偏蓝、暗的偏红，照着上色就行。早期版本却让整条银河泛着一层暖黄，跟任何一张像样的天文照片都不像。问题出在一个张冠李戴的等号：把 Gaia 的 BP-RP 当成了天文里更常见的另一个色指数 B-V，用手搓的近似公式直接转成颜色。两者是不同滤光片测出来的，数值不对应，银盘里 BP-RP 落在 1 到 2 的主力恒星被整体推向暖黄，再被显示层的饱和度放大，整张图就黄成了一片。</p>
-            <p>修法是换成标准的物理链：色指数先换算成恒星表面温度（用 Pecaut &amp; Mamajek 的主序星标定，太阳 G2V 对应 BP-RP≈0.82、温度 5772K），温度再通过黑体辐射谱乘以 CIE 1931 配色函数积分，得到线性 sRGB。关键是最后一步的锚点：把太阳这颗 5772K 的恒星定为中性白，每颗星的 RGB 都除以太阳的 RGB。锚定之后，那层假暖黄褪去，而星与星之间真实的蓝黄差异完整保留：该蓝的还蓝，该红的还红，只是不再泡在咖啡色里。</p>
+            <p>Gaia 星表直接给出每颗星的 G 星等和 BP-RP 色指数。星等是对数标度，不是线性亮度；BP-RP 是 Gaia 自己的蓝端与红端测光差值，也不是普通摄影里的 RGB。屏幕最终需要的是线性 sRGB 三通道，所以这里必须经过两次翻译：一次把星等翻成相对光通量，一次把色指数翻成显示颜色。</p>
+            <p>星等到亮度使用 Pogson 公式：<code>L = 10^(-0.4 × (m - m_ref))</code>。意思是星等差 5 等，亮度差 100 倍；星等数值越小，星越亮。<code>m_ref</code> 只是亮度锚点，决定整张图落在屏幕动态范围的什么位置，不改变恒星之间的相对亮度关系。</p>
+            <p>颜色的链条更长。BP-RP 先根据 Pecaut &amp; Mamajek 主序星标定转成有效温度，太阳 G2V 对应 BP-RP 约 0.82、温度 5772K。温度再进入黑体辐射谱，乘以 CIE 1931 配色函数积分，得到线性 sRGB。最后用太阳白点校准：5772K 的太阳色温被设为中性白，其他恒星相对这个白点偏蓝或偏红。</p>
+            <p>这里最容易混淆的是把 Gaia BP-RP 当成 Johnson B-V。二者来自不同滤光系统，数值不能直接互换。若把 BP-RP 当 B-V 使用，银盘里大量中等偏红的恒星会被整体推成暖黄，再被显示层饱和度放大，整条银河就会泛黄。正确标定之后，银盘回到接近中性的灰白，银心方向保留微暖，蓝白星和橙红星的差异仍然存在。</p>
           </div>
-          <pre><code>--psf-core-px 0 --faint-gain 1 \
---sat-over-sky 0 --ext-threshold 0</code></pre>
         </div>
-        <figure class="step-fig">
-          <img src="assets/ablation_1_naive.jpg" alt="每颗星一个像素：真实位置与亮度直接落点，颜色经白点锚定，银河密度起伏已在，但画面像盐粒" loading="lazy" />
-          <figcaption>STEP 1 · 一星一像素 — 银河密度起伏已在，但星点像盐粒</figcaption>
+        <figure class="mech-fig">
+          <img src="assets/ablation_1_naive.jpg" alt="STEP 1 · 一星一像素，银河密度起伏已在，但颜色需校准" loading="lazy" />
+          <figcaption>一星一像素，位置与亮度已在，颜色走 BP-RP→Teff→黑体标定</figcaption>
         </figure>
       </div>
 
-      <div class="ablation-step">
+      <!-- M2: Point Source Imaging -->
+      <div class="mechanism">
         <div>
-          <span class="step-no">STEP 2 · 光学弥散</span>
-          <h3>同一个 PSF 给所有星，但核太宽会糊掉整张图</h3>
+          <span class="mech-no">机制二 · 点源成像</span>
+          <h3>星不是一个像素，亮星的大小来自能量守恒</h3>
           <div class="prose">
-            <p>第二个坑在点扩散函数（PSF，一颗点光源在成像面上的弥散形状）上。真实光学系统里 PSF 是相机的属性，不是恒星的属性：同一台相机拍出来，织女星和一颗 10 等星的光斑形状完全相同，差别只在振幅。所以让所有恒星共用同一个高斯核，盐粒感消失，星点有了真实成像系统的柔和形态。到这一步画面已经相当像银河了。</p>
-            <p>坑在核的宽度。早期取 1.1 像素，整幅画面偏糊像隔了层毛玻璃，暗星的颗粒感和银河纹理都被抹掉。收窄到接近点采样的 0.6 像素后，暗星重新有了颗粒、银河纹理变锐，而"亮星该显大"这件事交给下一步的饱和溢出去产生，PSF 不必靠加宽来兼任。顺带一个实现事实：PSF 是对整幅画布做一次卷积，代价和星数无关。</p>
+            <p>Gaia 星表里的恒星是点源，但屏幕上的点源不能只画成一个像素。真实光学系统里，一颗点光源经过镜头、传感器和显示后，会变成一个有宽度的点扩散函数（PSF）。这个形状是成像系统的属性，不是恒星的属性；暗星和亮星共享同一个核心形状，只是能量不同。</p>
+            <p>渲染器让所有恒星共享一个窄高斯 PSF，核心宽度为 0.6 像素。这个数值故意偏窄，因为核心 PSF 只负责让点源脱离硬像素感，不负责制造亮星的大光斑。若核心取到 1 像素以上，暗星颗粒和银河纹理会被抹平，画面像隔着一层薄雾。</p>
+            <p>亮星的大小由饱和溢出产生。线性亮度超过饱和线的部分先被截下，再按两个更宽的高斯翼重新散布回画面，宽度分别是 3 像素和 9 像素。这个过程守恒能量，溢出翼只是把过亮核心的能量摊开，不额外制造光。饱和线也挂在星等阶梯上，而不是固定屏幕亮度上——这样在模拟更高灵敏度时，整套亮度阶梯一起平移，不会把整条银河错误地洗成一片泛光。</p>
+            <p>视觉结果是：暗星仍是锐利细点，中等星成为小圆点，亮星出现盘面和柔和光晕。恒星的视大小随亮度连续变化，而不是被人为分成几类笔刷。</p>
           </div>
-          <pre><code>--psf-core-px 0.6 --faint-gain 1 \
---sat-over-sky 0 --ext-threshold 0</code></pre>
         </div>
-        <figure class="step-fig">
-          <img src="assets/ablation_3_faintgain.jpg" alt="加窄PSF后：星点有了成像形态，盐粒感消失，画面已相当像银河" loading="lazy" />
-          <figcaption>STEP 2 · 加窄 PSF — 星点有了成像形态，盐粒感消失</figcaption>
+        <figure class="mech-fig">
+          <img src="assets/ablation_4_satbloom.jpg" alt="加PSF和饱和溢出后：亮星有了盘面和光晕，层次拉开" loading="lazy" />
+          <figcaption>窄 PSF + 能量守恒饱和溢出 — 亮星有了盘面和光晕</figcaption>
         </figure>
       </div>
 
-      <div class="ablation-step">
+      <!-- M3: Faint Star Integration -->
+      <div class="mechanism">
         <div>
-          <span class="step-no">STEP 3 · 饱和溢出</span>
-          <h3>亮星的大小来自能量守恒，不是更大的笔刷</h3>
+          <span class="mech-no">机制三 · 暗星积分</span>
+          <h3>银河乳光来自不可分辨的恒星，以力破巧</h3>
           <div class="prose">
-            <p>上一步把 PSF 收窄了，亮星却因此显得太小、压不住场面。第三个坑是怎么让亮星正确地变大。真实照片里亮星显大有两个机制：传感器（或视网膜）在亮星核心处饱和，同样的光斑轮廓有更宽的部分越过显示上限；散射和衍射把溢出的能量摊成光晕。实现上按这个机制来做：线性亮度超过饱和线的部分被截下来，按两个更宽的高斯（3 像素和 9 像素）重新散布回画面。关键性质是能量守恒，溢出翼只是把过亮核心的光摊开，不无中生有。这样恒星的视大小随亮度连续增长，星空照片里那种"亮星压得住场面"的层次感就来自这一步。</p>
-            <p>这里还藏着一个子坑：饱和线必须挂在星等阶梯上，不能挂在某个固定亮度上。模拟"眼睛灵敏度提高若干等"时所有星光等比放大，饱和线若不跟着走，画面里一大片像素会被截断、整条银河洗成一片柔光。修正后的饱和线表达成"比极限星等亮若干等的星开始饱和"，随亮度阶梯平移，任何灵敏度设定下饱和的都是该饱和的那批星。</p>
+            <p>肉眼看到的银河不是由少数亮星组成的图案，而是大量暗星的积分光。单颗暗星可能不可分辨，几百万、几亿颗叠在银道面上，就形成连续的乳光。Gaia 星表越深，这个积分光越接近真实天空；星表截断越浅，渲染器越需要代理那些没有画进来的暗星。</p>
+            <p>在浅星表阶段，渲染器用光度函数做补偿。星表中 G≥11 的暗星乘以 3.8 倍增益，用来代理更暗、尚未逐颗纳入的恒星族群。这个数字来自 Gaia 自身的星等分布：最后几档暗星的总光通量变化可以外推，估算截断之后还缺多少积分光。</p>
+            <p>但增益只能代理总光，代理不了颗粒统计。少量较亮星乘大增益，和大量更暗星逐颗累积，哪怕总光通量相同，视觉质感也不同。前者容易粗糙，后者会形成更细腻的乳光和更稳定的暗带边界。因此主图使用 Flatiron bulk mirror 生成的深星表缓存，广州银心视场约 6.16 亿颗 G<20 恒星。到了这个深度，大裂隙的形态不再靠屏幕遮罩或尘埃贴图强调，而是通过两侧星云变亮、缺星区域相对变暗而变得可读。能用真实恒星，就不用聪明的近似。</p>
           </div>
-          <pre><code>--psf-core-px 0.6 --faint-gain 1 \
---sat-over-sky 6 --ext-threshold 0</code></pre>
         </div>
-        <figure class="step-fig">
-          <img src="assets/ablation_4_satbloom.jpg" alt="加饱和溢出后：亮星有了盘面和光晕，星点大小随亮度连续变化" loading="lazy" />
-          <figcaption>STEP 3 · 加饱和溢出 — 亮星有了盘面和光晕，层次拉开</figcaption>
-        </figure>
-      </div>
-
-      <div class="ablation-step" id="scaleup">
-        <div>
-          <span class="step-no">STEP 4 · 加数据</span>
-          <h3>奇技淫巧不如以力破巧</h3>
-          <div class="prose">
-            <p>前三步为了在稀疏数据上凑出乳光，用了一个聪明的奇技淫巧：让较亮的星乘一个增益，用光度函数把截断之后几十亿颗不可分辨恒星的总光量代理回来。它够用，但有个代理不到的东西，光的颗粒统计。"少量较亮的颗粒乘大增益"和"大量细颗粒乘小增益"总光量一样，放大看质感完全不同，后者乳光细腻、暗带锐利，前者像被放大的噪点。</p>
-            <p>解法不是更精巧的技巧，而是更多的真实数据。广州这片天区的星表一路加深：13 等 240 万颗、16 等 3300 万颗、18 等 1.5 亿颗、20 等 6.16 亿颗。下面这个切换器，从 13 等加增益的奇技淫巧版起步，往后是真实星无增益、逐级加深的四档，点按对比同一视角。真星越多，乳光越细腻饱满、暗带越有结构，全部自然涌现，不需要任何 trick。</p>
-            <p>这一步还顺手解决了大裂隙：早先它在渲染里发灰，黑不到照片那个程度。真正让它浮现的不是更巧的算法，而是这里的加深星表——加到 20 等真星，裂隙两侧的亮云亮起来、衬得那条连续的宽暗带终于显出来。增益只能逼近，真实数据才是上限。主页和这一页的高清大图都来自 20 等真星这一档。</p>
-          </div>
-          <pre><code># 真星无增益，只换星表深度
---data data/raw/fov_g20_bsc5.npz --faint-gain 1</code></pre>
-        </div>
-        <figure class="step-fig">
+        <figure class="mech-fig">
           <div class="switcher" id="scaleSwitcher">
-            <img id="scaleImg" src="assets/ablation_scale_g20.jpg" alt="加数据：G<20 真星无增益，6.2 亿颗，银河细腻饱满、大裂隙显现" loading="lazy" />
+            <img id="scaleImg" src="assets/ablation_scale_g20.jpg" alt="G<20 真星无增益，6.2 亿颗，银河细腻饱满、大裂隙显现" loading="lazy" />
             <div class="switcher-controls" role="tablist" aria-label="星表深度切换">
               <button type="button" class="switch-btn" data-img="assets/ablation_scale_g13gain.jpg" data-label="G<13 加增益（外推近似）">G&lt;13 增益</button>
               <button type="button" class="switch-btn" data-img="assets/ablation_scale_g13.jpg" data-label="G<13 真星（240 万颗）">G&lt;13</button>
@@ -294,48 +273,73 @@
         </figure>
       </div>
 
-      <div class="ablation-step">
+      <!-- M4: Observer Limits -->
+      <div class="mechanism">
         <div>
-          <span class="step-no">STEP 5 · Weber 对比阈值</span>
-          <h3>最后一步交给观看者的眼睛和屏幕</h3>
+          <span class="mech-no">机制四 · 观测者限制</span>
+          <h3>城市里消失的不是星星，是对比度</h3>
           <div class="prose">
-            <p>前四步把真实的天空算了出来，最后一个坑是把它正确地交付到屏幕和人眼。这里有一条关键的感知规则：人眼探测一颗点状的星，和察觉一片大面积的微弱亮光，是两套完全不同的机制。前者由极限星等描述，后者服从 Weber 对比阈值，低于天空背景百分之几的弥散结构，眼睛就是看不见，哪怕相机长曝光拍得清清楚楚。各级光污染下银河带相对天空的对比度实测：顶级暗空 93%，明亮郊区 9%，市中心 2.8%。</p>
-            <p>实现上用一个高斯把画面分成弥散光（低频）和点源（高频），弥散光在对比域按一条平滑曲线压向阈值以下，点源原样保留。施加之后银河在 7 级光污染左右从画面里消失，8、9 级只剩亮星，顶级暗空几乎无感。这个阈值刻意不随灵敏度增益缩放：双筒望远镜把弥散光对比放大过阈值后银河重新可见，这正是器材党在城里也能扫到银河的机制。走到这里，五个坑都补完了，画面就是主图。</p>
+            <p>同一片银河，在暗空里清楚，在城市里消失，原因不是星表变了，而是观测者面前多了一层天空辉光。城市灯光经大气散射，成为叠加在线性星光上的背景。背景越亮，星光与背景的对比度越低，暗星和弥散银河先被淹没，只剩最亮的恒星。</p>
+            <p>Bortle 等级提供了这一层背景的观测锚点。Bortle 1 对应顶级暗空，裸眼极限星等约 7.8；Bortle 6 的明亮郊区约 5.3；Bortle 9 的市中心约 4.0。渲染器把每个等级映射到天空背景面亮度，同时用 NELM 决定点源可见的星等边界。</p>
+            <p>点状恒星和大面积银河带不能用同一条规则判断，因为人眼对点源和弥散光的检测机制不同。弥散光使用 Weber 对比阈值：结构亮度相对背景的增量低到几个百分点以下时，人眼难以察觉。默认阈值是 0.035，施加在低频银河光上，不抹掉高频点源。结果是 Bortle 1 下银河几乎完整，Bortle 7 左右银河从裸眼视野里消失，与真实观测经验一致。</p>
           </div>
-          <pre><code>默认参数（全部规则开启）</code></pre>
         </div>
-        <figure class="step-fig">
-          <img src="assets/ablation_5_full.jpg" alt="完整模型：与主页一致的最终渲染效果" loading="lazy" />
-          <figcaption>STEP 5 · 完整模型 — 与主页一致的最终渲染</figcaption>
+        <figure class="mech-fig">
+          <img src="assets/ablation_5_full.jpg" alt="完整模型：所有机制全部开启的最终渲染效果" loading="lazy" />
+          <figcaption>完整模型 — 与主页一致的最终渲染</figcaption>
         </figure>
       </div>
 
-      <div class="prose" style="max-width:none;margin-top:72px">
-        <div class="chapter" style="margin-bottom:18px"><span class="ch-no">01b</span><span class="ch-rule" aria-hidden="true"></span><span class="ch-title">WEBER 阈值在光污染下的作用</span></div>
-        <p style="max-width:var(--measure)">同一片天空，Bortle 7（城市边缘）、裸眼。左边关闭阈值：银河带残留一条隐约的痕迹，这是相机才能看到的对比度。右边打开阈值：弥散光低于人眼能察觉的水平，被显示层移除，只剩亮星——这才是城市边缘抬头真实看到的天空。</p>
-        <div class="pair">
-          <figure>
-            <img src="assets/ablation_weber_off.jpg" alt="Bortle 7 关闭Weber阈值：银河残留隐约痕迹" loading="lazy" />
-            <figcaption>关闭阈值（--ext-threshold 0）：残留的银河痕迹其实低于人眼可见水平</figcaption>
-          </figure>
-          <figure>
-            <img src="assets/ablation_weber_on.jpg" alt="Bortle 7 打开Weber阈值：弥散光消失只剩亮星" loading="lazy" />
-            <figcaption>打开阈值（默认 0.035）：与真实观测经验一致，银河完全不可见</figcaption>
-          </figure>
+      <!-- M5: Display Delivery -->
+      <div class="mechanism">
+        <div>
+          <span class="mech-no">机制五 · 显示交付</span>
+          <h3>把物理亮度交给屏幕</h3>
+          <div class="prose">
+            <p>前四个机制都在计算线性光：恒星亮度、颜色、PSF、饱和溢出、天空辉光和人眼阈值。可是屏幕不是线性天文仪器——Gaia 恒星亮度跨度超过百万倍，普通 SDR 屏幕只能显示有限对比度。最后一步 tone mapping 的任务，是把线性物理结果压进屏幕，同时不破坏前面建立的相对关系。</p>
+            <p>这也是物理层和显示层分离最具体的地方。渲染器先在每个画面里估计 sky floor（天空背景的低百分位亮度），把它锚定到固定深灰值。随后只增强 sky floor 以上的星光信号，避免把背景本身拉成发灰的幕布。多张 Bortle 面板共享同一个 stretch，而不是每张单独归一化——否则城市面板会被强行拉亮，读者会误以为光污染下仍能看到差不多的星空。</p>
+            <p>颜色在亮度压缩后释放，chroma 参数为 1.8，把 BP-RP 已经提供的色温差异从压缩状态中带回来。高光使用 soft shoulder，让银心和亮星周围的高光平滑滚向显示上限，保留内部层次。最后统一做 gamma 2.2 输出，交付给普通屏幕。显示层承认自己是在为屏幕服务，但它不改写物理层已经算出的星空。</p>
+          </div>
         </div>
+        <figure class="mech-fig">
+          <div class="pair" style="margin-top:0">
+            <figure>
+              <img src="assets/ablation_weber_off.jpg" alt="Bortle 7 关闭Weber阈值：银河残留隐约痕迹" loading="lazy" />
+              <figcaption>关闭阈值 — 残留的银河痕迹低于人眼可见水平</figcaption>
+            </figure>
+            <figure>
+              <img src="assets/ablation_weber_on.jpg" alt="Bortle 7 打开Weber阈值：弥散光消失只剩亮星" loading="lazy" />
+              <figcaption>打开阈值 — 与真实观测一致，银河不可见</figcaption>
+            </figure>
+          </div>
+        </figure>
       </div>
     </section>
 
-    <!-- ===================== 02 · 边界 ===================== -->
-    <section class="section wrap" id="boundary" aria-labelledby="boundary-title">
-      <div class="chapter"><span class="ch-no">02</span><span class="ch-rule" aria-hidden="true"></span><span class="ch-title">一处边界 / ONE HONEST LIMIT</span></div>
-      <h2 id="boundary-title">一处诚实的边界。</h2>
+    <!-- ===================== 02 · 数据架构 ===================== -->
+    <section class="section wrap" id="data-arch" aria-labelledby="data-title">
+      <div class="chapter"><span class="ch-no">02</span><span class="ch-rule" aria-hidden="true"></span><span class="ch-title">数据架构 / DATA ARCHITECTURE</span></div>
+      <h2 id="data-title">查询一次，渲染无数次。</h2>
       <div class="prose">
-        <p>五个坑补完，主图就出来了。最后留一处没有干净结尾的边界，照实说。</p>
-        <p><b>城市夜空到底能不能纯黑。</b>大裂隙在暗空主图里已经靠加深星表显出来了（见 STEP 4）。真正还够不到的是另一头：照片里城市上空那种纯黑的背景。Gaia 是为测量遥远暗星设计的，它能往很暗处看，但模拟"裸眼在城里看到什么"时，照片那种纯黑不全是物理，还来自长曝光看到了远超裸眼的暗星、再叠上激进的曲线拉伸。本项目坚持"只画真实星、不叠尘埃或夜空贴图"，于是高污染下的天空是被城市辉光均匀抬亮的灰，而不是照片里压到死黑的背景。这不是 bug，是"诚实渲染"和"修图美学"的分界：缺什么就补真实数据，补不到的地方就承认，不假装修好了。</p>
+        <p>Gaia 查询和渲染完全分开。生产路径不依赖 ADQL 实时查询，而是使用 Flatiron Institute 的 Gaia DR3 bulk mirror。当前广州银心视场下载了 2044 个原始 gzip 分片，压缩后约 412 GiB。原始分片保留在本地，之后按视场和星等过滤，只抽取渲染需要的列，生成 NPZ 缓存。</p>
+        <img src="assets/pipeline_zh.png" alt="数据管线：Flatiron Gaia DR3 分片 → FOV+星等过滤 → NPZ 缓存 → Bortle网格/飞行视频/HiPS渲染" style="margin: 28px 0; border: 1px solid var(--line);" loading="lazy" />
+        <p>这条链路的意义在于，昂贵的数据获取只做一次。Flatiron 原始分片进入本地过滤，生成 G<20 的深星表缓存；渲染器读取 NPZ 后，可以反复用不同 Bortle 等级、不同显示参数、不同取景方式生成新图。Bortle 1 到 9 网格、消融序列、主图、飞行视频和高清预览，使用的是同一套数据缓存和同一套渲染机制，只是在观测几何、输出形态和显示参数上分叉。HiPS 和四百亿像素路径也是同一管线放大后的结果。</p>
+      </div>
+    </section>
+
+    <!-- ===================== 03 · 边界 ===================== -->
+    <section class="section wrap" id="boundaries" aria-labelledby="bound-title">
+      <div class="chapter"><span class="ch-no">03</span><span class="ch-rule" aria-hidden="true"></span><span class="ch-title">边界 / BOUNDARIES</span></div>
+      <h2 id="bound-title">这不是相机 raw 模拟。</h2>
+      <div class="prose">
+        <p>这仍然是星表渲染，不是相机 raw 模拟。它解释恒星如何在天空中分布、光污染如何改变可见性、显示管线如何把结果交给屏幕；它不模拟真实镜头的每个光学缺陷，也不追求测光级精度。</p>
+        <p><b>Gaia 在最亮恒星上会饱和或漏测。</b>约 G≲6 的亮星需要用 Yale Bright Star Catalog BSC5 补充。当前主缓存是在 6.16 亿颗 Gaia 深星表上补入少量 BSC5 亮星，避免织女、心宿二、河鼓这类视觉锚点缺席。</p>
+        <p><b>Gaia 是恒星星表，不包含星云。</b>图中暗带来自可见恒星的减少，星云本身不会被额外画上去。若某个区域在真实天文照片中有明显红色 Hα 发射或蓝色反射云气，这个项目不会凭空补出来。</p>
+        <p><b>Gaia 视差只在太阳附近的有限距离内可靠。</b>尺度大约是几千光年内的局部数据球。飞行视频可以展示星座散架和近邻星场重投影，但不能生成一张真实的银河系俯视图——人类至今也没有那样的照片。</p>
+        <p><b>这不是把相机长曝光照片反推成裸眼视觉。</b>长曝光、堆栈、去梯度、局部曲线和色彩增强会产生另一种影像语言。这个项目的目标更窄：从 Gaia 恒星出发，在清楚标注的显示规则下，生成一张可追溯、可复现、可调参数的星空图。</p>
       </div>
       <div class="note">
-        <p>想看全部实现细节（坐标变换、tone mapping、共享亮度基准、视频管线的饱和锚点等），仓库里的 <a href="https://github.com/grapeot/gaia_allsky/blob/master/docs/rfc.md">docs/rfc.md</a> 是完整的设计文档，<a href="https://github.com/grapeot/gaia_allsky/blob/master/docs/working.md">docs/working.md</a> 记录了每一次调参和踩坑的过程。</p>
+        <p>想看全部实现细节，仓库里的 <a href="https://github.com/grapeot/gaia_allsky/blob/master/docs/rfc.md">docs/rfc.md</a> 是完整的设计文档，<a href="https://github.com/grapeot/gaia_allsky/blob/master/docs/working.md">docs/working.md</a> 记录了每一次调参和踩坑的过程。</p>
       </div>
     </section>
   </main>
@@ -347,7 +351,6 @@
   </footer>
 
   <script>
-    // STEP 4 星表深度切换器：点按钮换图 + 更新 caption。
     (function () {
       const sw = document.getElementById("scaleSwitcher");
       if (!sw) return;

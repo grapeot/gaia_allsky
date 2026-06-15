@@ -79,6 +79,11 @@
     font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em;
   }
   .nav .repo-link:hover { background: rgba(201, 168, 106, 0.08); color: var(--gold); }
+  .lang-toggle {
+    border: 1px solid var(--gold-dim); color: var(--gold); padding: 6px 12px; border-radius: 4px;
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; background: transparent; cursor: pointer;
+  }
+  .lang-toggle:hover { background: rgba(201, 168, 106, 0.08); }
 
   /* ---------- shared editorial bits ---------- */
   .kicker {
@@ -292,6 +297,7 @@
         <a href="#hires">高清大图</a>
         <a href="#boundary">读图须知</a>
         <a href="principles.html">原理</a>
+        <a class="lang-toggle" href="index-en.html" aria-label="Switch to English">EN</a>
         <a class="repo-link" data-repo-link href="https://github.com/grapeot/gaia_allsky">GITHUB ↗</a>
       </nav>
     </div>
@@ -429,7 +435,7 @@
       <div class="wrap">
         <div class="chapter"><span class="ch-no">04</span><span class="ch-rule" aria-hidden="true"></span><span class="ch-title">高清大图 / GIGAPIXEL</span></div>
         <h2 class="display" id="hires-title">六亿颗星，<br />一张能一直放大的银河。</h2>
-        <p class="lead" style="margin-top:24px;max-width:78ch">前面那些图都用同一份六亿颗星的数据，只是改了光污染等级。这一区把暗空那张做到极致：同样六亿颗星，渲到十亿像素级别，再切成可以无限放大的瓦片。星密到这个程度，银河的明暗肌理和尘埃暗带不再靠少数亮星勾勒，而是由海量暗星的疏密自己堆出来。</p>
+        <p class="lead" style="margin-top:24px;max-width:78ch">前面那些图都用同一份六亿颗星的数据，只是改了光污染等级。这一区把暗空那张做到极致：同样六亿颗星，渲到四百亿像素级别，再切成可以无限放大的瓦片。星密到这个程度，银河的明暗肌理和尘埃暗带不再靠少数亮星勾勒，而是由海量暗星的疏密自己堆出来。</p>
         <div class="hires-stage">
           <figure class="hires-frame portrait" style="margin:0">
             <img src="assets/fov_g20_4k.jpg" alt="广州天区 Gaia 全量恒星渲染的银河，暗带和尘埃肌理由六亿颗星的疏密堆出" />
@@ -443,9 +449,9 @@
             <div class="hires-cta">
               <div>
                 <h3>想自己拖着放大看？</h3>
-                <p>完整分辨率有十亿像素，没法塞进一张网页图里。渲染管线把它切成了一套分级巡天瓦片，挂在独立的浏览器里：拖动平移，滚轮缩放，越放大露出的暗星越多，跟天文学家用的 <code>Aladin</code> 是同一套格式。</p>
+                <p>完整分辨率有四百亿像素，没法塞进一张网页图里。渲染管线把它切成了一套分级巡天瓦片，挂在独立的浏览器里：拖动平移，滚轮缩放，越放大露出的暗星越多，跟天文学家用的 <code>Aladin</code> 是同一套格式。</p>
               </div>
-              <a class="btn primary" data-yage-link href="https://yage.ai/gaia_milky_way/" rel="noopener" target="_blank">打开十亿像素浏览器 ↗</a>
+              <a class="btn primary" data-yage-link href="https://yage.ai/gaia_milky_way/" rel="noopener" target="_blank">打开四百亿像素浏览器 ↗</a>
             </div>
           </div>
         </div>
@@ -564,7 +570,7 @@
       }).catch(() => {});
     })();
 
-    // 十亿像素浏览器链接：URL 待上线后填入。未填时把 CTA 收起，避免空链接。
+    // 四百亿像素浏览器链接：URL 待上线后填入。未填时把 CTA 收起，避免空链接。
     document.querySelectorAll("[data-yage-link]").forEach((link) => {
       const href = link.getAttribute("href");
       if (!href || href === "#") {

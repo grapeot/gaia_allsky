@@ -1,0 +1,610 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="Using stellar measurements from ESA's Gaia mission, this page paints the night sky star by star, shows how light pollution erases the Milky Way level by level, and flies beyond the Solar System to watch constellations fall apart." />
+<title>Gaia All-Sky Experiment · Watch Light Pollution Erase the Milky Way</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #070708;
+    --ink: #0b0b0d;
+    --panel: #101013;
+    --panel-2: #15151a;
+    --text: #f1eee7;
+    --soft: #cfcabf;
+    --muted: #968f82;
+    --line: rgba(241, 238, 231, 0.13);
+    --line-soft: rgba(241, 238, 231, 0.07);
+    --gold: #c9a86a;
+    --gold-dim: rgba(201, 168, 106, 0.5);
+    --blue: #8fa6c4;
+    --max: 1240px;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Noto Sans SC", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    line-height: 1.75;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; text-decoration: none; }
+  img, video { display: block; max-width: 100%; }
+  h1, h2, h3 { margin: 0; letter-spacing: -0.03em; line-height: 1.08; }
+  p { margin: 0; }
+  .mono { font-family: var(--mono); }
+
+  .wrap { width: min(var(--max), calc(100% - 64px)); margin: 0 auto; }
+
+  a:focus-visible, button:focus-visible {
+    outline: 2px solid var(--blue); outline-offset: 4px;
+  }
+
+  /* ---------- masthead ---------- */
+  .topbar {
+    position: sticky; top: 0; z-index: 40;
+    background: rgba(7, 7, 8, 0.86);
+    backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--line);
+  }
+  .topbar-inner {
+    display: flex; align-items: center; justify-content: space-between; gap: 24px;
+    min-height: 60px;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand-mark {
+    width: 22px; height: 22px; border-radius: 50%;
+    border: 1px solid var(--gold-dim);
+    background: radial-gradient(circle at 50% 50%, var(--gold) 0 2px, transparent 3px),
+               radial-gradient(circle at 66% 36%, var(--blue) 0 1.4px, transparent 2px);
+    box-shadow: 0 0 14px rgba(201, 168, 106, 0.22);
+  }
+  .brand-name { font-weight: 700; font-size: 15px; letter-spacing: 0.18em; white-space: nowrap; }
+  .nav { display: flex; align-items: center; gap: 22px; color: var(--muted); font-size: 13px; }
+  .nav a:hover { color: var(--text); }
+  .nav .repo-link {
+    border: 1px solid var(--gold-dim); color: var(--gold);
+    padding: 7px 14px; border-radius: 999px;
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em;
+  }
+  .nav .repo-link:hover { background: rgba(201, 168, 106, 0.08); color: var(--gold); }
+
+  /* ---------- shared editorial bits ---------- */
+  .kicker {
+    display: inline-flex; align-items: center; gap: 12px; white-space: nowrap;
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.16em;
+    color: var(--gold); text-transform: uppercase;
+  }
+  .kicker .bar { width: 28px; height: 3px; background: var(--gold); }
+
+  .chapter {
+    display: grid; grid-template-columns: auto auto 1fr; gap: 16px; align-items: center;
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.14em;
+    color: var(--muted); padding-bottom: 26px;
+  }
+  .chapter .ch-no { color: var(--gold); font-size: 13px; }
+  .chapter .ch-rule { height: 1px; background: var(--line); }
+
+  .display { font-size: clamp(34px, 5vw, 62px); font-weight: 900; max-width: 16em; }
+  .lead { color: var(--soft); font-size: clamp(17px, 1.6vw, 20px); max-width: 52ch; }
+
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-height: 48px; padding: 0 24px; border-radius: 2px;
+    font-size: 15px; font-weight: 500; cursor: pointer; white-space: nowrap;
+    border: 1px solid var(--line); color: var(--text); background: transparent;
+    transition: background 160ms ease, border-color 160ms ease;
+  }
+  .btn:hover { border-color: var(--line); background: rgba(255,255,255,0.04); }
+  .btn.primary { background: var(--gold); color: #14110a; border-color: var(--gold); font-weight: 700; }
+  .btn.primary:hover { background: #d6b878; }
+  .btn.ghost { color: var(--muted); font-family: var(--mono); font-size: 12px; letter-spacing: 0.12em; }
+
+  .section { padding: 104px 0; border-top: 1px solid var(--line-soft); }
+
+  /* ---------- HERO (portrait plate + cinematic ambient) ---------- */
+  .hero { position: relative; min-height: calc(100vh - 60px); display: flex; align-items: center; overflow: hidden; padding: 56px 0; }
+  .hero-amb {
+    position: absolute; inset: 0;
+    background: url("assets/fov_g20_4k.jpg") center 28% / cover;
+    filter: blur(48px) brightness(0.4) saturate(0.85);
+    transform: scale(1.18);
+  }
+  .hero-veil {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(130% 100% at 80% 50%, transparent 0%, rgba(6,6,8,0.55) 72%),
+      linear-gradient(180deg, rgba(6,6,8,0.74), rgba(6,6,8,0.40) 42%, rgba(6,6,8,0.94));
+  }
+  .hero-inner {
+    position: relative; z-index: 2; margin: 0 auto;
+    width: min(var(--max), calc(100% - 64px));
+    display: grid; grid-template-columns: minmax(0, 1fr) 408px; gap: 60px; align-items: center;
+  }
+  .hero h1 {
+    font-size: clamp(38px, 4.4vw, 70px); font-weight: 900; margin-top: 20px;
+    letter-spacing: -0.04em; text-shadow: 0 2px 30px rgba(0,0,0,0.4);
+  }
+  .hero .lead { margin-top: 24px; color: #e6e1d6; }
+  .hero-actions { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 32px; }
+  .hero-meta { margin-top: 40px; padding-top: 24px; border-top: 1px solid var(--line); }
+  .hero-stats { display: flex; gap: 44px; flex-wrap: wrap; }
+  .hero-stat .num { font-family: var(--mono); font-size: 22px; font-weight: 500; }
+  .hero-stat .lbl { color: var(--soft); font-size: 12.5px; margin-top: 6px; }
+  .hero-cred { margin-top: 22px; font-family: var(--mono); font-size: 11px; color: var(--muted); letter-spacing: 0.05em; }
+  .hero-cred b { color: var(--gold); font-weight: 500; }
+  .hero-plate { position: relative; margin: 0; border: 1px solid var(--line); background: #03040a; box-shadow: 0 30px 90px rgba(0,0,0,0.55); }
+  .hero-plate img { width: 100%; aspect-ratio: 1000 / 1778; object-fit: cover; display: block; }
+  .corner { position: absolute; width: 14px; height: 14px; border: 1px solid var(--gold); }
+  .corner.tl { top: 10px; left: 10px; border-right: 0; border-bottom: 0; }
+  .corner.tr { top: 10px; right: 10px; border-left: 0; border-bottom: 0; }
+  .corner.bl { bottom: 10px; left: 10px; border-right: 0; border-top: 0; }
+  .corner.br { bottom: 10px; right: 10px; border-left: 0; border-top: 0; }
+  .plate-read { position: absolute; left: 14px; right: 14px; font-family: var(--mono); font-size: 11px; color: #d6dce6; letter-spacing: 0.05em; }
+  .plate-read.top { top: 14px; display: flex; justify-content: space-between; }
+  .plate-read.bottom { bottom: 14px; background: rgba(6,8,12,0.84); border: 1px solid var(--line); padding: 9px 12px; line-height: 1.5; }
+
+  /* ---------- intro cards ---------- */
+  .intro-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; margin-top: 40px; border-top: 1px solid var(--line); }
+  .intro-card { padding: 30px 28px 0; border-right: 1px solid var(--line); }
+  .intro-card:last-child { border-right: 0; padding-right: 0; }
+  .intro-card:first-child { padding-left: 0; }
+  .intro-card .ic-no { font-family: var(--mono); font-size: 12px; color: var(--gold); letter-spacing: 0.1em; }
+  .intro-card h3 { font-size: 21px; font-weight: 700; margin-top: 14px; line-height: 1.3; }
+  .intro-card p { color: var(--soft); font-size: 15.5px; margin-top: 14px; }
+
+  /* ---------- bortle explorer ---------- */
+  .bortle-explorer { display: grid; grid-template-columns: 420px minmax(0, 1fr); gap: 48px; align-items: start; margin-top: 40px; }
+  .bortle-viewer { margin: 0; position: relative; border: 1px solid var(--line); background: #02040a; overflow: hidden; }
+  .bortle-viewer img { width: 100%; aspect-ratio: 1080 / 1920; object-fit: cover; display: block; }
+  .bortle-readout {
+    position: absolute; left: 16px; top: 16px;
+    font-family: var(--mono); font-size: 11px; color: #d6dce6; letter-spacing: 0.05em;
+    background: rgba(6,8,12,0.7); border: 1px solid var(--line); padding: 6px 10px;
+  }
+  .bortle-aside { }
+  .bortle-name { font-size: 26px; font-weight: 700; }
+  .bortle-copy { color: var(--soft); font-size: 15.5px; margin-top: 12px; min-height: 4.5em; }
+  .bortle-aside .lbl { font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; color: var(--muted); margin: 26px 0 14px; }
+  .bortle-slices { display: grid; gap: 6px; }
+  .bortle-slice {
+    position: relative; display: block; width: 100%; height: 52px; overflow: hidden;
+    border: 1px solid var(--line); padding: 0; cursor: pointer; text-align: left;
+    background-color: #040506; background-position: center 46%; background-size: cover;
+    filter: saturate(0.85) brightness(0.7);
+    transition: border-color 160ms ease, filter 160ms ease;
+  }
+  .bortle-slice::before {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(90deg, rgba(5,6,8,0.92), rgba(5,6,8,0.45) 55%, rgba(5,6,8,0.8));
+  }
+  .bortle-slice:hover { filter: saturate(1) brightness(0.9); }
+  .bortle-slice.active { border-color: var(--gold); filter: saturate(1) brightness(1.02); }
+  .slice-meta { position: relative; z-index: 1; display: grid; grid-template-columns: 40px 1fr; gap: 12px; align-items: center; height: 52px; padding: 0 14px; }
+  .slice-index { font-family: var(--mono); font-size: 13px; color: var(--gold); letter-spacing: 0.06em; }
+  .slice-title { font-size: 14px; font-weight: 500; }
+
+  .eye-block { margin-top: 64px; }
+  .eye-block h3 { font-size: 22px; font-weight: 700; }
+  .eye-grid { margin-top: 18px; border: 1px solid var(--line); overflow: hidden; background: #02040a; }
+  .eye-grid img { width: 100%; }
+  .eye-note { color: var(--soft); font-size: 14.5px; margin-top: 16px; max-width: 78ch; }
+
+  /* ---------- flight media ---------- */
+  .flight-stack { display: grid; gap: 24px; margin-top: 40px; }
+  .media-card { border: 1px solid var(--line); overflow: hidden; background: var(--panel); }
+  .media-card video { width: 100%; background: #000; display: block; }
+  .media-card.row { display: grid; grid-template-columns: 380px minmax(0, 1fr); align-items: stretch; }
+  .media-card.row video { aspect-ratio: 1 / 1; height: 100%; object-fit: cover; }
+  .media-card video.pano { aspect-ratio: 2 / 1; object-fit: cover; }
+  .media-card video.hide-controls { cursor: none; }
+  .media-body { padding: 26px; display: flex; flex-direction: column; justify-content: center; }
+  .media-body .mtag { font-family: var(--mono); font-size: 11px; color: var(--gold); letter-spacing: 0.1em; }
+  .media-body h3 { font-size: 22px; font-weight: 700; margin-top: 12px; }
+  .media-body p { color: var(--soft); font-size: 15px; margin-top: 14px; }
+
+  /* ---------- hires ---------- */
+  .hires-stage { display: grid; grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.18fr); gap: 24px; margin-top: 40px; align-items: stretch; }
+  .hires-frame { position: relative; border: 1px solid var(--line); overflow: hidden; background: #02040a; }
+  .hires-frame.portrait img { width: 100%; aspect-ratio: 2160 / 3840; object-fit: cover; display: block; }
+  .hires-frame.square video { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; background: #02040a; display: block; }
+  .hires-right { display: flex; flex-direction: column; gap: 24px; }
+  .hires-label {
+    position: absolute; left: 14px; right: 14px; bottom: 14px;
+    font-family: var(--mono); font-size: 11px; color: #d6dce6; letter-spacing: 0.04em; line-height: 1.6;
+    background: rgba(6,8,12,0.82); border: 1px solid var(--line); padding: 9px 12px;
+  }
+  .hires-cta {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 28px; align-items: center;
+    flex: 1; padding: 30px 32px; border: 1px solid var(--gold-dim);
+    background: linear-gradient(120deg, rgba(143,166,196,0.08), rgba(201,168,106,0.07));
+  }
+  .hires-cta h3 { font-size: 22px; font-weight: 700; }
+  .hires-cta p { color: var(--soft); font-size: 15px; margin-top: 12px; max-width: 64ch; }
+
+  /* ---------- boundary ---------- */
+  .boundary { display: grid; grid-template-columns: 0.85fr 1.15fr; gap: 40px; align-items: start; }
+  .boundary-aside { border-left: 2px solid var(--gold); padding-left: 24px; }
+  .boundary-aside .big { font-family: var(--mono); font-size: 13px; letter-spacing: 0.16em; color: var(--gold); text-transform: uppercase; }
+  .boundary-aside p { color: var(--soft); font-size: 16px; margin-top: 16px; }
+  .boundary-copy p { color: var(--soft); font-size: 16px; }
+  .boundary-copy p + p { margin-top: 20px; }
+  .boundary-copy b { color: var(--text); font-weight: 500; }
+
+  /* ---------- repo / principles ---------- */
+  .panel {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 28px; align-items: center;
+    padding: 40px; border: 1px solid var(--line);
+    background: linear-gradient(120deg, rgba(143,166,196,0.07), rgba(201,168,106,0.05));
+  }
+  .panel .lead { margin-top: 18px; }
+
+  code {
+    font-family: var(--mono); font-size: 0.9em;
+    border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px;
+    background: rgba(255,255,255,0.05); color: #e2ddd2;
+  }
+
+  footer { border-top: 1px solid var(--line); }
+  footer .wrap { padding: 40px 0 64px; }
+  footer p { color: var(--muted); font-size: 13.5px; font-family: var(--mono); letter-spacing: 0.02em; line-height: 1.9; }
+
+  /* ---------- responsive ---------- */
+  @media (max-width: 920px) {
+    .nav a:not(.repo-link) { display: none; }
+    .hero-inner { grid-template-columns: 1fr; gap: 40px; }
+    .hero-plate { max-width: 408px; }
+    .bortle-explorer, .hires-stage, .hires-cta, .boundary, .panel, .intro-grid, .media-card.row { grid-template-columns: 1fr; }
+    .bortle-viewer { max-width: 420px; }
+    .media-card.row video { aspect-ratio: 16 / 11; height: auto; }
+    .intro-card { border-right: 0; border-bottom: 1px solid var(--line); padding: 24px 0; }
+    .intro-card:last-child { border-bottom: 0; }
+    .hires-cta .btn, .panel .btn { width: 100%; }
+  }
+  @media (max-width: 560px) {
+    .wrap, .hero-inner { width: calc(100% - 36px); }
+    .section { padding: 72px 0; }
+    .hero-stats { gap: 28px; }
+  }
+</style>
+</head>
+<body id="top">
+  <header class="topbar">
+    <div class="topbar-inner wrap">
+      <a class="brand" href="#top" aria-label="Back to top">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-name">GAIA ALLSKY EXPERIMENT</span>
+      </a>
+      <nav class="nav" aria-label="Page navigation">
+        <a href="#bortle">Light Pollution</a>
+        <a href="#flight">Interstellar Flight</a>
+        <a href="#hires">Gigapixel</a>
+        <a href="#boundary">What These Images Are Not</a>
+        <a href="principles.html">Principles</a>
+        <a class="lang-toggle" href="index.html" aria-label="切换到中文">中</a>
+        <a class="repo-link" data-repo-link href="https://github.com/grapeot/gaia_allsky">GITHUB ↗</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <!-- ===================== COVER ===================== -->
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-amb" aria-hidden="true"></div>
+      <div class="hero-veil" aria-hidden="true"></div>
+      <div class="hero-inner">
+        <div class="hero-text">
+          <p class="kicker"><span class="bar" aria-hidden="true"></span>Real Star Catalog · One Star One Pixel · No Milky Way Overlay</p>
+          <h1 id="hero-title">600 million real stars,<br />one by one, painted back into the sky.</h1>
+          <p class="lead">
+            ESA's Gaia mission measured the positions, brightnesses, and colors of 1.8 billion stars in the Milky Way. For this patch of sky over Guangzhou, we take every measured star
+            down to magnitude 20, about 600 million in total, and draw them onto the celestial sphere one by one. The Milky Way is not painted separately:
+            once the stars become dense enough, it emerges on its own. Then we add light pollution level by level, so you can watch it disappear step by step.
+          </p>
+          <div class="hero-actions">
+            <a class="btn primary" href="#bortle">Watch the Milky Way fade level by level</a>
+            <a class="btn ghost" data-repo-link href="https://github.com/grapeot/gaia_allsky">GITHUB Repository ↗</a>
+          </div>
+          <div class="hero-meta">
+            <div class="hero-stats">
+              <div class="hero-stat"><div class="num">6.0×10⁸</div><div class="lbl">measured stars</div></div>
+              <div class="hero-stat"><div class="num">Bortle 1–9</div><div class="lbl">dark sky to city center</div></div>
+              <div class="hero-stat"><div class="num">G ≤ 20.0</div><div class="lbl">limiting magnitude · Guangzhou 23.1°N</div></div>
+            </div>
+            <p class="hero-cred">Data source · <b>ESA / Gaia Mission DR3</b> · European Space Agency</p>
+          </div>
+        </div>
+        <figure class="hero-plate">
+          <img src="assets/hero_milky_way.jpg" alt="A full Milky Way rendering at Guangzhou's latitude under assumed zero light pollution, with stellar granularity and dark dust lanes clearly visible" />
+          <span class="corner tl" aria-hidden="true"></span>
+          <span class="corner tr" aria-hidden="true"></span>
+          <span class="corner bl" aria-hidden="true"></span>
+          <span class="corner br" aria-hidden="true"></span>
+          <div class="plate-read top"><span>R.A. 18ʰ41ᵐ</span><span>DEC −04°12′</span></div>
+          <figcaption class="plate-read bottom">Guangzhou latitude · assumed zero light pollution — every point in the image is a real cataloged star, and even the central dark lane comes from real data</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- ===================== 01 · WHY ===================== -->
+    <section class="section" aria-labelledby="questions-title">
+      <div class="wrap">
+        <div class="chapter"><span class="ch-no">01</span><span class="ch-rule" aria-hidden="true"></span><span class="ch-title">Why / WHY THE MILKY WAY VANISHES</span></div>
+        <h2 class="display" id="questions-title">Cities lose the Milky Way,<br />not the stars.</h2>
+        <div class="intro-grid">
+          <article class="intro-card">
+            <div class="ic-no">i.</div>
+            <h3>Light pollution is a layer of background glow across the sky</h3>
+            <p>City lights raise the brightness of the entire sky background. The starlight itself does not change, but anything dimmer than the background vanishes from view. Most of the Milky Way is faint structure, so it disappears first. The same sky remains overhead; only the background brightness changes.</p>
+          </article>
+          <article class="intro-card">
+            <div class="ic-no">ii.</div>
+            <h3>How faint a star you can see depends on how dark the sky is</h3>
+            <p>Under the darkest wilderness skies, sharp-eyed observers can reach roughly magnitude 8. The often-quoted "naked-eye limit of magnitude 6" is really the level of an ordinary dark sky. In a city center, reaching magnitude 4 is already decent. Each magnitude is about a 2.5× change in brightness; going from magnitude 8 to 4 removes more than a hundredfold of the visible stars.</p>
+          </article>
+          <article class="intro-card">
+            <div class="ic-no">iii.</div>
+            <h3>Constellations are angles; the Milky Way is structure</h3>
+            <p>The Big Dipper looks like a ladle only because of our viewpoint from Earth. Fly a few dozen light-years in that direction and the nearby stars shift relative to one another; the ladle falls apart. The Milky Way is different: it is the distribution of billions of stars across thousands of light-years, so a flight on that scale barely changes it.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 02 · BORTLE ===================== -->
+    <section id="bortle" class="section" aria-labelledby="bortle-title">
+      <div class="wrap">
+        <div class="chapter"><span class="ch-no">02</span><span class="ch-rule" aria-hidden="true"></span><span class="ch-title">Light Pollution / LIGHT POLLUTION · BORTLE 1–9</span></div>
+        <h2 class="display" id="bortle-title">Sweep from Bortle 1 to 9<br />and watch the Milky Way fade level by level.</h2>
+        <p class="lead" style="margin-top:24px">The Bortle scale is a common way for amateur astronomers to rate night-sky quality: 1 is a pristine remote dark sky, and 9 is an inner-city sky. Tap any level to see what the same patch of sky looks like under that condition.</p>
+
+        <div class="bortle-explorer">
+          <figure class="bortle-viewer">
+            <img id="bortleImage" src="assets/bortle_1.jpg" alt="Full-sky rendering under a Bortle 1 pristine dark sky" />
+            <span class="bortle-readout" id="bortleReadout">B1 · SQM 21.9 · LIM ≈ 7.8</span>
+          </figure>
+          <aside class="bortle-aside">
+            <h3 class="bortle-name" id="bortleName">Bortle 1: Pristine dark sky</h3>
+            <p class="bortle-copy" id="bortleCopy" aria-live="polite">Under a Bortle 1 pristine dark sky, both the Milky Way and its dark dust structures are visible.</p>
+            <div class="lbl">SKYGLOW · SELECT LEVEL</div>
+            <div class="bortle-slices" id="bortleSlices" role="group" aria-label="Select Bortle levels 1 through 9"></div>
+          </aside>
+        </div>
+
+        <div class="eye-block">
+          <div class="chapter" style="padding-bottom:18px"><span class="ch-no">02b</span><span class="ch-rule" aria-hidden="true"></span><span class="ch-title">Sensitivity Comparison / SENSITIVITY</span></div>
+          <h3>Same sky, more sensitive eyes: what changes?</h3>
+          <figure class="eye-grid" style="margin:18px 0 0">
+            <a href="assets/bortle_eye_grid.jpg" target="_blank" rel="noopener" aria-label="Open the full-size sensitivity comparison image in a new window">
+              <img src="assets/bortle_eye_grid.jpg" alt="Six comparison panels of the starry sky: the top row is a dark sky, the bottom row is a bright suburban sky, and observing sensitivity increases from left to right, revealing progressively fainter stars" />
+            </a>
+          </figure>
+          <p class="eye-note">The top row is a pristine dark sky; the bottom row is a bright suburban sky. From left to right, the assumed limiting sensitivity of the eye, telescope, or long-exposure camera improves step by step, with each step adding 2 magnitudes to the limiting magnitude. The same gain in sensitivity can pull out the full Milky Way under a dark sky, but it helps far less under a bright sky. This is why stargazers willingly drive for hours to reach dark sites. All six panels use the same brightness baseline; the bright-sky panels have not been secretly boosted. Tap the image to view it full size.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 03 · FLIGHT ===================== -->
+    <section id="flight" class="section" aria-labelledby="flight-title">
+      <div class="wrap">
+        <div class="chapter"><span class="ch-no">03</span><span class="ch-rule" aria-hidden="true"></span><span class="ch-title">Interstellar Flight / FLIGHT THROUGH THE CATALOG</span></div>
+        <h2 class="display" id="flight-title">Leave the Solar System:<br />constellations fall apart, but the Milky Way remains.</h2>
+        <div class="flight-stack">
+          <article class="media-card row">
+            <video controls playsinline preload="none" poster="assets/big_dipper_poster.jpg">
+              <source src="assets/big_dipper_forward_preview.mp4" type="video/mp4" />
+            </video>
+            <div class="media-body">
+              <div class="mtag">FLIGHT 01 · TOWARD THE BIG DIPPER</div>
+              <h3>Flying toward the Big Dipper</h3>
+              <p>Gaia measured not only where stars appear on the sky, but also their individual distances, so we can compute the sky from any position. This video first flies toward the Big Dipper, with thin lines connecting the seven stars of the ladle. After a few dozen light-years, the seven stars shift relative to one another and the ladle falls apart. In the second half, the camera turns toward the Galactic disk, revealing how it extends through three-dimensional space. The video is silent.</p>
+            </div>
+          </article>
+          <article class="media-card">
+            <video class="pano" controls playsinline preload="none" poster="assets/vr_poster.jpg">
+              <source src="assets/vr_equirect_preview.mp4" type="video/mp4" />
+            </video>
+            <div class="media-body">
+              <div class="mtag">FLIGHT 02 · 360° PANORAMA</div>
+              <h3>A panoramic version of the same flight</h3>
+              <p>This 360° panoramic video follows the same flight path. The image unwraps the entire celestial sphere around you into a wide frame, so the edges look stretched; that is normal for this panorama format. Put it in a VR headset or a panorama-capable player, and you can turn your head in any direction during the flight. The video is silent.</p>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 04 · HIRES ===================== -->
+    <section id="hires" class="section" aria-labelledby="hires-title">
+      <div class="wrap">
+        <div class="chapter"><span class="ch-no">04</span><span class="ch-rule" aria-hidden="true"></span><span class="ch-title">Gigapixel / GIGAPIXEL</span></div>
+        <h2 class="display" id="hires-title">600 million stars,<br />one Milky Way you can keep zooming into.</h2>
+        <p class="lead" style="margin-top:24px;max-width:78ch">All the images above use the same 600-million-star dataset; only the light-pollution level changes. This section pushes the dark-sky version to the limit: the same 600 million stars are rendered at 40-gigapixel scale, then cut into tiles that can be zoomed indefinitely. At this stellar density, the Milky Way's brightness texture and dark dust lanes are no longer traced by a handful of bright stars; they are built up by the density variations of vast numbers of faint stars.</p>
+        <div class="hires-stage">
+          <figure class="hires-frame portrait" style="margin:0">
+            <img src="assets/fov_g20_4k.jpg" alt="A Gaia full-star rendering of the Milky Way over the Guangzhou sky region, with dark lanes and dust texture built from density variations among 600 million stars" />
+            <figcaption class="hires-label">PLATE · Guangzhou sky region · about 6.0×10⁸ stars · G ≤ 20 — shown here as a 4K compressed preview</figcaption>
+          </figure>
+          <div class="hires-right">
+            <figure class="hires-frame square" style="margin:0">
+              <video id="zoomVideo" autoplay loop muted playsinline preload="none" poster="assets/zoom_poster.jpg" data-src="assets/zoom_milkyway.mp4"></video>
+              <figcaption class="hires-label">ZOOM · Continuous zoom from the full panorama into the Galactic Center core at 1:1 scale — silent video, looping automatically</figcaption>
+            </figure>
+            <div class="hires-cta">
+              <div>
+                <h3>Want to pan and zoom for yourself?</h3>
+                <p>The full-resolution image is 40 gigapixels, too large to fit into a single web image. The rendering pipeline cuts it into a set of multiscale survey tiles hosted in a separate browser: drag to pan, scroll to zoom, and fainter stars keep appearing as you zoom in. It uses the same tile format as the <code>Aladin</code> sky atlas used by astronomers.</p>
+              </div>
+              <a class="btn primary" data-yage-link href="https://yage.ai/gaia_milky_way/" rel="noopener" target="_blank">Open the 40-gigapixel browser ↗</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 05 · BOUNDARY ===================== -->
+    <section id="boundary" class="section" aria-labelledby="boundary-title">
+      <div class="wrap">
+        <div class="chapter"><span class="ch-no">05</span><span class="ch-rule" aria-hidden="true"></span><span class="ch-title">What These Images Are Not / WHAT THESE IMAGES ARE NOT</span></div>
+        <div class="boundary">
+          <aside class="boundary-aside">
+            <div class="big">What These Images Are Not</div>
+            <p>These images are good for seeing trends and structures. They are not meant for precision measurement.</p>
+          </aside>
+          <div class="boundary-copy">
+            <p><b>The first boundary comes from the data.</b> Gaia's distance measurements become less precise with distance, and only stars within a few thousand light-years around the Sun have sufficiently reliable distances. In the flight videos, the farther you fly, the sparser the stars become. That is not the edge of the universe; it is the edge of the measurements. One related point: humanity still has no real top-down photograph of the Milky Way. The common "full Milky Way galaxy" images online are imagined views inferred from observations.</p>
+            <p><b>The second boundary comes from the screen.</b> In the real night sky, the brightest stars and the faintest Milky Way texture can differ in brightness by more than a millionfold, far beyond what any screen can display. The image therefore has to compress brightness before it can be shown to you. The compression preserves the relative order of what is brighter than what, but it does not preserve absolute brightness ratios. For structure, trends, and comparisons, these images are reliable. For measuring magnitudes, they are not.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 06 · PRINCIPLES ===================== -->
+    <section class="section" aria-labelledby="principles-title">
+      <div class="wrap">
+        <div class="chapter"><span class="ch-no">06</span><span class="ch-rule" aria-hidden="true"></span><span class="ch-title">How It's Rendered / HOW IT'S RENDERED</span></div>
+        <h2 class="display" id="principles-title">How were these images drawn?</h2>
+        <p class="lead" style="margin-top:24px;max-width:78ch">There is no Milky Way overlay in the image, and no hand-painted glow. Starting from the simplest idea, "one star, one pixel," we ran into five problems. Each time, adding one physically grounded rule brought the result closer to reality: first anchoring stellar colors to the white point, then applying a shared optical PSF to all stars, letting bright-star size emerge from energy-conserving saturation spillover, replacing gain extrapolation with a deeper real star catalog, and finally adding the human eye's Weber contrast threshold for diffuse light. After those five steps, the main image above appears.</p>
+        <div style="margin-top:32px"><a class="btn primary" href="principles.html">Read the deep dive on rendering principles →</a></div>
+      </div>
+    </section>
+
+    <!-- ===================== 07 · REPO ===================== -->
+    <section class="section" aria-labelledby="repo-title">
+      <div class="wrap">
+        <div class="panel">
+          <div>
+            <p class="kicker"><span class="bar" aria-hidden="true"></span>Code and Data Are Fully Public</p>
+            <h2 class="display" id="repo-title" style="font-size:clamp(28px,3.4vw,44px);margin-top:18px">The whole project is open source,<br />and reproducible on your own machine.</h2>
+            <p class="lead">The code, data-download scripts, and all parameters are in the GitHub repository. You can regenerate every image and video on this page, or change the city latitude and light-pollution level to render a night sky of your own.</p>
+          </div>
+          <a class="btn primary" data-repo-link href="https://github.com/grapeot/gaia_allsky">Open GitHub Repository ↗</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <p>GAIA ALLSKY EXPERIMENT · Stellar data from the European Space Agency Gaia mission (ESA / Gaia / DPAC)<br />This page shows compressed previews. The full-resolution images and videos can be generated with the commands in the repository.</p>
+    </div>
+  </footer>
+
+  <script>
+    const bortleTexts = [
+      ["Bortle 1: Pristine dark sky", "The Milky Way is bright and fully structured, with dark lanes visible inside it: the texture left where dust blocks starlight. Seeing a sky like this usually means driving for hours, far from all town and city lights.", "SQM 21.9 · LIM ≈ 7.8"],
+      ["Bortle 2: Typical dark sky", "The Milky Way remains complete, while the sky background is only slightly raised. Many dark-sky reserves fall in this range.", "SQM 21.7 · LIM ≈ 7.3"],
+      ["Bortle 3: Rural sky", "The Milky Way is still visible, but the fine texture in the dark lanes begins to disappear. For many people, this is already the best night sky they remember.", "SQM 21.3 · LIM ≈ 6.8"],
+      ["Bortle 4: Rural-suburban transition", "The sky background keeps brightening, and the Milky Way degrades from a textured structure into a soft luminous band.", "SQM 20.8 · LIM ≈ 6.3"],
+      ["Bortle 5: Suburban sky", "Bright stars still stand out, but the main body of the Milky Way is now intermittent and needs good weather plus dark adaptation to confirm.", "SQM 20.3 · LIM ≈ 5.9"],
+      ["Bortle 6: Bright suburban sky", "Faint structure has mostly sunk into the background, and the sky is dominated by bright stars. Many people live under a sky like this.", "SQM 19.5 · LIM ≈ 5.3"],
+      ["Bortle 7: Urban edge", "The Milky Way is almost invisible. The sky is not white yet, but its faint structures have fallen below the threshold of human vision.", "SQM 18.9 · LIM ≈ 4.8"],
+      ["Bortle 8: Urban sky", "The sky is mostly background glow plus a small number of bright stars; many constellations can no longer be completed.", "SQM 18.3 · LIM ≈ 4.3"],
+      ["Bortle 9: Inner city", "The Milky Way is still overhead, and not a single star has gone missing; they are simply buried in the background of artificial light. This is the sky most people see when they look up every day.", "SQM 17.8 · LIM ≈ 4.0"]
+    ];
+
+    const name = document.getElementById("bortleName");
+    const copy = document.getElementById("bortleCopy");
+    const slices = document.getElementById("bortleSlices");
+    const viewerImg = document.getElementById("bortleImage");
+    const readout = document.getElementById("bortleReadout");
+
+    function setBortle(level) {
+      const n = Number(level);
+      name.textContent = bortleTexts[n - 1][0];
+      copy.textContent = bortleTexts[n - 1][1];
+      readout.textContent = `B${n} · ${bortleTexts[n - 1][2]}`;
+      viewerImg.src = `assets/bortle_${n}.jpg`;
+      viewerImg.alt = `${bortleTexts[n - 1][0]} full-sky rendering`;
+      document.querySelectorAll(".bortle-slice").forEach((button) => {
+        const active = Number(button.dataset.level) === n;
+        button.classList.toggle("active", active);
+        button.setAttribute("aria-pressed", String(active));
+      });
+    }
+
+    for (let n = 1; n <= 9; n += 1) {
+      const button = document.createElement("button");
+      button.className = "bortle-slice";
+      button.type = "button";
+      button.dataset.level = String(n);
+      button.style.backgroundImage = `url("assets/bortle_${n}.jpg")`;
+      button.setAttribute("aria-label", `View ${bortleTexts[n - 1][0]}`);
+      button.setAttribute("aria-pressed", "false");
+      button.innerHTML = `<span class="slice-meta"><span class="slice-index">B${n}</span><span class="slice-title">${bortleTexts[n - 1][0].replace(":", " · ")}</span></span>`;
+      button.addEventListener("click", () => setBortle(n));
+      slices.appendChild(button);
+    }
+
+    setBortle(1);
+
+    // Auto-looping zoom video: mount and play only when the file exists,
+    // avoiding missing-file requests in preview environments; after deployment it autoplays normally.
+    (function () {
+      const zv = document.getElementById("zoomVideo");
+      if (!zv || !zv.dataset.src) return;
+      fetch(zv.dataset.src, { method: "HEAD" }).then((r) => {
+        if (!r.ok) return;
+        const s = document.createElement("source");
+        s.src = zv.dataset.src;
+        s.type = "video/mp4";
+        zv.appendChild(s);
+        zv.load();
+        zv.play().catch(() => {});
+      }).catch(() => {});
+    })();
+
+    // Gigapixel browser link: hide the CTA when the URL is not set, avoiding empty links.
+    document.querySelectorAll("[data-yage-link]").forEach((link) => {
+      const href = link.getAttribute("href");
+      if (!href || href === "#") {
+        const panel = link.closest(".hires-cta");
+        if (panel) panel.style.display = "none";
+      }
+    });
+
+    // Automatically correct repository links on GitHub Pages deployments.
+    const repoLinks = document.querySelectorAll("[data-repo-link]");
+    const pathRepo = location.hostname.endsWith("github.io") ? location.pathname.split("/").filter(Boolean)[0] : "";
+    const owner = location.hostname.endsWith("github.io") ? location.hostname.split(".")[0] : "grapeot";
+    if (pathRepo) {
+      repoLinks.forEach((link) => { link.href = `https://github.com/${owner}/${pathRepo}`; });
+    }
+
+    // Automatically hide video controls during playback.
+    document.querySelectorAll("video").forEach((video) => {
+      let hideControlsTimer;
+      const showControls = () => {
+        clearTimeout(hideControlsTimer);
+        video.controls = true;
+        video.classList.remove("hide-controls");
+        if (!video.paused) {
+          hideControlsTimer = setTimeout(() => {
+            video.controls = false;
+            video.classList.add("hide-controls");
+          }, 1400);
+        }
+      };
+      video.addEventListener("play", showControls);
+      video.addEventListener("pause", showControls);
+      video.addEventListener("ended", showControls);
+      video.addEventListener("pointermove", showControls);
+      video.addEventListener("focus", showControls);
+      video.addEventListener("click", () => {
+        if (!video.controls && !video.paused) { video.controls = true; video.pause(); }
+      });
+    });
+  </script>
+</body>
+</html>

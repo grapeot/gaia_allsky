@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="A 40-gigapixel Gaia Milky Way survey — every pixel is a real measured star. Drag to pan, scroll to zoom, interactively explore the Galactic Center region." />
+<title>Gaia Milky Way · 40-Gigapixel Survey</title>
+
+<!-- Aladin Lite v2 + jQuery (CDN, verified wiring — do not upgrade) -->
+<script type="text/javascript" src="https://code.jquery.com/jquery-1.10.1.min.js"></script>
+<link rel="stylesheet" href="https://aladin.u-strasbg.fr/AladinLite/api/v2/latest/aladin.min.css" />
+<script type="text/javascript">var jqMenu = jQuery.noConflict(); var hipsDir = null;</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #070708;
+    --ink: #0b0b0d;
+    --panel: #101013;
+    --text: #f1eee7;
+    --soft: #cfcabf;
+    --muted: #968f82;
+    --line: rgba(241, 238, 231, 0.13);
+    --line-soft: rgba(241, 238, 231, 0.07);
+    --gold: #c9a86a;
+    --gold-dim: rgba(201, 168, 106, 0.5);
+    --blue: #8fa6c4;
+    --max: 1200px;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    line-height: 1.75; -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; text-decoration: none; }
+  h1 { margin: 0; letter-spacing: -0.035em; line-height: 1.1; }
+  .mono { font-family: var(--mono); }
+  .wrap { width: min(var(--max), calc(100% - 64px)); margin: 0 auto; }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--blue); outline-offset: 4px; }
+
+  /* masthead */
+  .topbar {
+    position: sticky; top: 0; z-index: 40;
+    background: rgba(7, 7, 8, 0.86); backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--line);
+  }
+  .topbar-inner { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 60px; }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand-mark {
+    width: 22px; height: 22px; flex: 0 0 auto; border-radius: 50%; border: 1px solid var(--gold-dim);
+    background: radial-gradient(circle at 50% 50%, var(--gold) 0 2px, transparent 3px),
+               radial-gradient(circle at 66% 36%, var(--blue) 0 1.4px, transparent 2px);
+    box-shadow: 0 0 14px rgba(201, 168, 106, 0.22);
+  }
+  .brand-name { font-weight: 700; font-size: 15px; letter-spacing: 0.16em; white-space: nowrap; }
+  .brand-tag {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; color: var(--gold);
+    border: 1px solid var(--gold-dim); border-radius: 999px; padding: 3px 9px; text-transform: uppercase;
+  }
+  .repo-link {
+    border: 1px solid var(--gold-dim); color: var(--gold); padding: 7px 14px; border-radius: 999px;
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; white-space: nowrap;
+  }
+  .repo-link:hover { background: rgba(201, 168, 106, 0.08); }
+  .lang-toggle {
+    border: 1px solid var(--gold-dim); color: var(--gold); padding: 6px 12px; border-radius: 4px;
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; background: transparent; cursor: pointer;
+  }
+  .lang-toggle:hover { background: rgba(201, 168, 106, 0.08); }
+
+  main { padding: 56px 0 64px; }
+  .kicker {
+    display: inline-flex; align-items: center; gap: 12px; white-space: nowrap;
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.16em; color: var(--gold); text-transform: uppercase;
+  }
+  .kicker .bar { width: 28px; height: 3px; background: var(--gold); }
+  h1 { font-size: clamp(32px, 4.6vw, 60px); font-weight: 900; margin-top: 20px; max-width: 16ch; }
+  .lead { max-width: 64ch; margin: 24px 0 0; color: var(--soft); font-size: clamp(16px, 1.6vw, 19px); line-height: 1.8; }
+
+  /* viewer — the hero element */
+  .viewer-panel { margin-top: 36px; border: 1px solid var(--line); background: #03050a; box-shadow: 0 30px 90px rgba(0,0,0,0.5); }
+  .viewer-bar {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    padding: 12px 18px; border-bottom: 1px solid var(--line);
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; color: var(--muted);
+  }
+  .viewer-bar .vb-left { display: inline-flex; align-items: center; gap: 14px; white-space: nowrap; }
+  .viewer-bar .vb-led { width: 7px; height: 7px; border-radius: 50%; background: var(--blue); box-shadow: 0 0 8px var(--blue); }
+  .viewer-bar .vb-id { color: var(--blue); }
+  .viewer-bar .vb-hint { color: var(--muted); white-space: nowrap; }
+  #aladin-lite-div { width: 100%; height: min(72vh, 800px); background: #02040a; }
+
+  /* stat strip */
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; margin-top: 26px; border-top: 1px solid var(--line); }
+  .stat { padding: 22px 24px 0 0; border-right: 1px solid var(--line); }
+  .stat:last-child { border-right: 0; }
+  .stat strong { display: block; font-family: var(--mono); color: var(--text); font-size: 22px; font-weight: 500; line-height: 1.2; }
+  .stat span { display: block; margin-top: 8px; color: var(--muted); font-size: 13px; }
+
+  footer { margin-top: 44px; padding-top: 26px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13.5px; }
+  footer p { margin: 0 0 14px; line-height: 1.8; }
+  .footer-links { display: flex; flex-wrap: wrap; gap: 18px; align-items: center; font-family: var(--mono); font-size: 12px; }
+  .footer-links a { color: var(--gold); border-bottom: 1px solid var(--gold-dim); padding-bottom: 1px; }
+  .footer-links a:hover { color: var(--text); }
+  .base-url { color: var(--muted); word-break: break-all; }
+  .base-url b { color: var(--soft); font-weight: 500; }
+
+  @media (max-width: 760px) {
+    .stats { grid-template-columns: 1fr; }
+    .stat { border-right: 0; border-bottom: 1px solid var(--line); padding: 18px 0; }
+    #aladin-lite-div { height: 64vh; }
+    .viewer-bar .vb-hint { display: none; }
+  }
+  @media (max-width: 560px) { .wrap { width: calc(100% - 36px); } }
+</style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner wrap">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-name">GAIA ALLSKY EXPERIMENT</span>
+        <span class="brand-tag">HiPS</span>
+      </div>
+      <nav style="display: flex; align-items: center; gap: 16px;">
+        <a class="lang-toggle" href="index.html" aria-label="切换到中文">中</a>
+        <a class="repo-link" href="https://grapeot.github.io/gaia_allsky/">Project Home ↗</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <p class="kicker"><span class="bar" aria-hidden="true"></span>40-Gigapixel / GIGAPIXEL HiPS · One Pixel Per Star</p>
+    <h1>Every pixel<br />is a real Gaia star.</h1>
+    <p class="lead">This is a roughly 40-gigapixel rendering of the Galactic Center region. Star positions, brightness, and colors all come from measured data from the ESA Gaia mission. The image loads progressively as HiPS tiles — drag to pan, scroll to zoom, and fainter stars keep appearing as you zoom in. The Milky Way is not drawn separately: once star density reaches a certain threshold, the structure emerges naturally.</p>
+
+    <div class="viewer-panel">
+      <div class="viewer-bar">
+        <span class="vb-left"><span class="vb-led" aria-hidden="true"></span><span class="vb-id">GaiaMW1B</span> · ICRS / J2000 · ORDER 8</span>
+        <span class="vb-hint">Drag to pan · Scroll to zoom · Fainter stars appear as you zoom in</span>
+      </div>
+      <div id="aladin-lite-div"></div>
+    </div>
+
+    <div class="stats" aria-label="Survey Parameters">
+      <div class="stat"><strong>1.61″</strong><span>Best pixel angular resolution</span></div>
+      <div class="stat"><strong>Order 8 · NSIDE 256</strong><span>Highest tile order · JPEG 512×512</span></div>
+      <div class="stat"><strong>8286 deg² ≈ 20%</strong><span>Equatorial · ~20% sky coverage</span></div>
+    </div>
+
+    <footer>
+      <p>Stellar data from ESA Gaia mission. Color HiPS survey, constructed by Aladin / HipsGen, viewable in Aladin Lite, Aladin Desktop, and any HiPS-compatible client.</p>
+      <div class="footer-links">
+        <a href="properties">properties</a>
+        <a href="Moc.fits">MOC coverage</a>
+        <span class="base-url">Base URL: <b id="hipsBase"></b></span>
+      </div>
+    </footer>
+  </main>
+
+  <!-- Aladin Lite v2 survey wiring -->
+  <script type="text/javascript" src="https://aladin.u-strasbg.fr/AladinLite/api/v2/latest/aladin.min.js" charset="utf-8"></script>
+  <script type="text/javascript">
+    hipsDir = location.href;
+    hipsDir = hipsDir.substring(0, hipsDir.lastIndexOf("/", hipsDir.length));
+    var baseEl = document.getElementById("hipsBase");
+    if (baseEl) { baseEl.textContent = hipsDir; }
+
+    var aladin = $.aladin("#aladin-lite-div", {
+      showSimbadPointerControl: true,
+      cooFrame: 'J2000',
+      fov: 90
+    });
+    aladin.setImageSurvey(aladin.createImageSurvey('GaiaMW1B', 'GaiaMW1B',
+      hipsDir, 'equatorial', 8, { imgFormat: 'jpg' }));
+    aladin.gotoRaDec(270, -22);
+    aladin.setFov(90);
+  </script>
+</body>
+</html>

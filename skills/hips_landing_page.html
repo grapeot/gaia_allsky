@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="description" content="十亿像素的 Gaia 银河巡天，每一个像素都是一颗真实测量的恒星。拖动平移、滚轮缩放，交互浏览银心方向的天区。" />
-<title>Gaia 银河 · 十亿像素巡天</title>
+<meta name="description" content="四百亿像素的 Gaia 银河巡天，每一个像素都是一颗真实测量的恒星。拖动平移、滚轮缩放，交互浏览银心方向的天区。" />
+<title>Gaia 银河 · 四百亿像素巡天</title>
 
 <!-- Aladin Lite v2 + jQuery (CDN, verified wiring — do not upgrade) -->
 <script type="text/javascript" src="https://code.jquery.com/jquery-1.10.1.min.js"></script>
@@ -68,6 +68,11 @@
     font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; white-space: nowrap;
   }
   .repo-link:hover { background: rgba(201, 168, 106, 0.08); }
+  .lang-toggle {
+    border: 1px solid var(--gold-dim); color: var(--gold); padding: 6px 12px; border-radius: 4px;
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; background: transparent; cursor: pointer;
+  }
+  .lang-toggle:hover { background: rgba(201, 168, 106, 0.08); }
 
   main { padding: 56px 0 64px; }
   .kicker {
@@ -123,14 +128,17 @@
         <span class="brand-name">GAIA 全天星空实验</span>
         <span class="brand-tag">HiPS</span>
       </div>
-      <a class="repo-link" href="https://grapeot.github.io/gaia_allsky/">项目主页 ↗</a>
+      <nav style="display: flex; align-items: center; gap: 16px;">
+        <a class="lang-toggle" href="index-en.html" aria-label="Switch to English">EN</a>
+        <a class="repo-link" href="https://grapeot.github.io/gaia_allsky/">项目主页 ↗</a>
+      </nav>
     </div>
   </header>
 
   <main class="wrap">
-    <p class="kicker"><span class="bar" aria-hidden="true"></span>实时巡天 / GIGAPIXEL HiPS · 一像素一颗星</p>
+    <p class="kicker"><span class="bar" aria-hidden="true"></span>四百亿像素 / GIGAPIXEL HiPS · 一像素一颗星</p>
     <h1>每一个像素，<br />都是一颗 Gaia 实测的恒星。</h1>
-    <p class="lead">这是银心方向天区的一幅约十亿像素渲染，恒星的位置、亮度和颜色全部来自欧洲航天局 Gaia 任务的实测数据。画面以 HiPS 分级方式逐级加载，拖动可平移，滚轮可缩放，越放大露出的暗星越多。银河没有单独绘制：星密到一定程度，结构自然浮现。</p>
+    <p class="lead">这是银心方向天区的一幅约四百亿像素渲染，恒星的位置、亮度和颜色全部来自欧洲航天局 Gaia 任务的实测数据。画面以 HiPS 分级方式逐级加载，拖动可平移，滚轮可缩放，越放大露出的暗星越多。银河没有单独绘制：星密到一定程度，结构自然浮现。</p>
 
     <div class="viewer-panel">
       <div class="viewer-bar">
@@ -164,7 +172,6 @@
     var baseEl = document.getElementById("hipsBase");
     if (baseEl) { baseEl.textContent = hipsDir; }
 
-    // 初始视角：中心 RA 18h(=270°)/Dec -22°，广角 fov 90° 起步。
     var aladin = $.aladin("#aladin-lite-div", {
       showSimbadPointerControl: true,
       cooFrame: 'J2000',
@@ -172,7 +179,6 @@
     });
     aladin.setImageSurvey(aladin.createImageSurvey('GaiaMW1B', 'GaiaMW1B',
       hipsDir, 'equatorial', 8, { imgFormat: 'jpg' }));
-    // 用裸坐标定位（避开字符串 target 走 Sesame 名字解析的歧义），再设广角 fov。
     aladin.gotoRaDec(270, -22);
     aladin.setFov(90);
   </script>

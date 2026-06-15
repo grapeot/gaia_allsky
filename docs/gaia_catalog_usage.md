@@ -1,6 +1,6 @@
 # Gaia 星表使用指南
 
-本文记录本项目使用 Gaia DR3 星表的本地数据约定。目标是让后续 agent 不必重新摸索：哪些文件已经在本机，哪些文件是派生缓存，什么场景该走 Gaia Archive ADQL，什么场景该走 Flatiron bulk mirror。
+本文记录本项目使用 Gaia DR3 星表的本地数据约定。目标是让后续 agent 不必重新摸索：哪些文件已经在本机，哪些文件是派生缓存，以及当前正式管线如何从 Flatiron bulk mirror 获取和过滤星表数据。
 
 `data/raw/` 当前实际有哪些文件、每个是活是死、能不能删，见同目录的 `data_manifest.md` 台账。本文讲"约定与流程"，台账讲"硬盘现状"。
 
@@ -51,9 +51,11 @@ data/raw/flatiron_gaia_source_fov_gz/
 
 ## 何时用哪条通道
 
-小规模查询、冒烟测试、按星等拿到 G<13 这种百万行量级数据，可以用 `src/fetch_gaia_allsky.py` 走 Gaia Archive ADQL。注意 Gaia Archive 匿名查询有 3,000,000 行硬上限，超限会无声截断。任何结果行数恰好等于 3,000,000 都应视为失败，需要继续细分星等区间。
+**正式管线全部走 Flatiron bulk mirror。** 当前所有正式渲染（Bortle 对比图、飞行视频、深星表十亿像素图）的数据都从 Flatiron 的 Gaia DR3 全量 CSV gzip 分片获取。流程是：从 Flatiron 镜像目录拉 FOV 相关分片 (2044 个 gzip, 约 412 GiB) → 本地过滤星等和视场 → 缓存为 NPZ → 渲染。这是本项目的主要数据通道。
 
-更深星表、区域星表、G<16/G<18/G<20 这类千万到十亿行量级任务，应走 Flatiron bulk mirror，不要走 ADQL/TAP。TAP 是查询服务，不适合作为批量下载通道。
+Gaia Archive ADQL 仅保留为**早期实验阶段的遗留通道**。项目初期用 `src/fetch_gaia_allsky.py` 通过 ADQL 分段查询生成 G<13 全天缓存（约 740 万颗星），用于快速原型和轻量调试。注意 Gaia Archive 匿名查询有 3,000,000 行硬上限，超限会无声截断。任何结果行数恰好等于 3,000,000 都应视为失败。
+
+对于任何 G<16 及更深、或区域视场的星表任务，必须走 Flatiron bulk mirror。ADQL/TAP 是查询服务，不适合作为批量下载通道。
 
 Flatiron 入口：
 

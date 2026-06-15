@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="A deep look at the rendering principles behind the GAIA ALLSKY EXPERIMENT: from star catalog to screen, five mechanisms explain how the Milky Way naturally emerges from real stellar data." />
+<title>Rendering Principles · GAIA ALLSKY EXPERIMENT</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #070708;
+    --ink: #0b0b0d;
+    --panel: #101013;
+    --text: #f1eee7;
+    --soft: #cfcabf;
+    --muted: #968f82;
+    --line: rgba(241, 238, 231, 0.13);
+    --line-soft: rgba(241, 238, 231, 0.07);
+    --gold: #c9a86a;
+    --gold-dim: rgba(201, 168, 106, 0.5);
+    --blue: #8fa6c4;
+    --max: 1140px;
+    --measure: 720px;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: "Noto Sans SC", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    line-height: 1.85; -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; text-decoration: none; }
+  img { display: block; max-width: 100%; }
+  h1, h2, h3 { margin: 0; letter-spacing: -0.03em; line-height: 1.1; }
+  .mono { font-family: var(--mono); }
+  .wrap { width: min(var(--max), calc(100% - 64px)); margin: 0 auto; }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--blue); outline-offset: 4px; }
+
+  /* masthead */
+  .topbar {
+    position: sticky; top: 0; z-index: 40;
+    background: rgba(7, 7, 8, 0.86); backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--line);
+  }
+  .topbar-inner { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 60px; }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand-mark {
+    width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--gold-dim);
+    background: radial-gradient(circle at 50% 50%, var(--gold) 0 2px, transparent 3px),
+               radial-gradient(circle at 66% 36%, var(--blue) 0 1.4px, transparent 2px);
+    box-shadow: 0 0 14px rgba(201, 168, 106, 0.22);
+  }
+  .brand-name { font-weight: 700; font-size: 15px; letter-spacing: 0.18em; white-space: nowrap; }
+  .nav { display: flex; align-items: center; gap: 22px; color: var(--muted); font-size: 13px; }
+  .nav a:hover { color: var(--text); }
+  .nav .repo-link {
+    border: 1px solid var(--gold-dim); color: var(--gold); padding: 7px 14px; border-radius: 999px;
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em;
+  }
+  .nav .repo-link:hover { background: rgba(201, 168, 106, 0.08); }
+  .lang-toggle {
+    border: 1px solid var(--gold-dim); color: var(--gold); padding: 6px 12px; border-radius: 4px;
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; background: transparent; cursor: pointer;
+  }
+  .lang-toggle:hover { background: rgba(201, 168, 106, 0.08); }
+
+  .kicker {
+    display: inline-flex; align-items: center; gap: 12px; white-space: nowrap;
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.16em; color: var(--gold); text-transform: uppercase;
+  }
+  .kicker .bar { width: 28px; height: 3px; background: var(--gold); }
+  .chapter {
+    display: grid; grid-template-columns: auto auto 1fr; gap: 16px; align-items: center;
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.14em; color: var(--muted);
+  }
+  .chapter .ch-no { color: var(--gold); font-size: 13px; }
+  .chapter .ch-rule { height: 1px; background: var(--line); }
+
+  .article-head { padding: 72px 0 0; }
+  .article-head h1 { font-size: clamp(40px, 5vw, 68px); font-weight: 900; margin-top: 22px; letter-spacing: -0.04em; }
+  .article-head .lead { max-width: var(--measure); margin: 28px 0 0; color: var(--soft); font-size: clamp(17px, 1.8vw, 20px); line-height: 1.8; }
+  .meta-line { margin-top: 26px; font-family: var(--mono); font-size: 12px; color: var(--muted); letter-spacing: 0.05em; }
+  .meta-line b { color: var(--gold); font-weight: 500; }
+
+  .section { padding: 88px 0 0; }
+  .section h2 { font-size: clamp(28px, 3.4vw, 46px); font-weight: 900; margin-top: 26px; max-width: 20ch; letter-spacing: -0.035em; }
+  .prose { max-width: var(--measure); }
+  .prose p { margin: 20px 0 0; color: var(--soft); font-size: 16.5px; line-height: 1.85; }
+  .prose p b { color: var(--text); font-weight: 500; }
+
+  /* two principles */
+  .principles { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin-top: 36px; border-top: 1px solid var(--line); }
+  .principle { padding: 28px 30px 0 0; border-right: 1px solid var(--line); }
+  .principle:last-child { border-right: 0; padding-right: 0; padding-left: 30px; }
+  .principle .pn { font-family: var(--mono); font-size: 12px; color: var(--gold); letter-spacing: 0.1em; }
+  .principle h3 { font-size: 20px; font-weight: 700; margin-top: 12px; line-height: 1.35; }
+  .principle p { color: var(--soft); font-size: 15.5px; margin: 14px 0 0; line-height: 1.8; }
+  .principle code {
+    font-family: var(--mono); font-size: 0.9em; border: 1px solid var(--line); border-radius: 4px;
+    padding: 1px 6px; background: rgba(255,255,255,0.05); color: #e2ddd2;
+  }
+
+  /* mechanism steps */
+  .mechanism {
+    display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 48px; align-items: start;
+    margin-top: 40px; padding-top: 40px; border-top: 1px solid var(--line);
+  }
+  .mech-no {
+    display: inline-flex; align-items: center; gap: 10px; white-space: nowrap;
+    font-family: var(--mono); font-size: 12px; color: var(--gold); letter-spacing: 0.1em;
+  }
+  .mech-no::before { content: ""; width: 22px; height: 1px; background: var(--gold); }
+  .mechanism h3 { font-size: 23px; font-weight: 700; margin: 14px 0 0; line-height: 1.3; }
+  .mechanism .prose { max-width: none; }
+  figure { margin: 0; }
+  .mech-fig img, .pair figure img {
+    width: 100%; aspect-ratio: 1080 / 1920; object-fit: cover;
+    border: 1px solid var(--line); background: #02040a; display: block;
+  }
+  figcaption { margin-top: 12px; color: var(--muted); font-size: 13px; line-height: 1.7; font-family: var(--mono); letter-spacing: 0.02em; }
+
+  /* switcher */
+  .switcher-controls { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 14px; }
+  .switch-btn {
+    flex: 1 1 auto; min-width: 64px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 3px;
+    background: #0e0e11; color: var(--muted); font-family: var(--mono); font-size: 12px; cursor: pointer;
+    transition: border-color .15s, color .15s, background .15s;
+  }
+  .switch-btn:hover { color: var(--text); border-color: var(--gold-dim); }
+  .switch-btn.active { color: #14110a; background: var(--gold); border-color: var(--gold); }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; margin-top: 26px; }
+
+  /* note */
+  .note {
+    margin-top: 36px; padding: 24px 26px; border: 1px solid var(--gold-dim); border-radius: 4px;
+    background: linear-gradient(120deg, rgba(143,166,196,0.07), rgba(201,168,106,0.06)); max-width: var(--measure);
+  }
+  .note p { margin: 0; color: var(--soft); font-size: 15.5px; }
+  .note a { color: var(--gold); border-bottom: 1px solid var(--gold-dim); }
+
+  footer { margin-top: 96px; border-top: 1px solid var(--line); }
+  footer .wrap { padding: 36px 0 60px; }
+  footer p { color: var(--muted); font-size: 13.5px; font-family: var(--mono); letter-spacing: 0.02em; }
+  footer a { color: var(--gold); }
+
+  @media (max-width: 820px) {
+    .nav a:not(.repo-link):not(.lang-toggle) { display: none; }
+    .mechanism { grid-template-columns: 1fr; gap: 28px; }
+    .mech-fig { max-width: 380px; }
+    .principles, .pair { grid-template-columns: 1fr; }
+    .principle { border-right: 0; border-bottom: 1px solid var(--line); padding: 24px 0; }
+    .principle:last-child { border-bottom: 0; padding-left: 0; }
+  }
+  @media (max-width: 560px) { .wrap { width: calc(100% - 36px); } }
+</style>
+</head>
+<body id="top">
+  <header class="topbar">
+    <div class="topbar-inner wrap">
+      <a class="brand" href="index-en.html" aria-label="Back to home">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-name">GAIA ALLSKY EXPERIMENT</span>
+      </a>
+      <nav class="nav" aria-label="Page navigation">
+        <a href="#mechanisms">Rendering Mechanisms</a>
+        <a href="#data-arch">Data Architecture</a>
+        <a href="#boundaries">Boundaries</a>
+        <a href="index-en.html">Back Home</a>
+        <a class="lang-toggle" href="principles.html" aria-label="切换到中文">中</a>
+        <a class="repo-link" href="https://github.com/grapeot/gaia_allsky">GITHUB ↗</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <header class="article-head wrap">
+      <p class="kicker"><span class="bar" aria-hidden="true"></span>RENDERING PRINCIPLES</p>
+      <h1>How This Image<br />Was Rendered</h1>
+      <p class="lead">There is no Milky Way texture in this image, no hand-painted glow, and no dust asset. Every pixel can be traced back to a real group of stars in the Gaia catalog. Gaia does not provide a photograph. It provides an enormous list of stars: where each star is, how bright it is, and what its color index is. The renderer takes that list, projects it back onto the sky according to physical relationships, then compresses the brightness range that exceeds the screen’s capabilities into a viewable image. The Milky Way appears because stars are genuinely denser near the Galactic plane. The dark lanes appear because fewer stars are visible in certain directions. The image is credible not because it resembles a particular astronomical photograph, but because every layer of processing has a traceable source.</p>
+      <p class="meta-line">Data source · <b>ESA / Gaia mission DR3</b> · all commands reproducible</p>
+    </header>
+
+    <!-- ===================== 00 · Principles ===================== -->
+    <section class="section wrap" aria-labelledby="principles-title">
+      <div class="chapter"><span class="ch-no">00</span><span class="ch-rule" aria-hidden="true"></span><span class="ch-title">TWO PRINCIPLES</span></div>
+      <h2 id="principles-title">Two principles run through the whole pipeline.</h2>
+      <div class="prose"><p>The five mechanisms below are the concrete implementation of these two principles.</p></div>
+      <div class="principles">
+        <article class="principle">
+          <div class="pn">Principle i</div>
+          <h3>Keep the physical layer and display layer strictly separate</h3>
+          <p>Stellar positions, magnitudes, colors, sky background, and observing geometry belong to the physical layer. Compression, stretching, saturation, and gamma on the screen belong to the display layer. The physical layer does not modify stars to make them look better, and the display layer does not pretend its parameters are astrophysical constants. When the display style changes, the stars themselves remain unchanged. When observing conditions change, the display pipeline does not need to reinvent the physics.</p>
+        </article>
+        <article class="principle">
+          <div class="pn">Principle ii</div>
+          <h3>Every display parameter needs a physical anchor</h3>
+          <p>The magnitude-to-brightness conversion uses the Pogson relation. Color goes from Gaia BP-RP color index through stellar temperature into a blackbody spectrum. Light pollution is constrained by Bortle sky background and naked-eye limiting magnitude. The disappearance of the Milky Way in cities is constrained by the Weber contrast threshold. Even when a parameter ultimately serves the screen image, it must remain attached to an interpretable physical quantity or observing experience.</p>
+        </article>
+      </div>
+    </section>
+
+    <!-- ===================== 01 · Five Mechanisms ===================== -->
+    <section class="section wrap" id="mechanisms" aria-labelledby="mech-title">
+      <div class="chapter"><span class="ch-no">01</span><span class="ch-rule" aria-hidden="true"></span><span class="ch-title">FIVE MECHANISMS</span></div>
+      <h2 id="mech-title">From catalog to screen, following the photon’s journey.</h2>
+
+      <!-- M1: Magnitude & Color -->
+      <div class="mechanism">
+        <div>
+          <span class="mech-no">Mechanism One · Magnitude and Color</span>
+          <h3>The catalog gives ratios; the screen needs color</h3>
+          <div class="prose">
+            <p>The Gaia catalog directly provides each star’s G magnitude and BP-RP color index. Magnitude is a logarithmic scale, not linear brightness. BP-RP is Gaia’s own photometric difference between its blue and red passbands, not ordinary photographic RGB. The screen ultimately needs three linear sRGB channels, so two translations are required: magnitude into relative luminous flux, and color index into display color.</p>
+            <p>Magnitude is converted to brightness with the Pogson formula: <code>L = 10^(-0.4 × (m - m_ref))</code>. A difference of 5 magnitudes means a factor of 100 in brightness. The smaller the magnitude value, the brighter the star. <code>m_ref</code> is only a brightness anchor. It decides where the whole image falls within the screen’s dynamic range without changing the relative brightness relationship between stars.</p>
+            <p>The color chain is longer. BP-RP is first converted to effective temperature using the Pecaut &amp; Mamajek main-sequence calibration. The Sun’s G2V type corresponds to BP-RP of about 0.82 and a temperature of 5772K. The temperature then enters a blackbody radiation spectrum, which is integrated against the CIE 1931 color-matching functions to produce linear sRGB. Finally, the Sun is used as the white point: the 5772K solar color temperature is set to neutral white, and other stars become bluer or redder relative to that white point.</p>
+            <p>The easiest mistake here is treating Gaia BP-RP as Johnson B-V. They come from different filter systems, and their values are not directly interchangeable. If BP-RP is used as B-V, the many moderately red stars in the Galactic disk are pushed toward warm yellow, then amplified by display-layer saturation, making the entire Milky Way look yellowish. With the correct calibration, the disk returns to a nearly neutral gray-white, the Galactic center keeps a slight warmth, and the differences between blue-white and orange-red stars remain visible.</p>
+          </div>
+        </div>
+        <figure class="mech-fig">
+          <img src="assets/ablation_1_naive.jpg" alt="STEP 1 · one star per pixel; Milky Way density variation is already present, but color still needs calibration" loading="lazy" />
+          <figcaption>One star per pixel: position and brightness are already present; color follows BP-RP→Teff→blackbody calibration</figcaption>
+        </figure>
+      </div>
+
+      <!-- M2: Point Source Imaging -->
+      <div class="mechanism">
+        <div>
+          <span class="mech-no">Mechanism Two · Point-Source Imaging</span>
+          <h3>A star is not one pixel; bright-star size comes from energy conservation</h3>
+          <div class="prose">
+            <p>The stars in the Gaia catalog are point sources, but a point source on a screen cannot be drawn as a single pixel. In a real optical system, a point light source passes through a lens, sensor, and display, and becomes a point spread function (PSF) with width. That shape is a property of the imaging system, not the star. Faint and bright stars share the same core shape; they differ only in energy.</p>
+            <p>The renderer gives all stars a shared narrow Gaussian PSF with a core width of 0.6 pixels. This value is intentionally narrow, because the core PSF only removes the hard-pixel feel from point sources. It is not responsible for making large blobs around bright stars. If the core grows beyond 1 pixel, faint-star grains and Milky Way texture get smoothed away, and the image looks as if seen through a thin haze.</p>
+            <p>Bright-star size is created by saturated spillover. The portion of linear brightness above the saturation line is first clipped, then redistributed back into the image through two wider Gaussian wings, with widths of 3 and 9 pixels. This process conserves energy: the spillover wings only spread out energy from the over-bright core and do not create extra light. The saturation line is also attached to the magnitude ladder rather than to a fixed screen brightness. That way, when higher sensitivity is simulated, the whole brightness ladder shifts together, instead of incorrectly washing the entire Milky Way into diffuse glare.</p>
+            <p>The visual result is that faint stars remain sharp pinpoints, mid-brightness stars become small disks, and bright stars acquire a disk and soft halo. The apparent size of stars changes continuously with brightness instead of being artificially split into brush categories.</p>
+          </div>
+        </div>
+        <figure class="mech-fig">
+          <img src="assets/ablation_4_satbloom.jpg" alt="After adding PSF and saturated spillover: bright stars gain disks and halos, opening up the image layers" loading="lazy" />
+          <figcaption>Narrow PSF + energy-conserving saturated spillover — bright stars gain disks and halos</figcaption>
+        </figure>
+      </div>
+
+      <!-- M3: Faint Star Integration -->
+      <div class="mechanism">
+        <div>
+          <span class="mech-no">Mechanism Three · Faint-Star Integration</span>
+          <h3>The Milky Way’s glow comes from unresolved stars, with brute force over cleverness</h3>
+          <div class="prose">
+            <p>The Milky Way seen by the eye is not a pattern made from a few bright stars. It is integrated light from vast numbers of faint stars. A single faint star may be unresolved, but when millions or hundreds of millions of them stack along the Galactic plane, they form a continuous milky glow. The deeper the Gaia catalog, the closer this integrated light gets to the real sky. The shallower the catalog cutoff, the more the renderer has to proxy the faint stars that were not drawn.</p>
+            <p>At the shallow-catalog stage, the renderer compensates with a luminosity function. Faint stars in the catalog with G≥11 are multiplied by a 3.8× gain to proxy still fainter stellar populations that have not yet been included one by one. This number comes from Gaia’s own magnitude distribution: changes in the total luminous flux of the last few faint magnitude bins can be extrapolated to estimate how much integrated light remains missing after the cutoff.</p>
+            <p>But gain can only proxy total light. It cannot proxy grain statistics. A small number of relatively bright stars multiplied by a large gain and a large number of fainter stars accumulated one by one can have the same total flux, but they look different. The former tends to be coarse; the latter creates a finer milky glow and more stable dark-lane boundaries. The main image therefore uses a deep-catalog cache generated from the Flatiron bulk mirror: about 616 million G<20 stars in the Guangzhou Galactic-center field of view. At this depth, the shape of the Great Rift is no longer emphasized by a screen mask or dust texture. It becomes readable because the nebulous star fields on both sides brighten while star-poor regions become relatively darker. When real stars can be used, clever approximations are unnecessary.</p>
+          </div>
+        </div>
+        <figure class="mech-fig">
+          <div class="switcher" id="scaleSwitcher">
+            <img id="scaleImg" src="assets/ablation_scale_g20.jpg" alt="G<20 real stars with no gain, 620 million stars; the Milky Way is fine-grained and full, and the Great Rift appears" loading="lazy" />
+            <div class="switcher-controls" role="tablist" aria-label="Star catalog depth switcher">
+              <button type="button" class="switch-btn" data-img="assets/ablation_scale_g13gain.jpg" data-label="G<13 with gain (extrapolated approximation)">G&lt;13 gain</button>
+              <button type="button" class="switch-btn" data-img="assets/ablation_scale_g13.jpg" data-label="G<13 real stars (2.4 million)">G&lt;13</button>
+              <button type="button" class="switch-btn" data-img="assets/ablation_scale_g16.jpg" data-label="G<16 real stars (33 million)">G&lt;16</button>
+              <button type="button" class="switch-btn" data-img="assets/ablation_scale_g18.jpg" data-label="G<18 real stars (150 million)">G&lt;18</button>
+              <button type="button" class="switch-btn active" data-img="assets/ablation_scale_g20.jpg" data-label="G<20 real stars with no gain (620 million)">G&lt;20</button>
+            </div>
+          </div>
+          <figcaption id="scaleCaption">G&lt;20 real stars with no gain (620 million). Same viewpoint, same display parameters; only the catalog depth changes.</figcaption>
+        </figure>
+      </div>
+
+      <!-- M4: Observer Limits -->
+      <div class="mechanism">
+        <div>
+          <span class="mech-no">Mechanism Four · Observer Limits</span>
+          <h3>In cities, the stars do not disappear; contrast does</h3>
+          <div class="prose">
+            <p>The same Milky Way is clear under dark skies and disappears in the city. The reason is not that the catalog changed, but that an extra layer of skyglow sits in front of the observer. City lights scatter through the atmosphere and become a background added on top of linear starlight. The brighter the background, the lower the contrast between starlight and background. Faint stars and the diffuse Milky Way are drowned out first, leaving only the brightest stars.</p>
+            <p>The Bortle scale provides the observational anchor for this background layer. Bortle 1 corresponds to top-tier dark sky, with a naked-eye limiting magnitude of about 7.8. Bortle 6, a bright suburb, is around 5.3. Bortle 9, an urban center, is around 4.0. The renderer maps each level to a sky-background surface brightness and uses NELM to decide the magnitude boundary for visible point sources.</p>
+            <p>Point-like stars and the broad Milky Way band cannot be judged by the same rule, because the human eye detects point sources and diffuse light differently. Diffuse light uses a Weber contrast threshold: when a structure’s brightness increment relative to the background falls below a few percent, it becomes hard for the eye to detect. The default threshold is 0.035, applied to the low-frequency Milky Way light without erasing high-frequency point sources. The result is that under Bortle 1 the Milky Way is nearly complete, while around Bortle 7 it disappears from naked-eye view, matching real observing experience.</p>
+          </div>
+        </div>
+        <figure class="mech-fig">
+          <img src="assets/ablation_5_full.jpg" alt="Complete model: final rendering with all mechanisms enabled" loading="lazy" />
+          <figcaption>Complete model — final rendering consistent with the homepage</figcaption>
+        </figure>
+      </div>
+
+      <!-- M5: Display Delivery -->
+      <div class="mechanism">
+        <div>
+          <span class="mech-no">Mechanism Five · Display Delivery</span>
+          <h3>Handing physical brightness to the screen</h3>
+          <div class="prose">
+            <p>The first four mechanisms all compute linear light: stellar brightness, color, PSF, saturated spillover, skyglow, and human visual thresholds. But a screen is not a linear astronomical instrument. Gaia star brightness spans more than a million-fold range, while an ordinary SDR screen can display only limited contrast. The final tone-mapping step compresses the linear physical result into the screen without breaking the relative relationships established earlier.</p>
+            <p>This is also where the separation between physical layer and display layer becomes most concrete. The renderer first estimates the sky floor in each frame, using a low percentile of sky-background brightness, and anchors it to a fixed dark gray value. It then enhances only the starlight signal above the sky floor, avoiding pulling the background itself into a gray curtain. Multiple Bortle panels share the same stretch instead of being normalized independently. Otherwise, the city panels would be artificially brightened, misleading the reader into thinking a similar star field remains visible under light pollution.</p>
+            <p>Color is released after brightness compression. The chroma parameter is 1.8, bringing back the color-temperature differences already provided by BP-RP from the compressed state. Highlights use a soft shoulder, so the Galactic center and the areas around bright stars roll smoothly toward the display limit while retaining internal structure. Finally, the image is output with gamma 2.2 for ordinary screens. The display layer acknowledges that it serves the screen, but it does not rewrite the sky already computed by the physical layer.</p>
+          </div>
+        </div>
+        <figure class="mech-fig">
+          <div class="pair" style="margin-top:0">
+            <figure>
+              <img src="assets/ablation_weber_off.jpg" alt="Bortle 7 with Weber threshold off: faint traces of the Milky Way remain" loading="lazy" />
+              <figcaption>Threshold off — residual Milky Way traces fall below naked-eye visibility</figcaption>
+            </figure>
+            <figure>
+              <img src="assets/ablation_weber_on.jpg" alt="Bortle 7 with Weber threshold on: diffuse light disappears and only bright stars remain" loading="lazy" />
+              <figcaption>Threshold on — consistent with real observing; the Milky Way is invisible</figcaption>
+            </figure>
+          </div>
+        </figure>
+      </div>
+    </section>
+
+    <!-- ===================== 02 · Data Architecture ===================== -->
+    <section class="section wrap" id="data-arch" aria-labelledby="data-title">
+      <div class="chapter"><span class="ch-no">02</span><span class="ch-rule" aria-hidden="true"></span><span class="ch-title">DATA ARCHITECTURE</span></div>
+      <h2 id="data-title">Query once, render countless times.</h2>
+      <div class="prose">
+        <p>Gaia querying and rendering are completely separated. The production path does not depend on live ADQL queries. It uses the Flatiron Institute’s Gaia DR3 bulk mirror. The current Guangzhou Galactic-center field of view downloaded 2,044 raw gzip shards, about 412 GiB after compression. The raw shards are kept locally. They are later filtered by field of view and magnitude, with only the columns needed for rendering extracted into NPZ caches.</p>
+        <img src="assets/pipeline_en.png" alt="Data pipeline: Flatiron Gaia DR3 shards → FOV+magnitude filtering → NPZ cache → Bortle grid / flight video / HiPS rendering" style="margin: 28px 0; border: 1px solid var(--line);" loading="lazy" />
+        <p>The point of this chain is that expensive data acquisition happens only once. Flatiron raw shards enter local filtering and produce the deep G<20 star-catalog cache. After the renderer reads the NPZ, it can repeatedly generate new images with different Bortle levels, display parameters, and framing modes. The Bortle 1-to-9 grid, ablation sequence, main image, flight video, and high-resolution preview all use the same data cache and the same rendering mechanisms. They only branch in observing geometry, output form, and display parameters. The HiPS and 40-billion-pixel paths are the same pipeline scaled up.</p>
+      </div>
+    </section>
+
+    <!-- ===================== 03 · Boundaries ===================== -->
+    <section class="section wrap" id="boundaries" aria-labelledby="bound-title">
+      <div class="chapter"><span class="ch-no">03</span><span class="ch-rule" aria-hidden="true"></span><span class="ch-title">BOUNDARIES</span></div>
+      <h2 id="bound-title">This is not a camera raw simulation.</h2>
+      <div class="prose">
+        <p>This is still catalog rendering, not a camera raw simulation. It explains how stars are distributed across the sky, how light pollution changes visibility, and how the display pipeline delivers the result to a screen. It does not simulate every optical defect of a real lens, nor does it aim for photometric-grade precision.</p>
+        <p><b>Gaia saturates or misses the brightest stars.</b> Bright stars around G≲6 need to be supplemented with the Yale Bright Star Catalog BSC5. The current main cache adds a small number of BSC5 bright stars to the 616-million-star deep Gaia catalog, avoiding the absence of visual anchors such as Vega, Antares, and Altair.</p>
+        <p><b>Gaia is a stellar catalog and does not include nebulae.</b> The dark lanes in the image come from a reduction in visible stars. Nebulae themselves are not painted in separately. If a region has prominent red Hα emission or blue reflection nebulosity in real astronomical photographs, this project does not invent it.</p>
+        <p><b>Gaia parallax is reliable only within a limited distance around the Sun.</b> Its scale is roughly the local data sphere within a few thousand light-years. Flight videos can show constellations falling apart and nearby star fields being reprojected, but they cannot generate a true top-down view of the Milky Way. Humanity still has no such photograph.</p>
+        <p><b>This is not an attempt to reverse long-exposure camera images into naked-eye vision.</b> Long exposure, stacking, gradient removal, local curves, and color enhancement produce a different visual language. This project has a narrower goal: starting from Gaia stars, under clearly labeled display rules, to generate a traceable, reproducible, parameter-adjustable image of the night sky.</p>
+      </div>
+      <div class="note">
+        <p>For full implementation details, <a href="https://github.com/grapeot/gaia_allsky/blob/master/docs/rfc.md">docs/rfc.md</a> in the repository is the complete design document, and <a href="https://github.com/grapeot/gaia_allsky/blob/master/docs/working.md">docs/working.md</a> records each round of parameter tuning and troubleshooting.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <p><a href="index-en.html">← Back Home</a> · GAIA ALLSKY EXPERIMENT · Stellar data from the European Space Agency Gaia mission (ESA / Gaia / DPAC)</p>
+    </div>
+  </footer>
+
+  <script>
+    (function () {
+      const sw = document.getElementById("scaleSwitcher");
+      if (!sw) return;
+      const img = document.getElementById("scaleImg");
+      const cap = document.getElementById("scaleCaption");
+      sw.querySelectorAll(".switch-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          img.src = btn.dataset.img;
+          img.alt = "More data: " + btn.dataset.label;
+          cap.textContent = btn.dataset.label + ". Same viewpoint, same display parameters; only the catalog depth changes.";
+          sw.querySelectorAll(".switch-btn").forEach((b) => b.classList.toggle("active", b === btn));
+        });
+      });
+    })();
+  </script>
+</body>
+</html>
