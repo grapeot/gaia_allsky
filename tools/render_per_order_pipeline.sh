@@ -67,7 +67,7 @@ fi
 # 缓存它们，8g（旧写死值）会 GC 抖死（实测 N8 6.6万源 tile，8g 32min 才 2.7%；256g 顺畅 600 tile/s）。
 _memg=$(python3 -c "import os;print(int(os.sysconf('SC_PAGE_SIZE')*os.sysconf('SC_PHYS_PAGES')/1024**3))" 2>/dev/null || echo 16)
 XMX="${XMX:-$(python3 -c "print(min(max($_memg//2,8),256))")g}"
-W=8; HPAR=3; HTH=8; DO_RENDER=1; DO_HIPSGEN=1; RESUME="--resume"; DARK_PSF="0.6"; STEPFRAC=1.0; TSIZE=2048
+W=8; HPAR=3; HTH=8; DO_RENDER=1; DO_HIPSGEN=1; RESUME="--resume"; DARK_PSF="0.6"; STEPFRAC=0.8; TSIZE=2048
 while [ $# -gt 0 ]; do
   case "$1" in
     --workers) W="$2"; shift 2;;
@@ -164,7 +164,7 @@ if [ "$DO_HIPSGEN" = 1 ]; then
     # minOrder=order：只建该层、不池化下树（v12 修好；v11 仍出全树但下层不耗时）。
     # hipsgen 全 log 进各自文件（不进主 stdout，保 benchmark log 干净）。
     "$JAVA" -Xmx"$XMX" -jar "$JAR" -hipsgen in="$OUT/o$k/tiles" out="$OUT/o$k/hips" \
-      color=jpeg minOrder="$k" order="$k" maxThread="$HTH" creator_did=DuckBro obs_title="$TAG" \
+      color=jpeg fading=true minOrder="$k" order="$k" maxThread="$HTH" creator_did=DuckBro obs_title="$TAG" \
       "target=$LC $BC" INDEX TILES > "$OUT/o$k.hipsgen.log" 2>&1
     local e=$(_now)
     local cells=$(find "$OUT/o$k/hips/Norder$k" -name "*.jpg" 2>/dev/null | wc -l | tr -d ' ')

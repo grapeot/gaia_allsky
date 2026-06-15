@@ -22,6 +22,7 @@ import render_forward_final_frame as rfff
 import video_common as vc
 import motion
 import fetch_gaia_allsky as fga
+import rebuild_allsky_hires as rah
 
 DATA = os.path.join(os.path.dirname(__file__), "..", "data", "raw")
 
@@ -67,6 +68,21 @@ def test_forward_final_frame_defaults_to_article_still_size():
     args = rfff.build_parser().parse_args(["--out", "x.png"])
     assert args.width == 1080
     assert args.height == 1080
+
+
+def test_allsky_preview_fills_black_seams_but_keeps_outside_coverage():
+    """Allsky 预览应补 HEALPix cell 边界黑缝，但保留覆盖范围外的大黑区。"""
+    from PIL import Image
+
+    arr = np.full((32, 32, 3), 80, dtype=np.uint8)
+    arr[:, 15, :] = 0  # cell 边界上的 1px 纯黑缝
+    arr[:8, :8, :] = 0  # 大面积覆盖外区域，不能被补成星空
+    arr[20:28, 24:, :] = 0  # 覆盖边缘：只有一侧有有效像素，也不能向外扩
+    fixed = np.asarray(rah.fill_black_preview_holes(Image.fromarray(arr), seam_gap=1, max_component_area=64))
+
+    assert np.all(fixed[:, 15, :] == 80)
+    assert np.all(fixed[:7, :7, :] == 0)
+    assert np.all(fixed[20:28, 25:, :] == 0)
 
 
 # ---------- 投影 ----------
