@@ -28,6 +28,7 @@ scripts/render_ablation.sh principles
 | `article_ablation_4_g13_gain_color_calibrated` | 与上一张相同，只把颜色切到 BP-RP→Teff 校准链 |
 | `article_scale_g13/g16/g18/g20_bsc5` | gain 回到 1，同一显示模型，只换星表深度，讲乳光和大裂隙的“以力破巧” |
 | `article_weber_off_b7/article_weber_on_b7` | Bortle 7 下 Weber 阈值开关，必须走 `--sweep-bortles 7` 路径 |
+| `article_forward_final_frame` | 非 VR 前向飞行视频的最后一帧，用于讲 Gaia 距离数据和银河系外俯视边界 |
 
 颜色翻车通过 `render_fov.py --color-mode legacy-bv` 复现：它故意把 Gaia BP-RP 当 Johnson B-V 估温，只用于文章消融图。浅星表通过 `--g-max` 从同一个 BSC5 合并缓存中截出，避免前几张缺 Yale 亮星。
 

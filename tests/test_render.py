@@ -18,6 +18,7 @@ import render_bortle_eye_grid as beg
 import render_tan_wcs as tw
 import render_hips_direct_pipeline as hdp
 import render_fov as rfov
+import render_forward_final_frame as rfff
 import video_common as vc
 import motion
 import fetch_gaia_allsky as fga
@@ -59,6 +60,13 @@ def test_render_fov_cli_exposes_g_max_for_ablation_cache_slicing():
     parser = rfov.build_parser()
     args = parser.parse_args(["--data", "x.npz", "--out", "x.png", "--g-max", "11"])
     assert args.g_max == 11.0
+
+
+def test_forward_final_frame_defaults_to_article_still_size():
+    """文章用前向飞行末帧应是方图，方便公众号排版。"""
+    args = rfff.build_parser().parse_args(["--out", "x.png"])
+    assert args.width == 1080
+    assert args.height == 1080
 
 
 # ---------- 投影 ----------
