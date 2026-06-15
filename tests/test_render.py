@@ -1063,11 +1063,49 @@ def test_bilinear_splat_preserves_subpixel_position():
     assert np.isclose((img * yy).sum(), 3.75)
 
 
+def test_continuous_face_coords_are_consistent_across_adjacent_tiles():
+    """同一颗星给本 tile 和邻 tile 贡献 PSF 时，中心只能差整数 tile offset。"""
+    korder = 5
+    left = 10573
+    right = 10575
+    dx = np.array([0.37])
+    dy = np.array([0.01])
+    lx_left, ly_left, same_left = hdp._continuous_face_tile_coords(
+        np.array([right]), korder, dx, dy, left
+    )
+    lx_right, ly_right, same_right = hdp._continuous_face_tile_coords(
+        np.array([right]), korder, dx, dy, right
+    )
+    assert same_left[0]
+    assert same_right[0]
+    assert np.isclose(lx_left[0], lx_right[0])
+    assert np.isclose(ly_left[0] - ly_right[0], hdp.TILE)
+
+
 def test_low_order_tile_search_has_guard_band():
     """低 order tile 很大；选取半径必须包含 tile-width guard band，避免 zoom-out 黑缝。"""
     half = 5.0
     assert hdp._tile_search_radius(half, 3) > half * 2.0
     assert hdp._tile_search_radius(half, 8) == half * 1.5
+
+
+def test_sheared_faint_accumulation_keeps_off_tile_wings():
+    """普通星中心在邻 tile、PSF 翼落入当前 tile 时不能被边界 binning 丢掉。"""
+    img = hdp._accumulate_faint_sheared(
+        korder=5,
+        npix=10573,
+        col=np.array([513.0]),
+        row=np.array([256.0]),
+        inside=np.array([True]),
+        luminance=np.array([1.0]),
+        rgb=np.array([[1.0, 1.0, 1.0]]),
+        dx=np.array([0.0]),
+        dy=np.array([0.0]),
+        psf_px=1.0,
+        block=64,
+    )
+    assert img[:, -4:, :].sum() > 0
+    assert img[:, :128, :].sum() == 0
 
 
 def test_solid_angle_normalization_is_resolution_invariant():

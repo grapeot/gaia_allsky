@@ -123,6 +123,27 @@ def _bincount_bilinear(h, w, col, row, luminance, rgb):
     return acc.reshape(h, w, 3)
 
 
+def _continuous_face_tile_coords(owner_npix, korder, dx, dy, target_npix):
+    """Continuous target-tile coordinates for stars owned by nearby HEALPix cells.
+
+    `cdshealpix.lonlat_to_healpix(..., return_offsets=True)` gives continuous
+    dx/dy inside each star's owner order-k cell.  For seam continuity, off-tile
+    PSF contributions must use the same continuous coordinate system as in-tile
+    stars, shifted by the integer tile offset inside the NESTED face.  Falling
+    back to order-(k+9) integer subpixels changes centres by up to ~1px, enough
+    to make N5's 0.6px PSF discontinuous at tile boundaries.
+    """
+    owner_npix = np.asarray(owner_npix, dtype=np.int64)
+    dx = np.asarray(dx, dtype=float)
+    dy = np.asarray(dy, dtype=float)
+    ox, oy, oface = hp.pix2xyf(2 ** korder, owner_npix, nest=True)
+    tx, ty, tface = hp.pix2xyf(2 ** korder, int(target_npix), nest=True)
+    same_face = oface == tface
+    lx = (ox - tx) * TILE + dx * TILE
+    ly = (oy - ty) * TILE + dy * TILE
+    return lx, ly, same_face
+
+
 def _accumulate_faint_sheared(korder, npix, col, row, inside, luminance, rgb,
                               dx, dy, psf_px=0.6, block=64):
     """Accumulate faint stars with a block-local HEALPix shear-compensated PSF.
@@ -143,24 +164,37 @@ def _accumulate_faint_sheared(korder, npix, col, row, inside, luminance, rgb,
         return np.zeros((TILE, TILE, 3), dtype=np.float32)
 
     canvas = np.zeros((TILE, TILE, 3), dtype=np.float64)
+    # Assign each star to exactly one block by its clipped centre.  The actual
+    # centre can still be slightly outside the tile; the extended layer below
+    # keeps its PSF wing instead of dropping the delta at the image boundary.
+    assign_row = np.clip(row, 0.0, np.nextafter(float(TILE), 0.0))
+    assign_col = np.clip(col, 0.0, np.nextafter(float(TILE), 0.0))
     for y0 in range(0, TILE, block):
         y1 = min(TILE, y0 + block)
         for x0 in range(0, TILE, block):
             x1 = min(TILE, x0 + block)
-            m = (row >= y0) & (row < y1) & (col >= x0) & (col < x1)
-            if not np.any(m):
-                continue
             cy = (y0 + y1) * 0.5 / TILE
             cx = (x0 + x1) * 0.5 / TILE
             shear = _local_shear_matrices(npix, korder, np.array([cy]), np.array([cx]))[0]
             ker, r = _elliptical_gaussian_kernel(psf_px, shear)
 
+            m = (assign_row >= y0) & (assign_row < y1) & (assign_col >= x0) & (assign_col < x1)
+            if not np.any(m):
+                continue
+
+            # Visible output affected by this block, clipped to the tile.
             yy0 = max(0, y0 - r); yy1 = min(TILE, y1 + r)
             xx0 = max(0, x0 - r); xx1 = min(TILE, x1 + r)
-            h = yy1 - yy0; w = xx1 - xx0
-            layer = _bincount_bilinear(h, w, col[m] - xx0, row[m] - yy0, lum[m], cols[m])
+            # Input layer extends another kernel radius beyond the visible output
+            # so off-tile centres can convolve back into the tile.
+            ey0 = yy0 - r; ey1 = yy1 + r
+            ex0 = xx0 - r; ex1 = xx1 + r
+            h = ey1 - ey0; w = ex1 - ex0
+            layer = _bincount_bilinear(h, w, col[m] - ex0, row[m] - ey0, lum[m], cols[m])
             for c in range(3):
-                canvas[yy0:yy1, xx0:xx1, c] += convolve(layer[..., c], ker, mode="constant", cval=0.0)
+                conv = convolve(layer[..., c], ker, mode="constant", cval=0.0)
+                canvas[yy0:yy1, xx0:xx1, c] += conv[(yy0 - ey0):(yy1 - ey0),
+                                                     (xx0 - ex0):(xx1 - ex0)]
     return canvas.astype(np.float32)
 
 
@@ -216,24 +250,16 @@ def _render_tile(job):
     colss = np.concatenate(cseg)
     sc = SkyCoord(l=ls * u.deg, b=bs * u.deg, frame=Galactic()).icrs
     rra = sc.ra.deg; rdec = sc.dec.deg
-    # 所有 cone 内星映到本瓦片局部连续坐标 (lx,ly)。cdshealpix 给的是 owning order-k cell 内
-    # dx/dy∈[0,1)，用于本 tile 内星；high-order face 坐标用于跨 tile 边界的 PSF 贡献。
+    # 所有 cone 内星映到本瓦片局部连续坐标 (lx,ly)。同 face 邻 tile 的 PSF 贡献也用
+    # cdshealpix 的连续 dx/dy 加整数 tile offset，避免和本 tile 内坐标混用两套量化语义。
     depth = np.full(rra.shape, int(korder), dtype=np.uint8)
     ip_all, dx_all, dy_all = cds.lonlat_to_healpix(rra * u.deg, rdec * u.deg, depth,
                                                    return_offsets=True)
     in_cell = (ip_all == int(npix))
-    lx_all = dx_all * TILE
-    ly_all = dy_all * TILE
 
-    nside_sub = 2 ** (korder + 9)
-    ssub_all = hp.ang2pix(nside_sub, rra, rdec, nest=True, lonlat=True)
-    sx_all, sy_all, sf_all = hp.pix2xyf(nside_sub, ssub_all, nest=True)
-    xk, yk, fk = hp.pix2xyf(2 ** korder, npix, nest=True)
-    lx_face = sx_all - xk * TILE
-    ly_face = sy_all - yk * TILE
-    same_face = sf_all == fk
-    lx_psf = np.where(in_cell, lx_all, lx_face)
-    ly_psf = np.where(in_cell, ly_all, ly_face)
+    lx_face, ly_face, same_face = _continuous_face_tile_coords(ip_all, korder, dx_all, dy_all, npix)
+    lx_psf = lx_face
+    ly_psf = ly_face
 
     if not np.any(in_cell):
         return 0
