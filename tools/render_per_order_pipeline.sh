@@ -67,11 +67,11 @@ fi
 # 缓存它们，8g（旧写死值）会 GC 抖死（实测 N8 6.6万源 tile，8g 32min 才 2.7%；256g 顺畅 600 tile/s）。
 _memg=$(python3 -c "import os;print(int(os.sysconf('SC_PAGE_SIZE')*os.sysconf('SC_PHYS_PAGES')/1024**3))" 2>/dev/null || echo 16)
 XMX="${XMX:-$(python3 -c "print(min(max($_memg//2,8),256))")g}"
-W=8; HPAR=3; HTH=8; DO_RENDER=1; DO_HIPSGEN=1; RESUME="--resume"; DARK_PSF="0.6"; STEPFRAC=0.8; TSIZE=2048
+W=8; HPAR=3; HTH=8; DO_RENDER=1; DO_HIPSGEN=1; RESUME="--resume"; DARK_PSF="0.6"; STEPFRAC=0.8; BASE_TSIZE=2048
 while [ $# -gt 0 ]; do
   case "$1" in
     --workers) W="$2"; shift 2;;
-    --tile-size) TSIZE="$2"; shift 2;;   # TAN 方图边长（默认 2048，sweep 实测 N8 端到端最优）
+    --tile-size) BASE_TSIZE="$2"; shift 2;;   # TAN 方图边长（默认 2048，sweep 实测 N8 端到端最优）
     --hipsgen-par) HPAR="$2"; shift 2;;
     --hipsgen-th) HTH="$2"; shift 2;;
     --xmx) XMX="$2"; shift 2;;              # hipsgen JVM 堆（如 256g）；默认机器内存一半封顶 256g
@@ -98,8 +98,8 @@ _now() { python3 -c "import time;print(time.time())"; }
 _dur() { python3 -c "print(f'{$2-$1:.1f}')"; }   # _dur start end -> 秒
 
 # 各 order 的渲染参数（cell/分辨率推导）
-order_params() {  # $1=order -> echo "TFOV TSIZE TSTEP PSF"
-  python3 - "$1" "$HALF" "$DARK_PSF" "$STEPFRAC" "$TSIZE" <<'PY'
+order_params() {  # $1=order -> echo "TFOV TILE_SIZE TSTEP PSF"
+  python3 - "$1" "$HALF" "$DARK_PSF" "$STEPFRAC" "$BASE_TSIZE" <<'PY'
 import sys
 k=int(sys.argv[1]); half=float(sys.argv[2])
 override=sys.argv[3] if len(sys.argv)>3 else ""
@@ -130,19 +130,19 @@ PY
 if [ "$DO_RENDER" = 1 ]; then
   _t_render_start=$(_now)
   for k in $ORDERS; do
-    read TFOV TSIZE TSTEP PSF < <(order_params "$k")
+    read TFOV TILE_SIZE TSTEP PSF < <(order_params "$k")
     WK="$OUT/o$k"; mkdir -p "$WK/tiles"
-    echo "=== [render] Norder$k: cdelt=$(python3 -c "print(f'{$TFOV*3600/$TSIZE:.2f}')")\"/px fov=$TFOV size=$TSIZE psf=$PSF W=$W ==="
+    echo "=== [render] Norder$k: cdelt=$(python3 -c "print(f'{$TFOV*3600/$TILE_SIZE:.2f}')")\"/px fov=$TFOV size=$TILE_SIZE psf=$PSF W=$W ==="
     # 标定的 stdout 收进 stderr（不污染 benchmark log）
     python src/calibrate_alltile_tone.py --data "$NPZ" \
-      --tile-fov "$TFOV" --tile-size "$TSIZE" --value 6 --target-sky 0.020 \
+      --tile-fov "$TFOV" --tile-size "$TILE_SIZE" --value 6 --target-sky 0.020 \
       --star-contrast 4 --target-white 2.6 --psf-core-px "$PSF" --out "$WK/calib.json" >&2
     _ts=$(_now)
     # --progress：tqdm 走 stderr（终端可见、不进 log）。渲染器的 stdout（"瓦片完成"行）丢 stderr，
     # 真正的 PROFILE 行由本脚本统一产出，保证 log 格式一致、可解析。
     python src/render_tan_wcs.py --data "$NPZ" --out "$WK/tiles" --tiles \
       --l-range="$LLO,$LHI" --b-range="$BLO,$BHI" \
-      --tile-fov "$TFOV" --tile-step "$TSTEP" --tile-size "$TSIZE" --psf-core-px "$PSF" \
+      --tile-fov "$TFOV" --tile-step "$TSTEP" --tile-size "$TILE_SIZE" --psf-core-px "$PSF" \
       --workers "$W" --value 6 --calib "$WK/calib.json" --progress $RESUME >&2
     _te=$(_now); _el=$(_dur $_ts $_te)
     _ntiles=$(find "$WK/tiles" -name "*.png" 2>/dev/null | wc -l | tr -d ' ')
