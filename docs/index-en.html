@@ -291,9 +291,9 @@
         <a href="#flight">Interstellar Flight</a>
         <a href="#hires">Gigapixel</a>
         <a href="#boundary">What These Images Are Not</a>
-        <a href="principles.html">Principles</a>
+        <a href="principles-en.html">Principles</a>
         <a class="lang-toggle" href="index.html" aria-label="切换到中文">中</a>
-        <a class="repo-link" data-repo-link href="https://github.com/grapeot/gaia_allsky">GITHUB ↗</a>
+        <a class="repo-link" data-repo-link href="https://github.com/grapeot/gaia_allsky/blob/master/README-en.md">GITHUB ↗</a>
       </nav>
     </div>
   </header>
@@ -314,7 +314,7 @@
           </p>
           <div class="hero-actions">
             <a class="btn primary" href="#bortle">Watch the Milky Way fade level by level</a>
-            <a class="btn ghost" data-repo-link href="https://github.com/grapeot/gaia_allsky">GITHUB Repository ↗</a>
+            <a class="btn ghost" data-repo-link href="https://github.com/grapeot/gaia_allsky/blob/master/README-en.md">GITHUB Repository ↗</a>
           </div>
           <div class="hero-meta">
             <div class="hero-stats">
@@ -476,7 +476,7 @@
         <div class="chapter"><span class="ch-no">06</span><span class="ch-rule" aria-hidden="true"></span><span class="ch-title">How It's Rendered / HOW IT'S RENDERED</span></div>
         <h2 class="display" id="principles-title">How were these images drawn?</h2>
         <p class="lead" style="margin-top:24px;max-width:78ch">There is no Milky Way overlay in the image, and no hand-painted glow. Starting from the simplest idea, "one star, one pixel," we ran into five problems. Each time, adding one physically grounded rule brought the result closer to reality: first anchoring stellar colors to the white point, then applying a shared optical PSF to all stars, letting bright-star size emerge from energy-conserving saturation spillover, replacing gain extrapolation with a deeper real star catalog, and finally adding the human eye's Weber contrast threshold for diffuse light. After those five steps, the main image above appears.</p>
-        <div style="margin-top:32px"><a class="btn primary" href="principles.html">Read the deep dive on rendering principles →</a></div>
+        <div style="margin-top:32px"><a class="btn primary" href="principles-en.html">Read the deep dive on rendering principles →</a></div>
       </div>
     </section>
 
@@ -489,7 +489,7 @@
             <h2 class="display" id="repo-title" style="font-size:clamp(28px,3.4vw,44px);margin-top:18px">The whole project is open source,<br />and reproducible on your own machine.</h2>
             <p class="lead">The code, data-download scripts, and all parameters are in the GitHub repository. You can regenerate every image and video on this page, or change the city latitude and light-pollution level to render a night sky of your own.</p>
           </div>
-          <a class="btn primary" data-repo-link href="https://github.com/grapeot/gaia_allsky">Open GitHub Repository ↗</a>
+          <a class="btn primary" data-repo-link href="https://github.com/grapeot/gaia_allsky/blob/master/README-en.md">Open GitHub Repository ↗</a>
         </div>
       </div>
     </section>
@@ -579,7 +579,7 @@
     const pathRepo = location.hostname.endsWith("github.io") ? location.pathname.split("/").filter(Boolean)[0] : "";
     const owner = location.hostname.endsWith("github.io") ? location.hostname.split(".")[0] : "grapeot";
     if (pathRepo) {
-      repoLinks.forEach((link) => { link.href = `https://github.com/${owner}/${pathRepo}`; });
+      repoLinks.forEach((link) => { link.href = `https://github.com/${owner}/${pathRepo}/blob/master/README-en.md`; });
     }
 
     // Automatically hide video controls during playback.
