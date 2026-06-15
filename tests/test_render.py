@@ -17,6 +17,7 @@ import render_vr_video as rvv
 import render_bortle_eye_grid as beg
 import render_tan_wcs as tw
 import render_hips_direct_pipeline as hdp
+import render_fov as rfov
 import video_common as vc
 import motion
 import fetch_gaia_allsky as fga
@@ -43,6 +44,21 @@ def test_bv_to_rgb_blue_vs_red():
     red = rs.bv_to_rgb(np.array([1.6]))[0]
     assert blue[2] > blue[0]      # 蓝白星: B > R
     assert red[0] > red[2]        # 橙红星: R > B
+
+
+def test_legacy_bprp_as_bv_color_mode_is_warmer_than_calibrated_solar_color():
+    """文章消融图可故意复现早期颜色错误：把 BP-RP 当 B-V 会让太阳型偏暖。"""
+    calibrated = rs.bv_to_rgb(np.array([0.82]))[0]
+    legacy = rs.legacy_bprp_as_bv_to_rgb(np.array([0.82]))[0]
+    assert np.allclose(calibrated, [1.0, 1.0, 1.0], atol=0.03)
+    assert legacy[0] >= legacy[1] > legacy[2]
+
+
+def test_render_fov_cli_exposes_g_max_for_ablation_cache_slicing():
+    """文章消融图应从同一个 BSC5 合并缓存截 G<11/G<13，而不是换掉亮星数据源。"""
+    parser = rfov.build_parser()
+    args = parser.parse_args(["--data", "x.npz", "--out", "x.png", "--g-max", "11"])
+    assert args.g_max == 11.0
 
 
 # ---------- 投影 ----------
