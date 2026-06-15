@@ -1,7 +1,39 @@
 # Skill: principles 页 ablation study 渲染
 
-`docs/principles.html` 的消融实验：从朴素"一星一像素"出发，每步加一条规则，终点
-复现夜顶主图。所有图用 `render_fov.py` 同一条命令、只换参数开关，可复现。
+`scripts/render_ablation.sh` 负责两类消融实验图：公众号文章用的叙事图组，以及
+`docs/principles.html` 旧原理页图组。所有图用 `render_fov.py` 同一条命令体系、只换参数开关，
+可复现。
+
+默认运行公众号图组：
+
+```bash
+scripts/render_ablation.sh article
+```
+
+旧 principles 图组显式运行：
+
+```bash
+scripts/render_ablation.sh principles
+```
+
+## 公众号文章图组（默认 article mode）
+
+这组图服务公众号文章《把18亿颗星星画在一张图上，能还原我们拍到的银河吗？》。它强调探索叙事和翻车过程，输出到 `docs/assets/article_*.jpg`，不覆盖旧网页图。
+
+| 图 | 用途 |
+|---|---|
+| `article_ablation_1_g11_naive` | 从 `fov_g20_bsc5.npz` 截 G<11，Yale 亮星从一开始就在；错误颜色，一星一像素，无 PSF / bloom / Weber |
+| `article_ablation_2_g11_bloom_legacy_color` | 仍截 G<11，仍是错误颜色，只打开 PSF + 亮星 blooming |
+| `article_ablation_3_g13_gain_legacy_color` | 截 G<13，仍是错误颜色，打开 `faint-gain=3.8` 代理暗星积分光 |
+| `article_ablation_4_g13_gain_color_calibrated` | 与上一张相同，只把颜色切到 BP-RP→Teff 校准链 |
+| `article_scale_g13/g16/g18/g20_bsc5` | gain 回到 1，同一显示模型，只换星表深度，讲乳光和大裂隙的“以力破巧” |
+| `article_weber_off_b7/article_weber_on_b7` | Bortle 7 下 Weber 阈值开关，必须走 `--sweep-bortles 7` 路径 |
+
+颜色翻车通过 `render_fov.py --color-mode legacy-bv` 复现：它故意把 Gaia BP-RP 当 Johnson B-V 估温，只用于文章消融图。浅星表通过 `--g-max` 从同一个 BSC5 合并缓存中截出，避免前几张缺 Yale 亮星。
+
+## principles 旧图组
+
+以下内容记录 `principles` mode 的旧网页图组。它从朴素"一星一像素"出发，每步加一条规则，终点复现夜顶主图。
 
 ## 核心原则：ablation 终点 = 主图，每步 = 主图减一条规则
 
@@ -79,4 +111,4 @@ python src/render_fov.py $COMMON --ext-threshold 0 \
 
 - `src/render_fov.py` —— 渲染器
 - `docs/principles.html` —— 消融页（引用这 11 张图 + step4 切换器 JS）
-- `render_ablation.sh` —— 暗空阶梯 + 切换器的批渲脚本（weber 对单独走 sweep）
+- `scripts/render_ablation.sh` —— 暗空阶梯 + 切换器的批渲脚本（weber 对单独走 sweep）

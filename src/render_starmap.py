@@ -141,6 +141,28 @@ def bv_to_rgb(bv):
     return rgb / np.maximum(rgb.max(axis=-1, keepdims=True), 1e-6)  # 归一(色相)
 
 
+def legacy_bprp_as_bv_to_rgb(bp_rp):
+    """故意复现早期错误色彩链：把 Gaia BP-RP 当 Johnson B-V 估温。
+
+    仅用于文章消融图。真实渲染应使用 `bv_to_rgb()` 的 BP-RP→Teff 标定。
+    这个旧链会把太阳型附近的 BP-RP≈0.82 错当成偏红的 B-V≈0.82，整体色温偏暖。
+    """
+    c = np.clip(np.asarray(bp_rp, float), -0.4, 2.0)
+    # Ballesteros 2012 的 B-V→Teff 近似；这里故意喂入 BP-RP，复现历史误用。
+    teff = 4600.0 * (1.0 / (0.92 * c + 1.7) + 1.0 / (0.92 * c + 0.62))
+    if c.size > 100_000:
+        n_lut = 4096
+        grid = np.linspace(-0.4, 2.0, n_lut)
+        teff_lut = 4600.0 * (1.0 / (0.92 * grid + 1.7) + 1.0 / (0.92 * grid + 0.62))
+        rgb_lut = np.clip(_teff_to_linear_rgb(teff_lut), 0.0, None)
+        rgb_lut = rgb_lut / np.maximum(rgb_lut.max(axis=-1, keepdims=True), 1e-6)
+        idx = np.clip(((c - grid[0]) / (grid[-1] - grid[0]) * (n_lut - 1)).round().astype(np.intp),
+                      0, n_lut - 1)
+        return rgb_lut[idx]
+    rgb = np.clip(_teff_to_linear_rgb(teff), 0.0, None)
+    return rgb / np.maximum(rgb.max(axis=-1, keepdims=True), 1e-6)
+
+
 def project_equirectangular(lon_deg, lat_deg, W, H):
     """等距圆柱投影: 经度(0-360)→x, 纬度(-90~90)→y。返回像素 (px, py, inside)。
     用银道坐标(lon=l, lat=b)则银河在中间水平带。"""

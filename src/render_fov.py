@@ -51,10 +51,16 @@ def _render_chunk(rng):
     b = np.asarray(_G["b"][lo:hi], float)
     g = np.asarray(_G["g"][lo:hi], float)
     bv = np.nan_to_num(np.asarray(_G["bp_rp"][lo:hi], float), nan=0.7)
+    if p["g_max"] is not None:
+        keep = g < p["g_max"]
+        l, b, g, bv = l[keep], b[keep], g[keep], bv[keep]
 
     px, py, inside = beg.project_guangzhou_fov(
         l, b, p["lat"], p["lst"], p["W"], p["H"], p["az_w"], p["max_alt"], "horizontal")
-    cols = rs.bv_to_rgb(bv)
+    if p["color_mode"] == "legacy-bv":
+        cols = rs.legacy_bprp_as_bv_to_rgb(bv)
+    else:
+        cols = rs.bv_to_rgb(bv)
     # 星场亮度锚在 scene_ref_bortle、value=0：visual_luminance_for_mags 会把
     # k(B)=skyglow(B)·10^(0.4·NELM(B)) 烘进线性画布，若用 swept bortle，星场就
     # 跟观察者的光污染纠缠在一起（sweep 模式的核心 bug）。单图路径默认
@@ -67,7 +73,7 @@ def _render_chunk(rng):
     return rs.accumulate_stars(p["H"], p["W"], px, py, inside, L, cols, psf_px=0.0)
 
 
-def main():
+def build_parser():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--data", required=True)
     ap.add_argument("--out", required=True)
@@ -81,11 +87,16 @@ def main():
     ap.add_argument("--value", type=float, default=0.0)
     ap.add_argument("--faint-gain", type=float, default=1.0)
     ap.add_argument("--faint-mag-min", type=float, default=11.0)
+    ap.add_argument("--g-max", type=float, default=None,
+                    help="只渲染 G < g_max 的星。用于消融图从同一个 BSC5 合并缓存截出 G<11/G<13。")
     ap.add_argument("--psf-core-px", type=float, default=0.6)
     ap.add_argument("--sat-over-sky", type=float, default=6.0)
     ap.add_argument("--target-sky", type=float, default=0.012)
     ap.add_argument("--star-contrast", type=float, default=6.0)
     ap.add_argument("--chroma", type=float, default=1.8)
+    ap.add_argument("--color-mode", choices=("calibrated", "legacy-bv"), default="calibrated",
+                    help="星色链。calibrated 使用 BP-RP→Teff 标定；legacy-bv 故意把 BP-RP 当 B-V，"
+                         "仅用于文章消融图复现早期颜色翻车。")
     ap.add_argument("--ext-threshold", type=float, default=0.04,
                     help="Weber 可见度阈值（占天空亮度比例）。配合 sky-floor 物理锚 + "
                          "ext-softness=0.5，B7 银河淡到近不可见、B5 仍可见、B1 majestic、"
@@ -134,6 +145,11 @@ def main():
                          "SKYGLOW_SCALE 不行：星场与辉光同步缩放、比值不变、显示对比不动）。"
                          "不给则用模块默认 5.0。注意 sweep 路径只在主进程跑显示链，故此覆盖"
                          "对 sweep 无 spawn 继承问题。")
+    return ap
+
+
+def main():
+    ap = build_parser()
     args = ap.parse_args()
 
     # 在任何显示链调用之前覆盖光污染旋钮。注意：星场累加（worker）只用 skyglow_level
@@ -166,7 +182,8 @@ def main():
                   az_w=args.az_width, max_alt=args.max_alt, bortle=args.bortle,
                   value=args.value, lim_contrast=args.lim_contrast,
                   faint_gain=args.faint_gain, faint_mag_min=args.faint_mag_min,
-                  scene_ref_bortle=scene_ref_bortle, scene_value=scene_value)
+                  scene_ref_bortle=scene_ref_bortle, scene_value=scene_value,
+                  color_mode=args.color_mode, g_max=args.g_max)
     ranges = [(i, min(i + args.chunk, n)) for i in range(0, n, args.chunk)]
 
     t = time.time()
