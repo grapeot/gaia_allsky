@@ -94,6 +94,28 @@ def write_hhh(path, S, lc, bc, cdelt):
         f.write("".join(f"{line:<80}" for line in hdr))
 
 
+def write_png_hhh_atomic(out_prefix, rgb, S, lc, bc, cdelt):
+    """Write PNG + sidecar WCS as a resume-safe pair."""
+    from PIL import Image
+
+    token = f".{os.getpid()}.tmp"
+    png_tmp = out_prefix + token + ".png"
+    hhh_tmp = out_prefix + token + ".hhh"
+    try:
+        Image.fromarray((np.clip(rgb, 0, 1) * 255).astype(np.uint8)).save(png_tmp)
+        write_hhh(hhh_tmp, S, lc, bc, cdelt)
+        # Commit the WCS first so an interruption cannot leave a final PNG
+        # without sidecar WCS, which makes hipsgen scan PNG metadata very slowly.
+        os.replace(hhh_tmp, out_prefix + ".hhh")
+        os.replace(png_tmp, out_prefix + ".png")
+    finally:
+        for path in (png_tmp, hhh_tmp):
+            try:
+                os.unlink(path)
+            except FileNotFoundError:
+                pass
+
+
 def write_fits_tile(out_prefix, rgb, S, lc, bc, cdelt):
     """把 tone 后的 float rgb（H×W×3）写成一块 RGB 彩色 float FITS（NAXIS3=3）+ WCS。
 
@@ -377,8 +399,7 @@ def render_tile(l, b, cols, L, out_prefix, lc, bc, fov_deg, S, psf_core_px,
         write_fits_tile(out_prefix, np.clip(rgb, 0.0, None).astype(np.float32),
                         S, lc, bc, cdelt)
     else:
-        Image.fromarray((np.clip(rgb, 0, 1) * 255).astype(np.uint8)).save(out_prefix + ".png")
-        write_hhh(out_prefix + ".hhh", S, lc, bc, cdelt)
+        write_png_hhh_atomic(out_prefix, rgb, S, lc, bc, cdelt)
     return n_in
 
 
@@ -431,7 +452,7 @@ def main():
                     help="出 float FITS 瓦片（tone 后、未 8-bit clip）而非 PNG。供 hipsgen "
                          "TILES 在真值域逐层池化、JPEG 从 float 导显示层，改善 zoom-out 质量。")
     ap.add_argument("--resume", action="store_true",
-                    help="断点续传：跳过已渲出（.png/.fits 已存在）的 tile，只补未渲的。"
+                    help="断点续传：跳过已渲出（PNG 模式需 .png+.hhh 成对存在；FITS 模式需 .fits 存在）的 tile，只补未渲的。"
                          "大全天 job 中断后重跑加这个。")
     ap.add_argument("--progress", action="store_true",
                     help="单行 tqdm 进度条（人在前台跑用，好看）。不加则逐瓦片逐行打印"
@@ -512,11 +533,15 @@ def main():
             # 度数，所以索引命名安全。度数附在名里仅供人读/调试。
             tag = f"tile_i{i:04d}_j{j:04d}_l{lc % 360:.2f}_b{bc:.2f}".replace("-", "m")
             jobs.append((os.path.join(args.out, tag), float(lc % 360), float(bc)))
-    # 断点续传：跳过已渲出（.png 已存在）的 tile。大全天 job 中断后重跑只补未渲的。
+    # 断点续传：PNG 模式必须 .png + .hhh 成对存在才跳过，避免 hipsgen 读到无 WCS 的半成品。
     if args.resume:
         ext = ".fits" if args.fits else ".png"
         before = len(jobs)
-        jobs = [j for j in jobs if not os.path.exists(j[0] + ext)]
+        if args.fits:
+            jobs = [j for j in jobs if not os.path.exists(j[0] + ext)]
+        else:
+            jobs = [j for j in jobs if not (os.path.exists(j[0] + ".png")
+                                            and os.path.exists(j[0] + ".hhh"))]
         print(f"--resume：已渲 {before - len(jobs)}/{before} 跳过，本次渲 {len(jobs)}", flush=True)
         if not jobs:
             print("全部已渲，无需续跑。", flush=True)
