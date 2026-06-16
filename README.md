@@ -32,6 +32,18 @@ python src/fetch_gaia_allsky.py --gmax 11 --output data/raw/gaia_g11.npz
 
 ## 复现效果
 
+按 Norder 分层生成 HiPS 时，可以把重投影和最终组装分开跑。比如低层 `3 4 5 6` 已完成，只补高层 `7 8` 后，先跑：
+
+```bash
+bash tools/render_per_order_pipeline.sh allsky_po data/raw/gaia_allsky_g20_bsc5_hpx6.npz --range 0,360 -90,90 "7 8" --workers 30 --hipsgen-par 1 --hipsgen-th 30 --step-frac 1.0 --hipsgen-only
+```
+
+等 `7 8` 完成后，只组装已有各层，不重跑 Python 渲染或 Java `hipsgen`：
+
+```bash
+bash tools/render_per_order_pipeline.sh allsky_po data/raw/gaia_allsky_g20_bsc5_hpx6.npz --range 0,360 -90,90 "3 4 5 6 7 8" --assemble-only
+```
+
 Bortle 1–9 银河消失序列：
 
 ```bash
@@ -94,5 +106,4 @@ Gaia 视差测量精度随距离衰减，只有太阳周围几千光年内的恒
 渲染不引入星云模型、星际尘埃模型或银河贴图。银河的乳光来自海量暗星的疏密分布，尘埃暗带来自那方向真实恒星的缺失计数，全部是数据自身的正负信息。
 
 屏幕是 SDR 设备，真实夜空最亮星与最暗银河纹理之间上百万倍的亮度差必须压缩映射后才能显示。画面保留了"谁比谁亮"的相对关系，但不保证绝对亮度的测光比例。看结构、看趋势、看对比，这些图可靠；拿去量星等的绝对值，不行。
-
 

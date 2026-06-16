@@ -2,6 +2,16 @@
 
 ## Changelog
 
+### 2026-06-16（hipsgen N7 INDEX 卡住：PNG 缺 sidecar WCS）
+
+全天 `allsky_po --hipsgen-only` 卡在 `Norder7 INDEX` 约一天。进程仍在刷新 log、单核满载，但 `o7/hips` 最近没有文件变化，`*.jpg` 为 0。`jcmd Thread.print` 显示主线程停在 `cds.hipsgen.BuilderIndex.scan -> Fits.loadHeaderFITS -> MyInputStream.fastExplorePNG -> RandomAccessFile.read`，说明它还在单线程扫描输入 PNG/header，未进入 `TILES`。`lsof` 定位到当前文件 `outputs/allsky_po/o7/tiles/tile_i0095_j0058_l174.07_b16.27.png`；统计发现 `o7/tiles` 共有 19503 个 PNG、19502 个 `.hhh`，唯一缺失 sidecar 的正是这个 PNG。
+
+根因是 `render_tan_wcs.py --resume` 只按 `.png` 是否存在决定跳过，而 `render_tile` 先写 `.png` 再写 `.hhh`。worker 若在两步之间中断，后续 resume 会把半成品误判为完整 tile，留下有图无 WCS 的坏输入。HipsGen 对无 `.hhh` 的 PNG 会尝试从 PNG 内部探测校准信息，进入极慢/卡住路径；`maxThread` 对 `INDEX` 扫描无效，只影响后续 `TILES`。
+
+修复：PNG 模式改为原子提交 `.png + .hhh` 成对产物；先写临时 PNG/HHH，再先 rename HHH、后 rename PNG。`--resume` 现在只有在 `.png` 和 `.hhh` 都存在时才跳过，否则重渲该 tile。这样即使中断，最终态也会被下一次 resume 识别为未完成并自动补齐。
+
+恢复操作上，`o3`-`o6` 已经完成时可以只重跑高层：`bash tools/render_per_order_pipeline.sh allsky_po data/raw/gaia_allsky_g20_bsc5_hpx6.npz --range 0,360 -90,90 "7 8" --workers 30 --hipsgen-par 1 --hipsgen-th 30 --step-frac 1.0 --hipsgen-only`。该命令完成后，再用 `bash tools/render_per_order_pipeline.sh allsky_po data/raw/gaia_allsky_g20_bsc5_hpx6.npz --range 0,360 -90,90 "3 4 5 6 7 8" --assemble-only` 把已有低层和新高层重新组装进最终 `outputs/allsky_po/hips`，不再跑 Python 渲染或 Java `hipsgen`。
+
 ### 2026-06-14（Allsky 预览纯黑 cell 边界缝）
 
 Norder3 源 TAN tile 接缝通过 `STEPFRAC=0.8` 与 hipsgen `fading=true` 修掉后，用户继续在 zoom-out / Allsky 层看到大量细线。重新量化后区分了两类问题：第一类是 tile 边界附近亮度略低，不是主要观感问题；第二类是 `RGB=(0,0,0)` 的硬黑像素线，常沿 HEALPix cell / HiPS tile 边界走，Aladin 把 `Allsky.jpg` 投影到全天视图时会把 1px 黑缝插值成弯曲的 1-3px 黑线。`gz2_n3_overlap` 的高分辨率 Allsky 中仍有约 5,800 个被非黑像素夹住的 1px 纯黑像素，放宽到 2-4px 后是一万级。

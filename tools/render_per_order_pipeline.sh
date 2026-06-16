@@ -19,6 +19,7 @@
 #   （默认）       端到端：render + hipsgen + 组装
 #   --tiles-only  只渲 tiles（放后台跑；纯 Python 不碰 java）
 #   --hipsgen-only 只对已渲 tiles 跑 hipsgen + 组装（CPU 空闲时并行拼）
+#   --assemble-only 只把已有 oK/hips/NorderK 组装进最终 hips，不跑 render/java
 #
 # HiPS 各 order 像素分辨率（512px/tile，cell=58.63°/2^order）：
 #   N3=51.5"  N4=25.8"  N5=12.9"  N6=6.44"  N7=3.22"  N8=1.61"(≈源分辨率，最高有意义层)
@@ -30,7 +31,7 @@
 #   --workers N      渲染并行进程数（默认 8；32 核机建议 30）
 #   --hipsgen-par N  并行跑几个 order 的 hipsgen（默认 3）
 #   --hipsgen-th N   每个 hipsgen 的线程数（默认 8）
-#   --tiles-only | --hipsgen-only
+#   --tiles-only | --hipsgen-only | --assemble-only
 #   --no-resume      渲染不续传（默认 resume：跳过已渲 tile）
 # 例（心宿二 ±3° 端到端，30 进程）：
 #   bash tools/render_per_order_pipeline.sh ant_po data/raw/gaia_allsky_g20_bsc5_hpx6.npz \
@@ -67,7 +68,7 @@ fi
 # 缓存它们，8g（旧写死值）会 GC 抖死（实测 N8 6.6万源 tile，8g 32min 才 2.7%；256g 顺畅 600 tile/s）。
 _memg=$(python3 -c "import os;print(int(os.sysconf('SC_PAGE_SIZE')*os.sysconf('SC_PHYS_PAGES')/1024**3))" 2>/dev/null || echo 16)
 XMX="${XMX:-$(python3 -c "print(min(max($_memg//2,8),256))")g}"
-W=8; HPAR=3; HTH=8; DO_RENDER=1; DO_HIPSGEN=1; RESUME="--resume"; DARK_PSF="0.6"; STEPFRAC=0.8; BASE_TSIZE=2048
+W=8; HPAR=3; HTH=8; DO_RENDER=1; DO_HIPSGEN=1; DO_ASSEMBLE=1; RESUME="--resume"; DARK_PSF="0.6"; STEPFRAC=0.8; BASE_TSIZE=2048
 while [ $# -gt 0 ]; do
   case "$1" in
     --workers) W="$2"; shift 2;;
@@ -75,8 +76,9 @@ while [ $# -gt 0 ]; do
     --hipsgen-par) HPAR="$2"; shift 2;;
     --hipsgen-th) HTH="$2"; shift 2;;
     --xmx) XMX="$2"; shift 2;;              # hipsgen JVM 堆（如 256g）；默认机器内存一半封顶 256g
-    --tiles-only) DO_HIPSGEN=0; shift;;
+    --tiles-only) DO_HIPSGEN=0; DO_ASSEMBLE=0; shift;;
     --hipsgen-only) DO_RENDER=0; shift;;
+    --assemble-only) DO_RENDER=0; DO_HIPSGEN=0; DO_ASSEMBLE=1; shift;;
     --no-resume) RESUME=""; shift;;
     --dark-psf) DARK_PSF="$2"; shift 2;;   # 覆盖所有 order 的暗星 PSF（默认低层1.0/N8 0.6）
     --step-frac) STEPFRAC="$2"; shift 2;;  # TAN 方图步长=fov×此值（默认0.8重叠20%；1.0无重叠省~28% hipsgen 但可能有缝）
@@ -126,6 +128,30 @@ print(f"{fov:.4f} {size} {step:.4f} {psf}")
 PY
 }
 
+assemble_orders() {
+  echo "=== 组装金字塔：各 order 取自己的 NorderK ==="
+  trash "$HIPS" 2>/dev/null || true; mkdir -p "$HIPS"
+  for k in $ORDERS; do
+    [ -d "$OUT/o$k/hips/Norder$k" ] || { echo "缺少 $OUT/o$k/hips/Norder$k，无法组装" >&2; exit 1; }
+    cp -R "$OUT/o$k/hips/Norder$k" "$HIPS/Norder$k" && echo "  Norder$k ← o$k"
+  done
+  HI=$(echo $ORDERS | tr ' ' '\n' | sort -n | tail -1)
+  LO=$(echo $ORDERS | tr ' ' '\n' | sort -n | head -1)
+  cp "$OUT/o$HI/hips/properties" "$HIPS/properties" 2>/dev/null || true
+  cp "$OUT/o$HI/hips/Moc.fits" "$HIPS/Moc.fits" 2>/dev/null || true
+  # 修 minOrder=order 单层 hipsgen 的副作用：每个 order 的 properties 写 hips_order_min=该order，
+  # 拷最高 order 的会得 min=HI，导致 Aladin 以为没有低 order、zoom-out 一片空白。组装后的金字塔
+  # 实含 LO..HI 全层，必须把 order_min 改回最低 order（没有则补一行）。
+  if grep -q "^hips_order_min" "$HIPS/properties" 2>/dev/null; then
+    sed -i.bak "s/^hips_order_min.*/hips_order_min       = $LO/" "$HIPS/properties" && rm -f "$HIPS/properties.bak"
+  else
+    echo "hips_order_min       = $LO" >> "$HIPS/properties"
+  fi
+  python src/rebuild_allsky_hires.py --hips "$HIPS" --order "$LO" >&2 || true
+  cp skills/hips_landing_page.html "$HIPS/index.html" 2>/dev/null || true
+  echo "PER_ORDER_DONE → $HIPS （orders: $ORDERS）"
+}
+
 # ---- 阶段1：渲 tiles（每 order 标定 + 渲，--resume 断点续传）----
 if [ "$DO_RENDER" = 1 ]; then
   _t_render_start=$(_now)
@@ -153,7 +179,7 @@ if [ "$DO_RENDER" = 1 ]; then
   echo "TILES_DONE [$TAG]"
 fi
 
-# ---- 阶段2：hipsgen 各 order（可并行）+ 组装金字塔 ----
+# ---- 阶段2：hipsgen 各 order（可并行）----
 if [ "$DO_HIPSGEN" = 1 ]; then
   _t_hipsgen_start=$(_now)
   hipsgen_one() {
@@ -179,26 +205,9 @@ if [ "$DO_HIPSGEN" = 1 ]; then
   done
   wait
   echo "PROFILE hipsgen_total elapsed=$(_dur $_t_hipsgen_start $(_now))s"
+fi
 
-  echo "=== 组装金字塔：各 order 取自己的 NorderK ==="
-  trash "$HIPS" 2>/dev/null || true; mkdir -p "$HIPS"
-  for k in $ORDERS; do
-    [ -d "$OUT/o$k/hips/Norder$k" ] && cp -R "$OUT/o$k/hips/Norder$k" "$HIPS/Norder$k" && echo "  Norder$k ← o$k"
-  done
-  HI=$(echo $ORDERS | tr ' ' '\n' | sort -n | tail -1)
-  LO=$(echo $ORDERS | tr ' ' '\n' | sort -n | head -1)
-  cp "$OUT/o$HI/hips/properties" "$HIPS/properties" 2>/dev/null || true
-  cp "$OUT/o$HI/hips/Moc.fits" "$HIPS/Moc.fits" 2>/dev/null || true
-  # 修 minOrder=order 单层 hipsgen 的副作用：每个 order 的 properties 写 hips_order_min=该order，
-  # 拷最高 order 的会得 min=HI，导致 Aladin 以为没有低 order、zoom-out 一片空白。组装后的金字塔
-  # 实含 LO..HI 全层，必须把 order_min 改回最低 order（没有则补一行）。
-  if grep -q "^hips_order_min" "$HIPS/properties" 2>/dev/null; then
-    sed -i.bak "s/^hips_order_min.*/hips_order_min       = $LO/" "$HIPS/properties" && rm -f "$HIPS/properties.bak"
-  else
-    echo "hips_order_min       = $LO" >> "$HIPS/properties"
-  fi
-  python src/rebuild_allsky_hires.py --hips "$HIPS" --order "$LO" >&2 || true
-  cp skills/hips_landing_page.html "$HIPS/index.html" 2>/dev/null || true
-  echo "PER_ORDER_DONE → $HIPS （orders: $ORDERS）"
+if [ "$DO_ASSEMBLE" = 1 ]; then
+  assemble_orders
 fi
 echo "PROFILE pipeline_total elapsed=$(_dur $_t_pipeline_start $(_now))s"
