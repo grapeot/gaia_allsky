@@ -149,6 +149,7 @@ assemble_orders() {
   fi
   python src/rebuild_allsky_hires.py --hips "$HIPS" --order "$LO" >&2 || true
   cp skills/hips_landing_page.html "$HIPS/index.html" 2>/dev/null || true
+  cp skills/hips_landing_page-en.html "$HIPS/index-en.html" 2>/dev/null || true
   echo "PER_ORDER_DONE → $HIPS （orders: $ORDERS）"
 }
 

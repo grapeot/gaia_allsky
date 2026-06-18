@@ -55,5 +55,6 @@ python src/rebuild_allsky_hires.py --hips "$OUT"
 
 echo "=== [5/5] 覆盖样式化落地页 ==="
 cp skills/hips_landing_page.html "$OUT/index.html"
+cp skills/hips_landing_page-en.html "$OUT/index-en.html" 2>/dev/null || true
 
 echo "PIPELINE_DONE → $OUT"

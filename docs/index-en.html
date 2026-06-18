@@ -429,12 +429,12 @@
     <section id="hires" class="section" aria-labelledby="hires-title">
       <div class="wrap">
         <div class="chapter"><span class="ch-no">04</span><span class="ch-rule" aria-hidden="true"></span><span class="ch-title">Gigapixel / GIGAPIXEL</span></div>
-        <h2 class="display" id="hires-title">600 million stars,<br />one Milky Way you can keep zooming into.</h2>
-        <p class="lead" style="margin-top:24px;max-width:78ch">All the images above use the same 600-million-star dataset; only the light-pollution level changes. This section pushes the dark-sky version to the limit: the same 600 million stars are rendered at 40-gigapixel scale, then cut into tiles that can be zoomed indefinitely. At this stellar density, the Milky Way's brightness texture and dark dust lanes are no longer traced by a handful of bright stars; they are built up by the density variations of vast numbers of faint stars.</p>
+        <h2 class="display" id="hires-title">Over a billion stars,<br />projected across the full sky.</h2>
+        <p class="lead" style="margin-top:24px;max-width:78ch">The Bortle comparisons and flight videos above still use the Guangzhou sky-region dataset of about 600 million stars. This section switches to an independent all-sky HiPS map: about 1.06 billion G≤20 stars from Gaia DR3, projected by measured position and brightness onto the celestial sphere. The Milky Way, the Large Magellanic Cloud, and the Small Magellanic Cloud are not drawn separately. They appear because Gaia measured real stellar-density structures in those directions.</p>
         <div class="hires-stage">
           <figure class="hires-frame portrait" style="margin:0">
             <img src="assets/fov_g20_4k.jpg" alt="A Gaia full-star rendering of the Milky Way over the Guangzhou sky region, with dark lanes and dust texture built from density variations among 600 million stars" />
-            <figcaption class="hires-label">PLATE · Guangzhou sky region · about 6.0×10⁸ stars · G ≤ 20 — shown here as a 4K compressed preview</figcaption>
+            <figcaption class="hires-label">PLATE · Gaia DR3 All-Sky · G ≤ 20 · ~1.06×10⁹ stars · shown here as a 4K compressed preview</figcaption>
           </figure>
           <div class="hires-right">
             <figure class="hires-frame square" style="margin:0">
@@ -443,10 +443,10 @@
             </figure>
             <div class="hires-cta">
               <div>
-                <h3>Want to pan and zoom for yourself?</h3>
-                <p>The full-resolution image is 40 gigapixels, too large to fit into a single web image. The rendering pipeline cuts it into a set of multiscale survey tiles hosted in a separate browser: drag to pan, scroll to zoom, and fainter stars keep appearing as you zoom in. It uses the same tile format as the <code>Aladin</code> sky atlas used by astronomers.</p>
+                <h3>Want to explore the full celestial sphere?</h3>
+                <p>The online release is the Norder 7 Lite version, roughly 50 gigapixels, with a best resolution of about 3.22 arcseconds per pixel. The rendering pipeline cuts the all-sky map into HiPS tiles, served in a standalone browser view: drag to pan, scroll to zoom. The format matches the <code>Aladin</code> sky atlas used by astronomers. A full Norder 8 archive exists locally at roughly 200 billion pixels.</p>
               </div>
-              <a class="btn primary" data-yage-link href="https://yage.ai/gaia_milky_way/" rel="noopener" target="_blank">Open the 40-gigapixel browser ↗</a>
+              <a class="btn primary" data-yage-link href="https://yage.ai/gaia_milky_way/" rel="noopener" target="_blank">Open the All-Sky HiPS Map ↗</a>
             </div>
           </div>
         </div>

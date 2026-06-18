@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="description" content="基于 ESA Gaia DR3 星表渲染的全天 HiPS 交互星图。约 10.6 亿颗 G≤20 恒星逐颗投影到约 500 亿像素的瓦片金字塔中。银河、大麦哲伦云和小麦哲伦云都没有单独绘制，画面结构来自真实恒星密度。" />
-<title>Gaia 全天星图 · 500 亿像素 HiPS 巡天</title>
+<meta name="description" content="四百亿像素的 Gaia 银河巡天，每一个像素都是一颗真实测量的恒星。拖动平移、滚轮缩放，交互浏览银心方向的天区。" />
+<title>Gaia 银河 · 四百亿像素巡天</title>
 
 <!-- Aladin Lite v2 + jQuery (CDN, verified wiring — do not upgrade) -->
 <script type="text/javascript" src="https://code.jquery.com/jquery-1.10.1.min.js"></script>
@@ -44,6 +44,7 @@
   .wrap { width: min(var(--max), calc(100% - 64px)); margin: 0 auto; }
   a:focus-visible, button:focus-visible { outline: 2px solid var(--blue); outline-offset: 4px; }
 
+  /* masthead */
   .topbar {
     position: sticky; top: 0; z-index: 40;
     background: rgba(7, 7, 8, 0.86); backdrop-filter: blur(14px);
@@ -79,9 +80,10 @@
     font-family: var(--mono); font-size: 12px; letter-spacing: 0.16em; color: var(--gold); text-transform: uppercase;
   }
   .kicker .bar { width: 28px; height: 3px; background: var(--gold); }
-  h1 { font-size: clamp(32px, 4.6vw, 60px); font-weight: 900; margin-top: 20px; max-width: 18ch; }
-  .lead { max-width: 68ch; margin: 24px 0 0; color: var(--soft); font-size: clamp(16px, 1.6vw, 19px); line-height: 1.8; }
+  h1 { font-size: clamp(32px, 4.6vw, 60px); font-weight: 900; margin-top: 20px; max-width: 16ch; }
+  .lead { max-width: 64ch; margin: 24px 0 0; color: var(--soft); font-size: clamp(16px, 1.6vw, 19px); line-height: 1.8; }
 
+  /* viewer — the hero element */
   .viewer-panel { margin-top: 36px; border: 1px solid var(--line); background: #03050a; box-shadow: 0 30px 90px rgba(0,0,0,0.5); }
   .viewer-bar {
     display: flex; align-items: center; justify-content: space-between; gap: 16px;
@@ -94,6 +96,7 @@
   .viewer-bar .vb-hint { color: var(--muted); white-space: nowrap; }
   #aladin-lite-div { width: 100%; height: min(72vh, 800px); background: #02040a; }
 
+  /* stat strip */
   .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; margin-top: 26px; border-top: 1px solid var(--line); }
   .stat { padding: 22px 24px 0 0; border-right: 1px solid var(--line); }
   .stat:last-child { border-right: 0; }
@@ -133,26 +136,26 @@
   </header>
 
   <main class="wrap">
-    <p class="kicker"><span class="bar" aria-hidden="true"></span>全天区 · G ≤ 20 · 无银河贴图</p>
-    <h1>把十亿颗真实恒星，<br />一颗颗画到全天球上。</h1>
-    <p class="lead">这张星图直接使用 Gaia DR3 里约 10.6 亿颗 G≤20 恒星的实测坐标和亮度，按 HiPS 层级投影到全天球上。银河、大麦哲伦云和小麦哲伦云都没有单独绘制；你看到的光带、暗带和云状结构，来自这些方向上真实测量到的恒星密度。线上 Lite 版最高 Norder 7，约 500 亿像素，最佳分辨率约 3.22 角秒每像素。</p>
+    <p class="kicker"><span class="bar" aria-hidden="true"></span>四百亿像素 / GIGAPIXEL HiPS · 一像素一颗星</p>
+    <h1>每一个像素，<br />都是一颗 Gaia 实测的恒星。</h1>
+    <p class="lead">这是银心方向天区的一幅约四百亿像素渲染，恒星的位置、亮度和颜色全部来自欧洲航天局 Gaia 任务的实测数据。画面以 HiPS 分级方式逐级加载，拖动可平移，滚轮可缩放，越放大露出的暗星越多。银河没有单独绘制：星密到一定程度，结构自然浮现。</p>
 
     <div class="viewer-panel">
       <div class="viewer-bar">
-        <span class="vb-left"><span class="vb-led" aria-hidden="true"></span><span class="vb-id">Gaia DR3 Allsky Lite</span> · ICRS / J2000 · ORDER 7</span>
-        <span class="vb-hint">拖动平移 · 滚轮缩放 · 逐级看见更暗的恒星</span>
+        <span class="vb-left"><span class="vb-led" aria-hidden="true"></span><span class="vb-id">GaiaMW1B</span> · ICRS / J2000 · ORDER 8</span>
+        <span class="vb-hint">拖动平移 · 滚轮缩放 · 越放大暗星越多</span>
       </div>
       <div id="aladin-lite-div"></div>
     </div>
 
     <div class="stats" aria-label="巡天参数">
-      <div class="stat"><strong>1.06×10⁹</strong><span>颗实测恒星 · G ≤ 20</span></div>
-      <div class="stat"><strong>Norder 7</strong><span>HiPS 层级 · 最佳 ≈3.22″/px</span></div>
-      <div class="stat"><strong>约 500 亿</strong><span>像素 · 线上 Lite 约 20 GB</span></div>
+      <div class="stat"><strong>1.61″</strong><span>最佳像素角分辨率</span></div>
+      <div class="stat"><strong>Order 8 · NSIDE 256</strong><span>最高瓦片阶数 · JPEG 512×512</span></div>
+      <div class="stat"><strong>8286 deg² ≈ 20%</strong><span>赤道坐标系 · 覆盖约两成天区</span></div>
     </div>
 
     <footer>
-      <p>恒星数据来自 ESA / Gaia 任务第三期数据发布（DR3）。线上版本为 Lite 版（Norder 7，约 500 亿像素，约 20 GB）。本地保留完整分辨率存档（Norder 8，约 2000 亿像素，最佳 ≈1.61″/px，约 56 GB）；原广州天区版本也另行保存。本页使用 Aladin Lite HiPS 查看器。</p>
+      <p>恒星数据来自 ESA Gaia 任务。彩色 HiPS 巡天，由 Aladin / HipsGen 构建，可由 Aladin Lite、Aladin Desktop 及任意支持 HiPS 的客户端浏览。</p>
       <div class="footer-links">
         <a href="properties">properties</a>
         <a href="Moc.fits">MOC 覆盖图</a>
@@ -161,6 +164,7 @@
     </footer>
   </main>
 
+  <!-- Aladin Lite v2 survey wiring — preserved verbatim in spirit -->
   <script type="text/javascript" src="https://aladin.u-strasbg.fr/AladinLite/api/v2/latest/aladin.min.js" charset="utf-8"></script>
   <script type="text/javascript">
     hipsDir = location.href;
@@ -173,8 +177,8 @@
       cooFrame: 'J2000',
       fov: 90
     });
-    aladin.setImageSurvey(aladin.createImageSurvey('GaiaAllskyLite', 'GaiaAllskyLite',
-      hipsDir, 'equatorial', 7, { imgFormat: 'jpg' }));
+    aladin.setImageSurvey(aladin.createImageSurvey('GaiaMW1B', 'GaiaMW1B',
+      hipsDir, 'equatorial', 8, { imgFormat: 'jpg' }));
     aladin.gotoRaDec(270, -22);
     aladin.setFov(90);
   </script>

@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="description" content="A 40-gigapixel Gaia Milky Way survey — every pixel is a real measured star. Drag to pan, scroll to zoom, interactively explore the Galactic Center region." />
-<title>Gaia Milky Way · 40-Gigapixel Survey</title>
+<meta name="description" content="An all-sky HiPS interactive star map rendered from the ESA Gaia DR3 catalog. About 1.06 billion G≤20 stars projected into a roughly 50-gigapixel tile pyramid. The Milky Way and the Magellanic Clouds are not drawn separately; their structures come from real stellar density." />
+<title>Gaia All-Sky Map · 50-Gigapixel HiPS Survey</title>
 
 <!-- Aladin Lite v2 + jQuery (CDN, verified wiring — do not upgrade) -->
 <script type="text/javascript" src="https://code.jquery.com/jquery-1.10.1.min.js"></script>
@@ -44,7 +44,6 @@
   .wrap { width: min(var(--max), calc(100% - 64px)); margin: 0 auto; }
   a:focus-visible, button:focus-visible { outline: 2px solid var(--blue); outline-offset: 4px; }
 
-  /* masthead */
   .topbar {
     position: sticky; top: 0; z-index: 40;
     background: rgba(7, 7, 8, 0.86); backdrop-filter: blur(14px);
@@ -80,10 +79,9 @@
     font-family: var(--mono); font-size: 12px; letter-spacing: 0.16em; color: var(--gold); text-transform: uppercase;
   }
   .kicker .bar { width: 28px; height: 3px; background: var(--gold); }
-  h1 { font-size: clamp(32px, 4.6vw, 60px); font-weight: 900; margin-top: 20px; max-width: 16ch; }
-  .lead { max-width: 64ch; margin: 24px 0 0; color: var(--soft); font-size: clamp(16px, 1.6vw, 19px); line-height: 1.8; }
+  h1 { font-size: clamp(32px, 4.6vw, 60px); font-weight: 900; margin-top: 20px; max-width: 20ch; }
+  .lead { max-width: 68ch; margin: 24px 0 0; color: var(--soft); font-size: clamp(16px, 1.6vw, 19px); line-height: 1.8; }
 
-  /* viewer — the hero element */
   .viewer-panel { margin-top: 36px; border: 1px solid var(--line); background: #03050a; box-shadow: 0 30px 90px rgba(0,0,0,0.5); }
   .viewer-bar {
     display: flex; align-items: center; justify-content: space-between; gap: 16px;
@@ -96,7 +94,6 @@
   .viewer-bar .vb-hint { color: var(--muted); white-space: nowrap; }
   #aladin-lite-div { width: 100%; height: min(72vh, 800px); background: #02040a; }
 
-  /* stat strip */
   .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; margin-top: 26px; border-top: 1px solid var(--line); }
   .stat { padding: 22px 24px 0 0; border-right: 1px solid var(--line); }
   .stat:last-child { border-right: 0; }
@@ -136,26 +133,26 @@
   </header>
 
   <main class="wrap">
-    <p class="kicker"><span class="bar" aria-hidden="true"></span>40-Gigapixel / GIGAPIXEL HiPS · One Pixel Per Star</p>
-    <h1>Every pixel<br />is a real Gaia star.</h1>
-    <p class="lead">This is a roughly 40-gigapixel rendering of the Galactic Center region. Star positions, brightness, and colors all come from measured data from the ESA Gaia mission. The image loads progressively as HiPS tiles — drag to pan, scroll to zoom, and fainter stars keep appearing as you zoom in. The Milky Way is not drawn separately: once star density reaches a certain threshold, the structure emerges naturally.</p>
+    <p class="kicker"><span class="bar" aria-hidden="true"></span>All-Sky · G ≤ 20 · No Milky Way Overlay</p>
+    <h1>Over a billion real stars,<br />projected onto the entire celestial sphere.</h1>
+    <p class="lead">This map uses measured positions and brightnesses for about 1.06 billion G≤20 stars from Gaia DR3, projected onto the full celestial sphere as a HiPS tile pyramid. The Milky Way, the Large Magellanic Cloud, and the Small Magellanic Cloud are not drawn separately. The bright band, dark lanes, and cloud-like structures come from the real stellar density measured in those directions. The online Lite release reaches Norder 7, roughly 50 gigapixels, with a best resolution of about 3.22 arcseconds per pixel.</p>
 
     <div class="viewer-panel">
       <div class="viewer-bar">
-        <span class="vb-left"><span class="vb-led" aria-hidden="true"></span><span class="vb-id">GaiaMW1B</span> · ICRS / J2000 · ORDER 8</span>
-        <span class="vb-hint">Drag to pan · Scroll to zoom · Fainter stars appear as you zoom in</span>
+        <span class="vb-left"><span class="vb-led" aria-hidden="true"></span><span class="vb-id">Gaia DR3 Allsky Lite</span> · ICRS / J2000 · ORDER 7</span>
+        <span class="vb-hint">Drag to pan · Scroll to zoom · Fainter stars appear step by step</span>
       </div>
       <div id="aladin-lite-div"></div>
     </div>
 
     <div class="stats" aria-label="Survey Parameters">
-      <div class="stat"><strong>1.61″</strong><span>Best pixel angular resolution</span></div>
-      <div class="stat"><strong>Order 8 · NSIDE 256</strong><span>Highest tile order · JPEG 512×512</span></div>
-      <div class="stat"><strong>8286 deg² ≈ 20%</strong><span>Equatorial · ~20% sky coverage</span></div>
+      <div class="stat"><strong>1.06×10⁹</strong><span>measured stars · G ≤ 20</span></div>
+      <div class="stat"><strong>Norder 7</strong><span>HiPS order · ≈3.22″/px</span></div>
+      <div class="stat"><strong>~50 Gpx</strong><span>pixels · online Lite ~20 GB</span></div>
     </div>
 
     <footer>
-      <p>Stellar data from ESA Gaia mission. Color HiPS survey, constructed by Aladin / HipsGen, viewable in Aladin Lite, Aladin Desktop, and any HiPS-compatible client.</p>
+      <p>Stellar data from ESA / Gaia DR3. The online version is the Lite release (Norder 7, ~50 gigapixels, ~20 GB). A full-resolution local archive exists at Norder 8 (~200 billion pixels, ~1.61″/px best resolution, ~56 GB). The original Guangzhou sky-region version is preserved separately. This page uses the Aladin Lite HiPS viewer.</p>
       <div class="footer-links">
         <a href="properties">properties</a>
         <a href="Moc.fits">MOC coverage</a>
@@ -164,7 +161,6 @@
     </footer>
   </main>
 
-  <!-- Aladin Lite v2 survey wiring -->
   <script type="text/javascript" src="https://aladin.u-strasbg.fr/AladinLite/api/v2/latest/aladin.min.js" charset="utf-8"></script>
   <script type="text/javascript">
     hipsDir = location.href;
@@ -177,8 +173,8 @@
       cooFrame: 'J2000',
       fov: 90
     });
-    aladin.setImageSurvey(aladin.createImageSurvey('GaiaMW1B', 'GaiaMW1B',
-      hipsDir, 'equatorial', 8, { imgFormat: 'jpg' }));
+    aladin.setImageSurvey(aladin.createImageSurvey('GaiaAllskyLite', 'GaiaAllskyLite',
+      hipsDir, 'equatorial', 7, { imgFormat: 'jpg' }));
     aladin.gotoRaDec(270, -22);
     aladin.setFov(90);
   </script>

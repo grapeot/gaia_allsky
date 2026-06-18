@@ -95,12 +95,15 @@ def main():
              "creator_did=DuckBro", "obs_title=GaiaMW1B", "RGB"])
 
     # 4) 注入样式化落地页，覆盖 hipsgen 的简陋默认 index.html。文案唯一来源是
-    #    skills/hips_landing_page.html（要改落地页文字只改那一份，老/新两条 workflow
-    #    都从它注入，自动同步；见 skills/hips_1b_tile_generation.md step 3.5）。
+    #    skills/hips_landing_page*.html（见 skills/hips_1b_tile_generation.md step 3.5）。
     landing = os.path.join(ROOT, "skills", "hips_landing_page.html")
     if os.path.isfile(landing):
         shutil.copy(landing, os.path.join(args.out, "index.html"))
         print("落地页 index.html 已注入（来源 skills/hips_landing_page.html）", flush=True)
+    landing_en = os.path.join(ROOT, "skills", "hips_landing_page-en.html")
+    if os.path.isfile(landing_en):
+        shutil.copy(landing_en, os.path.join(args.out, "index-en.html"))
+        print("英文落地页 index-en.html 已注入（来源 skills/hips_landing_page-en.html）", flush=True)
 
     # 5) 重建高分辨率 Allsky（否则 zoom-out 糊，见 skills/hips_1b_tile_generation.md 顶部）
     try:

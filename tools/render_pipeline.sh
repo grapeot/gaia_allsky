@@ -60,6 +60,7 @@ if [ "$DO_HIPSGEN" = "1" ]; then
     creator_did=DuckBro obs_title=GaiaMW1B "target=271.672 -25.873" fading=true
   python src/rebuild_allsky_hires.py --hips "$HIPS"
   cp skills/hips_landing_page.html "$HIPS/index.html"
+  cp skills/hips_landing_page-en.html "$HIPS/index-en.html" 2>/dev/null || true
   echo "HIPS_DONE → $HIPS"
 else
   echo "（跳过 hipsgen——大规模时 rsync $TILES 到更强机器单独拼，见 skill 3.4）"
