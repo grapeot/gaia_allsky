@@ -434,12 +434,12 @@
     <section id="hires" class="section" aria-labelledby="hires-title">
       <div class="wrap">
         <div class="chapter"><span class="ch-no">04</span><span class="ch-rule" aria-hidden="true"></span><span class="ch-title">高清大图 / GIGAPIXEL</span></div>
-        <h2 class="display" id="hires-title">六亿颗星，<br />一张能一直放大的银河。</h2>
-        <p class="lead" style="margin-top:24px;max-width:78ch">前面那些图都用同一份六亿颗星的数据，只是改了光污染等级。这一区把暗空那张做到极致：同样六亿颗星，渲到四百亿像素级别，再切成可以无限放大的瓦片。星密到这个程度，银河的明暗肌理和尘埃暗带不再靠少数亮星勾勒，而是由海量暗星的疏密自己堆出来。</p>
+        <h2 class="display" id="hires-title">十亿颗星，<br />铺成一张全天星图。</h2>
+        <p class="lead" style="margin-top:24px;max-width:78ch">前面的 Bortle 对比和星际飞行，仍然使用广州天区那份约六亿颗星的数据。这一节换成一份独立的全天 HiPS 星图：从 Gaia DR3 里取全天 G≤20 的约 10.6 亿颗恒星，按真实位置和亮度投影到天球上。银河、大麦哲伦云和小麦哲伦云都没有单独绘制；它们之所以出现，是因为对应方向上本来就有 Gaia 测到的恒星密度结构。</p>
         <div class="hires-stage">
           <figure class="hires-frame portrait" style="margin:0">
             <img src="assets/fov_g20_4k.jpg" alt="广州天区 Gaia 全量恒星渲染的银河，暗带和尘埃肌理由六亿颗星的疏密堆出" />
-            <figcaption class="hires-label">PLATE · 广州天区 · 约 6.0×10⁸ 恒星 · G ≤ 20 — 此处展示压缩到 4K 的预览</figcaption>
+            <figcaption class="hires-label">PLATE · Gaia DR3 全天 · G ≤ 20 · 约 1.06×10⁹ 恒星 · 此处展示压缩到 4K 的预览</figcaption>
           </figure>
           <div class="hires-right">
             <figure class="hires-frame square" style="margin:0">
@@ -448,10 +448,10 @@
             </figure>
             <div class="hires-cta">
               <div>
-                <h3>想自己拖着放大看？</h3>
-                <p>完整分辨率有四百亿像素，没法塞进一张网页图里。渲染管线把它切成了一套分级巡天瓦片，挂在独立的浏览器里：拖动平移，滚轮缩放，越放大露出的暗星越多，跟天文学家用的 <code>Aladin</code> 是同一套格式。</p>
+                <h3>想自己拖着看完整天球？</h3>
+                <p>线上版本是 Norder 7 的 Lite 版，约 500 亿像素，最佳分辨率约 3.22 角秒每像素。渲染管线把全天星图切成 HiPS 瓦片，在独立浏览器里拖动平移、滚轮缩放，格式与天文学家使用的 <code>Aladin</code> 巡天浏览器一致。本地还保留 Norder 8 完整存档，约 2000 亿像素。</p>
               </div>
-              <a class="btn primary" data-yage-link href="https://yage.ai/gaia_milky_way/" rel="noopener" target="_blank">打开四百亿像素浏览器 ↗</a>
+              <a class="btn primary" data-yage-link href="https://yage.ai/gaia_milky_way/" rel="noopener" target="_blank">打开全天 HiPS 星图 ↗</a>
             </div>
           </div>
         </div>
@@ -570,7 +570,7 @@
       }).catch(() => {});
     })();
 
-    // 四百亿像素浏览器链接：URL 待上线后填入。未填时把 CTA 收起，避免空链接。
+    // 500 亿像素浏览器链接：URL 待上线后填入。未填时把 CTA 收起，避免空链接。
     document.querySelectorAll("[data-yage-link]").forEach((link) => {
       const href = link.getAttribute("href");
       if (!href || href === "#") {

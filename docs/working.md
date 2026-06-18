@@ -2,6 +2,12 @@
 
 ## Changelog
 
+### 2026-06-17（全天 Lite 发布文案与落地页模板拆分）
+
+`outputs/allsky_po_n7_lite/hips/` 作为线上 Lite 发布目录，最高 Norder7，约 500 亿像素，体积约 20GB；`outputs/allsky_po/hips/` 保留本地完整 Norder8 存档，约 2000 亿像素，体积约 56GB。默认落地页模板 `skills/hips_landing_page.html` / `skills/hips_landing_page-en.html` 改为全天 Lite 文案，说明银河、大麦哲伦云、小麦哲伦云均未单独绘制，而是来自 Gaia DR3 全天 G≤20 约 10.6 亿颗恒星的真实密度结构。旧广州银心版本另存为 `skills/hips_landing_page_guangzhou.html` / `skills/hips_landing_page_guangzhou-en.html`，供 archive 发布时手动覆盖。
+
+所有 HiPS 注入入口同步复制中英文落地页：`tools/render_per_order_pipeline.sh`、`tools/build_hips_pipeline.sh`、`tools/render_pipeline.sh` 和 `src/build_rgb_float_hips.py` 都会写 `index.html` 与 `index-en.html`。部署时上传 `outputs/allsky_po_n7_lite/hips/` 的内容即可，不上传源 TAN tiles 或 per-order 中间产物。
+
 ### 2026-06-16（hipsgen N7 INDEX 卡住：PNG 缺 sidecar WCS）
 
 全天 `allsky_po --hipsgen-only` 卡在 `Norder7 INDEX` 约一天。进程仍在刷新 log、单核满载，但 `o7/hips` 最近没有文件变化，`*.jpg` 为 0。`jcmd Thread.print` 显示主线程停在 `cds.hipsgen.BuilderIndex.scan -> Fits.loadHeaderFITS -> MyInputStream.fastExplorePNG -> RandomAccessFile.read`，说明它还在单线程扫描输入 PNG/header，未进入 `TILES`。`lsof` 定位到当前文件 `outputs/allsky_po/o7/tiles/tile_i0095_j0058_l174.07_b16.27.png`；统计发现 `o7/tiles` 共有 19503 个 PNG、19502 个 `.hhh`，唯一缺失 sidecar 的正是这个 PNG。

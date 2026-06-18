@@ -321,7 +321,7 @@
       <div class="prose">
         <p>Gaia 查询和渲染完全分开。生产路径不依赖 ADQL 实时查询，而是使用 Flatiron Institute 的 Gaia DR3 bulk mirror。当前广州银心视场下载了 2044 个原始 gzip 分片，压缩后约 412 GiB。原始分片保留在本地，之后按视场和星等过滤，只抽取渲染需要的列，生成 NPZ 缓存。</p>
         <img src="assets/pipeline_zh.png" alt="数据管线：Flatiron Gaia DR3 分片 → FOV+星等过滤 → NPZ 缓存 → Bortle网格/飞行视频/HiPS渲染" style="margin: 28px 0; border: 1px solid var(--line);" loading="lazy" />
-        <p>这条链路的意义在于，昂贵的数据获取只做一次。Flatiron 原始分片进入本地过滤，生成 G<20 的深星表缓存；渲染器读取 NPZ 后，可以反复用不同 Bortle 等级、不同显示参数、不同取景方式生成新图。Bortle 1 到 9 网格、消融序列、主图、飞行视频和高清预览，使用的是同一套数据缓存和同一套渲染机制，只是在观测几何、输出形态和显示参数上分叉。HiPS 和四百亿像素路径也是同一管线放大后的结果。</p>
+        <p>这条链路的意义在于，昂贵的数据获取只做一次。Flatiron 原始分片进入本地过滤，生成 G<20 的深星表缓存；渲染器读取 NPZ 后，可以反复用不同 Bortle 等级、不同显示参数、不同取景方式生成新图。Bortle 1 到 9 网格、消融序列、主图、飞行视频和高清预览，使用的是同一套数据缓存和同一套渲染机制，只是在观测几何、输出形态和显示参数上分叉。HiPS 高清路径也是同一管线放大后的结果。</p>
       </div>
     </section>
 
